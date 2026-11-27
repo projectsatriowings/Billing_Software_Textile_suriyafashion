@@ -39,6 +39,7 @@ import { registerExchanges } from './routes/exchanges.ts';
 import { registerDayClosing } from './routes/dayClosing.ts';
 import { registerReturnReports } from './routes/returnReports.ts';
 import { registerSupplierInvoices } from './routes/supplierInvoices.ts';
+import { registerInvoiceConverter } from './modules/invoice-converter/invoice.routes.ts';
 import { registerWholesaleCustomers } from './routes/wholesaleCustomers.ts';
 import { registerModuleManagement } from './routes/moduleManagement.ts';
 import { registerDeveloper } from './routes/developer.ts';
@@ -58,6 +59,7 @@ export function buildRouter(tokens: { secret: string; ttlSeconds: number }): Rou
   registerCategories(r);
   registerParties(r);
   registerCreditNotes(r);
+  registerInvoiceConverter(r);
   registerInvoices(r);
   registerPurchases(r);
   registerReports(r);

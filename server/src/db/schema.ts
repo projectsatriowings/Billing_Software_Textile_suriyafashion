@@ -2170,7 +2170,6 @@ export const MIGRATIONS: Migration[] = [
     ],
   },
   {
-  {
     version: 80,
     statements: [
       `ALTER TABLE items DROP COLUMN IF EXISTS brand`,
@@ -2325,6 +2324,10 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 86,
     statements: [
+=======
+    version: 80,
+    statements: [
+>>>>>>> origin/thalha
       `CREATE TABLE IF NOT EXISTS supplier_invoice_jobs (
         id TEXT PRIMARY KEY,
         tenant_id TEXT NOT NULL REFERENCES tenants(id),
@@ -2386,6 +2389,7 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_sup_inv_corr_sup ON supplier_invoice_corrections (tenant_id, supplier_id)`,
     ],
   },
+<<<<<<< HEAD
   {
     version: 87,
     statements: [
@@ -2500,8 +2504,6 @@ export const MIGRATIONS: Migration[] = [
       )`,
       `CREATE INDEX IF NOT EXISTS idx_supplier_replacements_tenant ON supplier_replacements (tenant_id, branch_id)`,
       `CREATE INDEX IF NOT EXISTS idx_supplier_replacements_return ON supplier_replacements (return_id)`,
-    ],
-  },
     ],
   },
 ];
