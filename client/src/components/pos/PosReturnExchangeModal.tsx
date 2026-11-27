@@ -1452,9 +1452,9 @@ export const PosReturnExchangeModal: React.FC<PosReturnExchangeModalProps> = ({
                                 background: '#ffffff',
                               }}
                             >
-                              <option value="resellable">Resellable (Restock to Shelf)</option>
-                              <option value="damaged">Damaged (Hold for Inspection)</option>
-                              <option value="defective">Defective (Defective Bin)</option>
+                              <option value="resellable">Resellable (Increases Stock)</option>
+                              <option value="damaged">Damaged (Sends to Damaged Stock)</option>
+                              <option value="defective">Defective (Sends to Defective Stock)</option>
                             </select>
                           </td>
                           <td style={{ padding: '0.65rem 0.75rem' }}>
@@ -1462,7 +1462,14 @@ export const PosReturnExchangeModal: React.FC<PosReturnExchangeModalProps> = ({
                               <select
                                 value={st.reason}
                                 disabled={!st.selected}
-                                onChange={(e) => updateLine(l.id, { reason: e.target.value })}
+                                onChange={(e) => {
+                                  const r = e.target.value;
+                                  const isDamaged = r === 'Damaged product' || r === 'Damaged';
+                                  updateLine(l.id, {
+                                    reason: r,
+                                    condition: isDamaged ? 'damaged' : st.condition,
+                                  });
+                                }}
                                 style={{
                                   padding: '3px 6px',
                                   borderRadius: '6px',

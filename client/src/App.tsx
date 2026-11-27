@@ -8182,10 +8182,14 @@ export function App() {
           return;
         }
 
+        const isDamagedReason = inp.reason === 'Damaged' || inp.reason === 'Damaged product' || inp.reason === 'Expired';
+        const isRestock = !isDamagedReason && (inp?.restock ?? true);
+
         linesPayload.push({
           origLineId: l.id,
           returnQtyMilli,
-          restock: inp?.restock ?? true,
+          restock: isRestock,
+          condition: isDamagedReason || !isRestock ? 'damaged' : 'resellable',
           reason: inp.reason,
           customReason: inp.customReason?.trim() || undefined,
         });

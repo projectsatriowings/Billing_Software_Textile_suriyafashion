@@ -129,9 +129,10 @@ export function registerExchanges(r: Router) {
           );
         }
 
-        const rawCond = String(rl.condition || 'resellable').toLowerCase().trim();
+        const isReasonDamaged = String(rl.reason || '').toLowerCase().includes('damaged') || String(rl.reason || '').toLowerCase().includes('defect');
+        const rawCond = String(rl.condition || (isReasonDamaged ? 'damaged' : 'resellable')).toLowerCase().trim();
         const condition: 'resellable' | 'damaged' | 'defective' =
-          rawCond === 'defective' ? 'defective' : rawCond === 'damaged' ? 'damaged' : 'resellable';
+          rawCond === 'defective' ? 'defective' : (rawCond === 'damaged' || isReasonDamaged || rl.restock === false) ? 'damaged' : 'resellable';
 
         preparedReturnLines.push({
           origLineId: origL.id,
@@ -335,23 +336,85 @@ export function registerExchanges(r: Router) {
         );
 
         if (cl.itemId) {
-          const moveLocation = cl.condition === 'damaged' ? 'DAMAGED' : cl.condition === 'defective' ? 'DEFECTIVE' : branchId;
-          await q.exec(
-            `INSERT INTO stock_moves (
-              id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, user_id, reason, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'return', 'exchange', ?, ?, ?, NOW())`,
-            [
-              newId('sm'),
-              tenantId,
-              branchId,
-              cl.itemId,
-              moveLocation,
-              cl.returnQtyMilli,
-              savedCnId,
-              ctx.user!.id,
-              `Exchange Return [${cl.condition}] - Ref: ${exchangeId}`,
-            ],
-          );
+          const isDamagedOrDefective = cl.condition === 'damaged' || cl.condition === 'defective' || !cl.restock;
+
+          if (!isDamagedOrDefective) {
+            // Resellable: Inward to sellable stock
+            await q.exec(
+              `INSERT INTO stock_moves (
+                id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, user_id, reason, created_at
+              ) VALUES (?, ?, ?, ?, 'MAIN', ?, 'return', 'exchange', ?, ?, ?, NOW())`,
+              [
+                newId('sm'),
+                tenantId,
+                branchId,
+                cl.itemId,
+                cl.returnQtyMilli,
+                savedCnId,
+                ctx.user!.id,
+                `Exchange Return [resellable] - Ref: ${exchangeId}`,
+              ],
+            );
+          } else {
+            // Damaged / Defective customer return via Exchange:
+            // AUTOMATICALLY insert into damaged_stock!
+            const seriesRow = await q.one<any>(
+              `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
+               VALUES (?, ?, 'DMG', 2)
+               ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
+               RETURNING (next_no - 1) AS assigned_no`,
+              [tenantId, branchId],
+            );
+            const dmgSeqNo = Number(seriesRow?.assignedNo ?? seriesRow?.assigned_no ?? 1);
+            const damageNumber = `DMG-${1000 + dmgSeqNo}`;
+            const damageId = newId('dmg');
+
+            const itemDetails = await q.one<any>(
+              `SELECT id, name, sku, barcode, category, unit, size, material, preferred_supplier_id 
+               FROM items WHERE id = ? AND tenant_id = ?`,
+              [cl.itemId, tenantId],
+            );
+
+            const classification = cl.condition === 'defective' ? 'DEFECTIVE' : 'DAMAGED';
+
+            await q.exec(
+              `INSERT INTO damaged_stock (
+                id, tenant_id, branch_id, damage_number, item_id, item_name,
+                category, sku, barcode, qty_milli, unit,
+                size, fabric_type, supplier_id,
+                damage_date, damage_reason, custom_reason, notes,
+                status, classification, reported_by, created_at, updated_at
+              ) VALUES (
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?,
+                CURRENT_DATE, ?, ?, ?,
+                ?, ?, ?, now(), now()
+              )`,
+              [
+                damageId,
+                tenantId,
+                branchId,
+                damageNumber,
+                cl.itemId,
+                itemDetails?.name || cl.name || 'Textile Product',
+                itemDetails?.category || null,
+                itemDetails?.sku || null,
+                itemDetails?.barcode || null,
+                cl.returnQtyMilli,
+                itemDetails?.unit || 'pcs',
+                itemDetails?.size || null,
+                itemDetails?.material || null,
+                itemDetails?.preferred_supplier_id || null,
+                cl.reason || 'Customer Exchange (Damaged)',
+                cl.remarks || null,
+                `Customer Return via Exchange ${exchangeId}`,
+                classification,
+                classification,
+                ctx.user!.id,
+              ],
+            );
+          }
         }
       }
 
