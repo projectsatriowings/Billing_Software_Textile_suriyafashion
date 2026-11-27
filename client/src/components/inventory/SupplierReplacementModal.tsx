@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Item, SupplierReturn, SupplierReturnLine } from '../../api.ts';
 import { createSupplierReplacement } from '../../api.ts';
 
@@ -35,6 +35,21 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
   const selectedLine = lines.find((l) => l.id === selectedLineId) || lines[0];
   const pendingUnits = selectedLine ? (selectedLine.pendingQtyMilli ?? selectedLine.pending_qty_milli ?? 0) / 1000 : 0;
   const [qty, setQty] = useState<string>(pendingUnits > 0 ? String(pendingUnits) : '1');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const lns = supplierReturn.lines || [];
+    const first = lns[0];
+    if (first) {
+      setSelectedLineId(first.id);
+      setReplacementItemId(first.itemId || first.item_id || '');
+      const pQty = (first.pendingQtyMilli ?? first.pending_qty_milli ?? 0) / 1000;
+      setQty(pQty > 0 ? String(pQty) : '1');
+    }
+    setCondition('GOOD');
+    setChallanNo('');
+    setNotes('');
+  }, [isOpen, supplierReturn]);
 
   if (!isOpen) return null;
 

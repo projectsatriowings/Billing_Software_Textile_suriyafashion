@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Party, DamagedStockItem } from '../../api.ts';
 import { createSupplierReturn } from '../../api.ts';
 
@@ -38,6 +38,33 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
   );
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (preselectedDamagedItem) {
+      setSelectedDamageId(preselectedDamagedItem.id);
+      const suppId =
+        preselectedDamagedItem.supplierId ||
+        preselectedDamagedItem.supplier_id ||
+        (suppliers.length === 1 ? suppliers[0].id : '');
+      setSupplierId(suppId);
+      const q = ((preselectedDamagedItem.qtyMilli ?? preselectedDamagedItem.qty_milli ?? 1000) / 1000);
+      setQty(String(q));
+      setReturnReason(
+        preselectedDamagedItem.damageReason ||
+        preselectedDamagedItem.damage_reason ||
+        'Defective textile goods'
+      );
+    } else {
+      setSelectedDamageId('');
+      setSupplierId(suppliers.length === 1 ? suppliers[0].id : '');
+      setQty('1');
+      setReturnReason('Defective textile goods');
+    }
+    setNotes('');
+    setReturnType('REPLACEMENT');
+  }, [isOpen, preselectedDamagedItem, suppliers]);
 
   if (!isOpen) return null;
 

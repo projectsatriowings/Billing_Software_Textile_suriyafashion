@@ -421,7 +421,8 @@ export function registerDamagedStock(r: Router): void {
       let totalItems = 0;
       let totalQtyMilli = 0;
 
-      // 3. Process lines
+      // 3. Process and validate all lines first
+      const processedLines: any[] = [];
       for (const l of lines) {
         const itemId = V.str(l.itemId || l.item_id, 'Item ID in line');
         const damagedStockId = V.optStr(l.damagedStockId || l.damaged_stock_id, 'Damaged Stock ID', 64);
@@ -453,44 +454,40 @@ export function registerDamagedStock(r: Router): void {
           if (['RESOLVED', 'SCRAPPED', 'SENT_TO_SUPPLIER'].includes(dmg.status)) {
             throw bad(`Damaged stock item is already in ${dmg.status} status.`);
           }
-          if (qtyMilli > Number(dmg.qty_milli)) {
+          const dmgQty = Number(dmg.qtyMilli ?? dmg.qty_milli ?? 0);
+          if (qtyMilli > dmgQty) {
             throw bad(`Return quantity cannot exceed damaged stock quantity.`);
           }
-          // Update damaged stock status to RETURN_PENDING
-          await q.exec(
-            `UPDATE damaged_stock SET status = 'RETURN_PENDING', updated_at = now() WHERE id = ?`,
-            [damagedStockId],
-          );
         }
 
         const lineId = newId('srl');
-        const unitCostMinor = Number(l.unitCostMinor ?? item.cost_minor ?? 0);
+        const unitCostMinor = Number(l.unitCostMinor ?? item.costMinor ?? item.cost_minor ?? 0);
 
-        await q.exec(
-          `INSERT INTO supplier_return_lines (
-            id, tenant_id, return_id, damaged_stock_id, item_id, item_name,
-            sku, barcode, qty_milli, unit, unit_cost_minor,
-            roll_no, batch_no, size, colour, design, fabric_type,
-            return_reason, replaced_qty_milli, pending_qty_milli, notes, created_at
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            ?, 0, ?, ?, ?
-          )`,
-          [
-            lineId, tenantId, returnId, damagedStockId || null, itemId, item.name,
-            item.sku || null, item.barcode || null, qtyMilli, l.unit || item.unit || 'pcs', unitCostMinor,
-            l.rollNo || null, l.batchNo || null, l.size || null, l.colour || null, l.design || null, l.fabricType || null,
-            returnReason, qtyMilli, l.notes || null, now,
-          ],
-        );
+        processedLines.push({
+          lineId,
+          damagedStockId: damagedStockId || null,
+          itemId,
+          itemName: item.name,
+          sku: item.sku || null,
+          barcode: item.barcode || null,
+          qtyMilli,
+          unit: l.unit || item.unit || 'pcs',
+          unitCostMinor,
+          rollNo: l.rollNo || null,
+          batchNo: l.batchNo || null,
+          size: l.size || null,
+          colour: l.colour || null,
+          design: l.design || null,
+          fabricType: l.fabricType || null,
+          returnReason,
+          notes: l.notes || null,
+        });
 
         totalItems += 1;
         totalQtyMilli += qtyMilli;
       }
 
-      // 4. Insert header record into supplier_returns
+      // 4. Insert parent header record into supplier_returns FIRST (satisfies foreign key)
       await q.exec(
         `INSERT INTO supplier_returns (
           id, tenant_id, branch_id, return_number, supplier_id, purchase_id,
@@ -507,6 +504,36 @@ export function registerDamagedStock(r: Router): void {
           notes || null, ctx.user!.id, ctx.user!.id, now, now,
         ],
       );
+
+      // 5. Insert child lines into supplier_return_lines and update damaged_stock status
+      for (const pl of processedLines) {
+        await q.exec(
+          `INSERT INTO supplier_return_lines (
+            id, tenant_id, return_id, damaged_stock_id, item_id, item_name,
+            sku, barcode, qty_milli, unit, unit_cost_minor,
+            roll_no, batch_no, size, colour, design, fabric_type,
+            return_reason, replaced_qty_milli, pending_qty_milli, notes, created_at
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?,
+            ?, 0, ?, ?, ?
+          )`,
+          [
+            pl.lineId, tenantId, returnId, pl.damagedStockId, pl.itemId, pl.itemName,
+            pl.sku, pl.barcode, pl.qtyMilli, pl.unit, pl.unitCostMinor,
+            pl.rollNo, pl.batchNo, pl.size, pl.colour, pl.design, pl.fabricType,
+            pl.returnReason, pl.qtyMilli, pl.notes, now,
+          ],
+        );
+
+        if (pl.damagedStockId) {
+          await q.exec(
+            `UPDATE damaged_stock SET status = 'RETURN_PENDING', updated_at = now() WHERE id = ? AND tenant_id = ?`,
+            [pl.damagedStockId, tenantId],
+          );
+        }
+      }
 
       // Audit log
       await audit(q, {
