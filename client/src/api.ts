@@ -3769,6 +3769,286 @@ export const getDeadStockReport = (days = 30) =>
 export const getPendingTailoringReport = () =>
   api<{ report: any[] }>(`/api/reports/tailoring/pending`);
 
+// ==========================================
+// DAMAGED & DEFECTIVE STOCK & SUPPLIER RETURNS
+// ==========================================
+
+export interface DamagedStockItem {
+  id: string;
+  tenant_id: string;
+  branch_id?: string;
+  damage_number: string;
+  item_id: string;
+  item_name: string;
+  category?: string;
+  sku?: string;
+  barcode?: string;
+  qty_milli: number;
+  unit: string;
+  roll_no?: string;
+  batch_no?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabric_type?: string;
+  purchase_id?: string;
+  supplier_id?: string;
+  supplier_name?: string;
+  original_purchase_number?: string;
+  damage_date: string;
+  damage_reason: string;
+  custom_reason?: string;
+  notes?: string;
+  photo_url?: string;
+  status: 'DAMAGED' | 'DEFECTIVE' | 'RETURN_PENDING' | 'SENT_TO_SUPPLIER' | 'REPLACEMENT_PENDING' | 'SCRAPPED' | 'RESOLVED';
+  classification: 'DAMAGED' | 'DEFECTIVE';
+  reporter_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DamagedStockStats {
+  damaged_count: number;
+  damaged_qty_milli: number;
+  defective_count: number;
+  defective_qty_milli: number;
+  return_pending_count: number;
+  return_pending_qty_milli: number;
+  sent_to_supplier_count: number;
+  sent_to_supplier_qty_milli: number;
+  replacement_pending_count: number;
+  replacement_pending_qty_milli: number;
+  scrapped_count: number;
+  scrapped_qty_milli: number;
+  resolved_count: number;
+  resolved_qty_milli: number;
+  total_records: number;
+}
+
+export interface SupplierReturnLine {
+  id: string;
+  return_id: string;
+  damaged_stock_id?: string;
+  item_id: string;
+  item_name: string;
+  sku?: string;
+  barcode?: string;
+  qty_milli: number;
+  unit: string;
+  unit_cost_minor: number;
+  roll_no?: string;
+  batch_no?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabric_type?: string;
+  return_reason: string;
+  replaced_qty_milli: number;
+  pending_qty_milli: number;
+  notes?: string;
+  created_at: string;
+}
+
+export interface SupplierReturn {
+  id: string;
+  tenant_id: string;
+  branch_id?: string;
+  return_number: string;
+  supplier_id: string;
+  supplier_name?: string;
+  supplier_gstin?: string;
+  supplier_phone?: string;
+  purchase_id?: string;
+  original_purchase_number?: string;
+  return_date: string;
+  dispatch_date?: string;
+  dispatch_ref?: string;
+  status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'READY_TO_DISPATCH' | 'SENT_TO_SUPPLIER' | 'PARTIALLY_REPLACED' | 'FULLY_REPLACED' | 'REFUND_PENDING' | 'CREDIT_NOTE_RECEIVED' | 'CLOSED' | 'REJECTED';
+  return_type: 'REPLACEMENT' | 'REFUND' | 'CREDIT_NOTE' | 'SCRAP';
+  total_items: number;
+  total_qty_milli: number;
+  notes?: string;
+  creator_name?: string;
+  created_at: string;
+  lines: SupplierReturnLine[];
+}
+
+export interface SupplierReplacement {
+  id: string;
+  tenant_id: string;
+  branch_id?: string;
+  replacement_number: string;
+  return_id: string;
+  return_line_id: string;
+  return_number?: string;
+  supplier_id: string;
+  supplier_name?: string;
+  challan_no?: string;
+  received_date: string;
+  original_item_id: string;
+  original_item_name?: string;
+  original_sku?: string;
+  replacement_item_id: string;
+  replacement_item_name?: string;
+  replacement_sku?: string;
+  qty_milli: number;
+  unit: string;
+  condition: 'GOOD' | 'DAMAGED' | 'DEFECTIVE' | 'SHORT_RECEIVED' | 'WRONG_PRODUCT';
+  batch_no?: string;
+  roll_no?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabric_type?: string;
+  notes?: string;
+  receiver_name?: string;
+  created_at: string;
+}
+
+export const fetchDamagedStock = (params?: {
+  status?: string;
+  classification?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  supplierId?: string;
+}) => {
+  const q = new URLSearchParams();
+  if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+  if (params?.classification && params.classification !== 'ALL') q.set('classification', params.classification);
+  if (params?.search) q.set('search', params.search);
+  if (params?.from) q.set('from', params.from);
+  if (params?.to) q.set('to', params.to);
+  if (params?.supplierId) q.set('supplierId', params.supplierId);
+  const qs = q.toString();
+  return api<{ damagedStock: DamagedStockItem[] }>(`/api/inventory/damaged-stock${qs ? `?${qs}` : ''}`);
+};
+
+export const fetchDamagedStockStats = () =>
+  api<{ stats: DamagedStockStats }>(`/api/inventory/damaged-stock/stats`);
+
+export const createDamagedStock = (data: {
+  itemId: string;
+  qtyMilli?: number;
+  qty?: number;
+  classification?: 'DAMAGED' | 'DEFECTIVE';
+  damageReason: string;
+  customReason?: string;
+  unit?: string;
+  rollNo?: string;
+  batchNo?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  purchaseId?: string;
+  supplierId?: string;
+  damageDate?: string;
+  notes?: string;
+  photoUrl?: string;
+}) =>
+  api<{ success: boolean; damagedStock: DamagedStockItem }>(`/api/inventory/damaged-stock`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const scrapDamagedStock = (id: string, reason?: string) =>
+  api<{ success: boolean; message: string }>(`/api/inventory/damaged-stock/${id}/scrap`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+
+export const fetchSupplierReturns = (params?: {
+  status?: string;
+  search?: string;
+  supplierId?: string;
+}) => {
+  const q = new URLSearchParams();
+  if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+  if (params?.search) q.set('search', params.search);
+  if (params?.supplierId) q.set('supplierId', params.supplierId);
+  const qs = q.toString();
+  return api<{ supplierReturns: SupplierReturn[] }>(`/api/inventory/supplier-returns${qs ? `?${qs}` : ''}`);
+};
+
+export const createSupplierReturn = (data: {
+  supplierId: string;
+  purchaseId?: string;
+  returnType?: 'REPLACEMENT' | 'REFUND' | 'CREDIT_NOTE' | 'SCRAP';
+  returnDate?: string;
+  notes?: string;
+  lines: Array<{
+    damagedStockId?: string;
+    itemId: string;
+    qtyMilli?: number;
+    qty?: number;
+    unit?: string;
+    rollNo?: string;
+    batchNo?: string;
+    size?: string;
+    colour?: string;
+    design?: string;
+    fabricType?: string;
+    returnReason: string;
+    unitCostMinor?: number;
+    notes?: string;
+  }>;
+}) =>
+  api<{ success: boolean; supplierReturn: SupplierReturn }>(`/api/inventory/supplier-returns`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const dispatchSupplierReturn = (
+  id: string,
+  data: { dispatchDate?: string; dispatchRef: string; notes?: string },
+) =>
+  api<{ success: boolean; message: string }>(`/api/inventory/supplier-returns/${id}/dispatch`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const rejectSupplierReturn = (id: string, reason?: string) =>
+  api<{ success: boolean; message: string }>(`/api/inventory/supplier-returns/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+
+export const fetchSupplierReplacements = (params?: { returnId?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.returnId) q.set('returnId', params.returnId);
+  if (params?.search) q.set('search', params.search);
+  const qs = q.toString();
+  return api<{ supplierReplacements: SupplierReplacement[] }>(`/api/inventory/supplier-replacements${qs ? `?${qs}` : ''}`);
+};
+
+export const createSupplierReplacement = (data: {
+  returnId: string;
+  returnLineId: string;
+  replacementItemId?: string;
+  qtyMilli?: number;
+  qty?: number;
+  unit?: string;
+  condition?: 'GOOD' | 'DAMAGED' | 'DEFECTIVE' | 'SHORT_RECEIVED' | 'WRONG_PRODUCT';
+  challanNo?: string;
+  receivedDate?: string;
+  batchNo?: string;
+  rollNo?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  notes?: string;
+}) =>
+  api<{ success: boolean; supplierReplacement: SupplierReplacement; nextReturnStatus: string }>(
+    `/api/inventory/supplier-replacements`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  );
+
+
 
 
 

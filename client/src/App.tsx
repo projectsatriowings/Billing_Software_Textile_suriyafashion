@@ -183,6 +183,9 @@ import {
   LogOut,
   Menu,
   Monitor,
+  AlertTriangle,
+  RotateCcw,
+  Repeat,
 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { PrintBarcodeModal } from './components/PrintBarcodeModal';
@@ -1112,7 +1115,7 @@ export function App() {
   ].includes(activeTab);
 
   const [isInventoryOpen, setIsInventoryOpen] = useState<boolean>(() => isInventoryTabActive);
-  const [inventoryInitialTab, setInventoryInitialTab] = useState<'overview' | 'ledger' | 'counts' | 'replenish' | 'insights'>('overview');
+  const [inventoryInitialTab, setInventoryInitialTab] = useState<'overview' | 'ledger' | 'counts' | 'replenish' | 'insights' | 'damaged' | 'returns' | 'replacements'>('overview');
 
   // Auto-expand Inventory Hub when entering an inventory submodule from outside
   const prevInventoryTabActiveRef = useRef(isInventoryTabActive);
@@ -9529,6 +9532,48 @@ export function App() {
                           <span className="nav-text">Stock Report</span>
                         </button>
                       )}
+                      <button
+                        type="button"
+                        className={`sidebar-nav-item ${activeTab === 'inventory' && inventoryInitialTab === 'damaged' ? 'active' : ''}`}
+                        onClick={() => {
+                          setInventoryInitialTab('damaged');
+                          setActiveTab('inventory');
+                        }}
+                        title="Damaged & Defective Stock"
+                      >
+                        <span className="nav-icon">
+                          <AlertTriangle size={16} strokeWidth={2.2} />
+                        </span>
+                        <span className="nav-text">Damaged Stock</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`sidebar-nav-item ${activeTab === 'inventory' && inventoryInitialTab === 'returns' ? 'active' : ''}`}
+                        onClick={() => {
+                          setInventoryInitialTab('returns');
+                          setActiveTab('inventory');
+                        }}
+                        title="Supplier Returns"
+                      >
+                        <span className="nav-icon">
+                          <RotateCcw size={16} strokeWidth={2.2} />
+                        </span>
+                        <span className="nav-text">Supplier Returns</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`sidebar-nav-item ${activeTab === 'inventory' && inventoryInitialTab === 'replacements' ? 'active' : ''}`}
+                        onClick={() => {
+                          setInventoryInitialTab('replacements');
+                          setActiveTab('inventory');
+                        }}
+                        title="Supplier Replacements"
+                      >
+                        <span className="nav-icon">
+                          <Repeat size={16} strokeWidth={2.2} />
+                        </span>
+                        <span className="nav-text">Supplier Replacements</span>
+                      </button>
                     </div>
                   )}
                 </>
