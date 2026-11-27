@@ -4,7 +4,7 @@ set -e
 echo "🚀 [Deploy] Pulling latest changes from main..."
 git pull origin main
 
-echo "📦 [Deploy] Building client bundle..."
+echo " [Deploy] Building client bundle..."
 npm run build
 
 echo "🔄 [Deploy] Reloading PM2 process..."

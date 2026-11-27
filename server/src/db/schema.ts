@@ -2321,4 +2321,52 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS items_purchase_date_idx ON items (tenant_id, purchase_date)`,
     ],
   },
+  {
+    version: 86,
+    statements: [
+      `ALTER TABLE variants ADD COLUMN IF NOT EXISTS offer_percentage NUMERIC(5,2) DEFAULT 0`,
+      `ALTER TABLE variants ADD COLUMN IF NOT EXISTS purchase_date TEXT DEFAULT NULL`,
+      `ALTER TABLE variants ADD COLUMN IF NOT EXISTS uom TEXT DEFAULT 'pcs'`,
+      `ALTER TABLE stock_moves ADD COLUMN IF NOT EXISTS variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL`,
+      `CREATE INDEX IF NOT EXISTS stock_moves_variant_idx ON stock_moves (tenant_id, variant_id)`,
+      `ALTER TABLE purchase_lines ADD COLUMN IF NOT EXISTS variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL`,
+      `CREATE OR REPLACE VIEW item_variants AS SELECT * FROM variants`,
+      `INSERT INTO variants (id, tenant_id, product_id, size, colour, sku, barcode, cost_minor, price_minor, mrp_minor, stock_milli, active)
+       SELECT
+         'var_' || substr(md5(random()::text || clock_timestamp()::text || i.id), 1, 16),
+         i.tenant_id,
+         i.id,
+         COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size'),
+         'No Colour',
+         i.sku,
+         i.barcode,
+         COALESCE(i.cost_minor, 0),
+         COALESCE(i.price_minor, 0),
+         COALESCE(i.mrp_minor, i.price_minor, 0),
+         COALESCE((SELECT SUM(sm.qty_milli) FROM stock_moves sm WHERE sm.item_id = i.id AND sm.tenant_id = i.tenant_id), 0),
+         COALESCE(i.active, true)
+       FROM items i
+       WHERE NOT EXISTS (SELECT 1 FROM variants v WHERE v.product_id = i.id AND v.tenant_id = i.tenant_id)`,
+    ],
+  },
+  {
+    version: 87,
+    statements: [
+      `CREATE UNIQUE INDEX IF NOT EXISTS variants_unique_combination_idx ON variants (tenant_id, product_id, lower(trim(coalesce(size, ''))), lower(trim(coalesce(colour, ''))))`,
+    ],
+  },
+  {
+    version: 88,
+    statements: [
+      `ALTER TABLE items ADD COLUMN IF NOT EXISTS purchase_date TEXT DEFAULT NULL`,
+      `CREATE INDEX IF NOT EXISTS items_purchase_date_idx ON items (tenant_id, purchase_date)`,
+      `ALTER TABLE variants ADD COLUMN IF NOT EXISTS offer_percentage NUMERIC(5,2) DEFAULT 0`,
+      `ALTER TABLE variants ADD COLUMN IF NOT EXISTS purchase_date TEXT DEFAULT NULL`,
+      `ALTER TABLE variants ADD COLUMN IF NOT EXISTS uom TEXT DEFAULT 'pcs'`,
+      `ALTER TABLE stock_moves ADD COLUMN IF NOT EXISTS variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL`,
+      `CREATE INDEX IF NOT EXISTS stock_moves_variant_idx ON stock_moves (tenant_id, variant_id)`,
+      `ALTER TABLE purchase_lines ADD COLUMN IF NOT EXISTS variant_id TEXT REFERENCES variants(id) ON DELETE SET NULL`,
+      `CREATE OR REPLACE VIEW item_variants AS SELECT * FROM variants`,
+    ],
+  },
 ];
