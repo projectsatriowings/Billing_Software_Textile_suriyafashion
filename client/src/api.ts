@@ -3290,6 +3290,194 @@ export const exportSupplierInvoiceExcel = async (payload: {
   return resBlob;
 };
 
+// ── Intelligent Invoice Processing Pipeline API ───────────────────────────────
+export type InvoiceReviewStatus =
+  | 'verified'
+  | 'needs_review'
+  | 'missing_information'
+  | 'calculation_mismatch'
+  | 'duplicate_product'
+  | 'new_catalog_item';
+
+export interface InvoiceBoundingBox {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  unit: 'normalized' | 'px';
+}
+
+export interface InvoiceProductMatchCandidate {
+  itemId: string;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  hsn: string | null;
+  unit: string | null;
+  sellingPriceMinor: number;
+  costPriceMinor: number;
+  similarityScore: number;
+  matchReason: string;
+}
+
+export interface IntelligentInvoiceItem extends ExtractedSupplierInvoiceItem {
+  rowOrder?: number;
+  brand?: string | null;
+  description?: string | null;
+  variant?: string | null;
+  sizeWeightVolume?: string | null;
+  quantity?: number | null;
+  boxCartonQty?: number | null;
+  piecesPerBox?: number | null;
+  unitPurchaseRate?: number | null;
+  lineItemAmount?: number | null;
+  discountAmount?: number | null;
+  gstPercentage?: number | null;
+  gstAmount?: number | null;
+  isDittoInherited?: boolean;
+  originalOcrText?: string | null;
+  sourcePage?: number;
+  sourceBbox?: InvoiceBoundingBox | null;
+  fieldConfidence?: Record<string, { score: number | null; status: 'scored' | 'unknown' }>;
+  reviewStatus?: InvoiceReviewStatus;
+  warningMessages?: string[];
+  validationErrors?: string[];
+  matchType?: 'exact_match' | 'potential_match' | 'ambiguous_match' | 'new_product';
+  matchedItemId?: string | null;
+  matchedItemName?: string | null;
+  matchCandidates?: InvoiceProductMatchCandidate[];
+  userApproved?: boolean;
+}
+
+export interface IntelligentInvoiceHeader {
+  supplierName: string | null;
+  supplierGstin: string | null;
+  supplierAddress: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  purchaseOrderNumber: string | null;
+  deliveryOrLrNumber: string | null;
+  billingAddress: string | null;
+  shippingAddress: string | null;
+  subtotal: number | null;
+  discount: number | null;
+  sgst: number | null;
+  cgst: number | null;
+  igst: number | null;
+  otherCharges: number | null;
+  roundOff: number | null;
+  finalInvoiceAmount: number | null;
+}
+
+export interface IntelligentReconciliationReport {
+  invoiceSubtotal: number | null;
+  extractedLineSum: number;
+  subtotalDifference: number | null;
+  invoiceTaxTotal: number | null;
+  extractedTaxSum: number;
+  taxDifference: number | null;
+  invoiceGrandTotal: number | null;
+  computedGrandTotal: number;
+  grandTotalDifference: number | null;
+  isReconciled: boolean;
+  discrepancyMessages: string[];
+}
+
+export interface IntelligentInvoiceSummary {
+  totalPagesProcessed: number;
+  totalProductRows: number;
+  verifiedProducts: number;
+  productsRequiringReview: number;
+  missingMandatoryFields: number;
+  extractionCompletenessPct: number;
+  invoiceTotal: number | null;
+  extractedLineItemTotal: number;
+  reconciliationDifference: number | null;
+}
+
+export interface InvoiceProcessingCapabilities {
+  localPreprocessing: boolean;
+  localOcrEngine: string;
+  cloudOcrProvider: 'google-document-ai' | 'none';
+  cloudOcrConfigured: boolean;
+  aiProvider: 'gemini-vision' | 'none';
+  aiConfigured: boolean;
+}
+
+export const getInvoiceCapabilities = () =>
+  api<{ ok: boolean; capabilities: InvoiceProcessingCapabilities }>('/api/invoices/capabilities');
+
+export const uploadInvoiceDocument = (payload: {
+  fileName: string;
+  fileData: string;
+  mimeType?: string;
+  supplierId?: string;
+}) =>
+  api<{
+    ok: boolean;
+    jobId: string;
+    fileName: string;
+    mimeType: string;
+    fileSizeBytes: number;
+    appliedPreprocessing: string[];
+    capabilities: InvoiceProcessingCapabilities;
+  }>('/api/invoices/upload', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const extractInvoiceJob = (
+  jobId: string,
+  payload?: { supplierId?: string; fileData?: string; fileName?: string; mimeType?: string }
+) =>
+  api<{
+    ok: boolean;
+    jobId: string;
+    capabilities: InvoiceProcessingCapabilities;
+    appliedPreprocessing: string[];
+    ocrProvider: string;
+    aiProvider: string;
+    warnings: string[];
+    header: IntelligentInvoiceHeader;
+    items: IntelligentInvoiceItem[];
+    issues: Array<{ code: string; severity: string; rowId?: string; rowOrder?: number; message: string }>;
+    reconciliation: IntelligentReconciliationReport;
+    summary: IntelligentInvoiceSummary;
+    headers: string[];
+    columnMap: Record<string, string | undefined>;
+  }>(`/api/invoices/${encodeURIComponent(jobId)}/extract`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+
+export const updateInvoiceJobItems = (jobId: string, items: IntelligentInvoiceItem[]) =>
+  api<{
+    ok: boolean;
+    items: IntelligentInvoiceItem[];
+    issues: Array<{ code: string; severity: string; rowId?: string; rowOrder?: number; message: string }>;
+    reconciliation: IntelligentReconciliationReport;
+    summary: IntelligentInvoiceSummary;
+  }>(`/api/invoices/${encodeURIComponent(jobId)}/items`, {
+    method: 'PUT',
+    body: JSON.stringify({ items }),
+  });
+
+export const importInvoiceJobToInventory = (
+  jobId: string,
+  payload: { items: IntelligentInvoiceItem[]; supplierId?: string | null }
+) =>
+  api<{ ok: boolean; created: number; restocked: number; importedIds: string[] }>(
+    `/api/invoices/${encodeURIComponent(jobId)}/import`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+
+export const fetchSupplierInvoiceHistory = () =>
+  api<{ ok: boolean; jobs: any[] }>('/api/supplier-invoices/history');
+
 export const fetchWholesaleCustomers = (params?: { search?: string; includeInactive?: boolean }) => {
   const q = new URLSearchParams();
   if (params?.search) q.set('search', params.search);
