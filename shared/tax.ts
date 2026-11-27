@@ -195,3 +195,33 @@ export function validateGstin(g: string): { ok: boolean; reason?: string } {
   }
   return { ok: true };
 }
+
+/**
+ * Slab-based GST for textile retail:
+ * - 5% up to Rs. 2,500/piece (250000 paise), 18% above, resolved on the billed price after discount
+ * - Tailoring & cutting charges: 5% (SAC 9988)
+ * - Returns 0 bp when gstEnabled is false
+ */
+export function resolveTextileTaxRate(opts: {
+  gstEnabled: boolean;
+  billedPricePerPieceMinor: number;
+  lineType?: 'item' | 'cutting_charge' | 'tailoring';
+  overrideTaxRateBp?: number | null;
+}): { taxRateBp: number; hsnSac: string; isOverridden: boolean } {
+  if (!opts.gstEnabled) {
+    return { taxRateBp: 0, hsnSac: '', isOverridden: false };
+  }
+  if (opts.overrideTaxRateBp != null) {
+    return {
+      taxRateBp: opts.overrideTaxRateBp,
+      hsnSac: opts.lineType === 'cutting_charge' || opts.lineType === 'tailoring' ? '9988' : '6204',
+      isOverridden: true,
+    };
+  }
+  if (opts.lineType === 'cutting_charge' || opts.lineType === 'tailoring') {
+    return { taxRateBp: 500, hsnSac: '9988', isOverridden: false };
+  }
+  const rateBp = opts.billedPricePerPieceMinor <= 250000 ? 500 : 1800;
+  return { taxRateBp: rateBp, hsnSac: '6204', isOverridden: false };
+}
+

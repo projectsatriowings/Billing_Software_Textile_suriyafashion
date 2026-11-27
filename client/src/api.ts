@@ -342,6 +342,7 @@ export interface Shop {
   wholesaleBusinessName?: string | null;
   legalName?: string | null;
   businessType: string;
+  gstEnabled?: boolean;
   gstin?: string;
   phone?: string;
   address?: string;
@@ -386,7 +387,19 @@ export interface Item {
   hsn?: string;
   unit: string;
   category?: string;
+  categoryId?: string | null;
+  categoryName?: string | null;
+  subcategoryId?: string | null;
+  subcategoryName?: string | null;
+  itemType?: 'simple' | 'variant';
+  productType?: 'Retail' | 'Wholesale' | string;
+  size?: string | null;
+  material?: string | null;
+  designPattern?: string | null;
+  description?: string | null;
   priceMinor: number;
+  mrpMinor?: number | null;
+  offerPercentage?: number | null;
   wholesalePriceMinor?: number | null;
   minWholesaleQtyMilli?: number | null;
   costMinor: number;
@@ -402,6 +415,10 @@ export interface Item {
   preferredSupplierPhone?: string | null;
   stockStatus?: 'in_stock' | 'low_stock' | 'out_of_stock';
   stockValueMinor?: number | null;
+  purchaseDate?: string | null;
+  importedDate?: string | null;
+  restockedDate?: string | null;
+  parentProductId?: string | null;
 
   favorite: boolean;
   active?: boolean;
@@ -1501,6 +1518,13 @@ export interface BulkImportRow {
   unit?: string | null;
   categoryId?: string | null;
   category?: string | null;
+  subcategoryId?: string | null;
+  subcategory?: string | null;
+  productType?: 'Retail' | 'Wholesale' | string | null;
+  size?: string | null;
+  material?: string | null;
+  designPattern?: string | null;
+  description?: string | null;
   barcodeType?: 'INTERNAL' | 'MANUFACTURER' | null;
   additionalBarcodes?: (string | AdditionalBarcode)[] | null;
   productNature?: 'BRANDED' | 'SHOP_PRODUCT' | null;
@@ -1509,6 +1533,10 @@ export interface BulkImportRow {
   priceMinor: number;
   /** Cost price in paise (integer). */
   costMinor?: number | null;
+  /** MRP in paise (integer). */
+  mrpMinor?: number | null;
+  /** Offer / discount percentage (0 to 100). */
+  offerPercentage?: number | null;
   /** GST tax rate in basis points (e.g. 500 = 5%). */
   taxRateBp?: number | null;
   /** Whether selling price already includes GST. */
@@ -1517,6 +1545,10 @@ export interface BulkImportRow {
   openingQtyMilli?: number | null;
   /** Reorder level in milli-units (e.g. 20000 = 20 units). */
   reorderMilli?: number | null;
+  supplierId?: string | null;
+  supplier?: string | null;
+  parentProductId?: string | null;
+  purchaseDate?: string | null;
   /** Whether this row is an identified restock of an existing product */
   isRestock?: boolean;
   /** The existing product ID being restocked */
@@ -3387,6 +3419,168 @@ export async function checkDeveloperStatus(): Promise<boolean> {
     return false;
   }
 }
+
+// --------------------------------------------------------------------------
+// Textile & Apparel Specific: Variants, Measurements, Tailoring, Job Works
+// --------------------------------------------------------------------------
+
+export interface ProductVariant {
+  id: string;
+  tenantId?: string;
+  productId: string;
+  size?: string | null;
+  colour?: string | null;
+  pattern?: string | null;
+  sku?: string | null;
+  barcode?: string | null;
+  priceMinor: number;
+  mrpMinor?: number | null;
+  costMinor: number;
+  stockMilli: number;
+  reorderLevelMilli?: number;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CustomerMeasurement {
+  id: string;
+  tenantId?: string;
+  customerId?: string | null;
+  customerName: string;
+  customerPhone?: string | null;
+  chest?: number | null;
+  waist?: number | null;
+  shoulder?: number | null;
+  sleeve?: number | null;
+  length?: number | null;
+  neck?: number | null;
+  hip?: number | null;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TailoringOrder {
+  id: string;
+  tenantId?: string;
+  branchId?: string | null;
+  orderNumber: string;
+  customerId?: string | null;
+  customerName: string;
+  customerPhone?: string | null;
+  measurementId?: string | null;
+  serviceType: string;
+  description?: string | null;
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'ready' | 'delivered' | 'cancelled';
+  totalMinor: number;
+  advancePaidMinor: number;
+  balanceMinor: number;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface JobWork {
+  id: string;
+  tenantId?: string;
+  branchId?: string | null;
+  jobNumber: string;
+  workerName: string;
+  workerPhone?: string | null;
+  kind: string;
+  issueDate: string;
+  dueDate?: string | null;
+  status: 'issued' | 'in_progress' | 'completed' | 'cancelled';
+  fabricIssuedMeters?: number;
+  wastagePct?: number;
+  piecesExpected?: number;
+  piecesReceived?: number;
+  costPerPieceMinor?: number;
+  totalCostMinor?: number;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const getItemVariants = (productId: string) =>
+  api<{ variants: ProductVariant[] }>(`/api/items/${productId}/variants`);
+
+export const saveItemVariants = (productId: string, variants: Partial<ProductVariant>[]) =>
+  api<{ variants: ProductVariant[] }>(`/api/items/${productId}/variants`, {
+    method: 'POST',
+    body: JSON.stringify({ variants }),
+  });
+
+export const updateVariant = (variantId: string, data: Partial<ProductVariant>) =>
+  api<{ variant: ProductVariant }>(`/api/variants/${variantId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+
+export const deleteVariant = (variantId: string) =>
+  api<{ ok: boolean }>(`/api/variants/${variantId}`, {
+    method: 'DELETE',
+  });
+
+export const getCustomerMeasurements = (query: string) =>
+  api<{ measurements: CustomerMeasurement[] }>(`/api/measurements?q=${encodeURIComponent(query)}`);
+
+export const saveCustomerMeasurement = (data: Partial<CustomerMeasurement>) =>
+  api<{ measurement: CustomerMeasurement }>(`/api/measurements`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const getTailoringOrders = (params?: { status?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  if (params?.search) q.set('q', params.search);
+  const qs = q.toString();
+  return api<{ orders: TailoringOrder[] }>(`/api/tailoring-orders${qs ? `?${qs}` : ''}`);
+};
+
+export const createTailoringOrder = (data: Partial<TailoringOrder>) =>
+  api<{ order: TailoringOrder }>(`/api/tailoring-orders`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const updateTailoringOrder = (id: string, data: Partial<TailoringOrder>) =>
+  api<{ order: TailoringOrder }>(`/api/tailoring-orders/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+
+export const getJobWorks = (params?: { status?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.status) q.set('status', params.status);
+  const qs = q.toString();
+  return api<{ jobWorks: JobWork[] }>(`/api/job-works${qs ? `?${qs}` : ''}`);
+};
+
+export const createJobWork = (data: Partial<JobWork>) =>
+  api<{ jobWork: JobWork }>(`/api/job-works`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const updateJobWork = (id: string, data: Partial<JobWork>) =>
+  api<{ jobWork: JobWork }>(`/api/job-works/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+
+export const getVariantSalesStockReport = () =>
+  api<{ report: any[] }>(`/api/reports/variants/sales-stock`);
+
+export const getDeadStockReport = (days = 30) =>
+  api<{ report: any[] }>(`/api/reports/variants/dead-stock?days=${days}`);
+
+export const getPendingTailoringReport = () =>
+  api<{ report: any[] }>(`/api/reports/tailoring/pending`);
+
 
 
 
