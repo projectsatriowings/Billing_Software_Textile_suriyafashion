@@ -9867,7 +9867,7 @@ export function App() {
                 </button>
               )}
 
-              {(user.role === 'owner' || user.role === 'admin' || String(user.role).toUpperCase() === 'SUPER_ADMIN') && branches.length > 0 && (
+              {(user.role === 'owner' || user.role === 'admin' || String(user.role).toUpperCase() === 'SUPER_ADMIN') && branches.length > 1 && (
                 <BranchSelector
                   branches={branches}
                   selectedBranch={selectedBranchScope}
