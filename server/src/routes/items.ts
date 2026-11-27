@@ -66,15 +66,28 @@ function formatItem(r: any) {
     hsn: r.hsn ?? null,
     unit: r.unit,
     category: r.category ?? null,
+    categoryId: r.categoryId ?? r.category_id ?? null,
+    categoryName: r.categoryName ?? r.category_name ?? r.category ?? null,
+    subcategoryId: r.subcategoryId ?? r.subcategory_id ?? null,
+    subcategoryName: r.subcategoryName ?? r.subcategory_name ?? null,
+    itemType: (r.itemType ?? r.item_type ?? 'simple') as 'simple' | 'variant',
+    productType: (r.productType ?? r.product_type ?? 'retail').toString().toLowerCase() === 'wholesale' ? 'Wholesale' : 'Retail',
+    size: r.size ?? null,
+    material: r.material ?? null,
+    designPattern: r.designPattern ?? r.design_pattern ?? null,
+    description: r.description ?? null,
     priceMinor: Number(r.priceMinor ?? r.price_minor ?? 0),
     wholesalePriceMinor: (r.wholesalePriceMinor != null || r.wholesale_price_minor != null) ? Number(r.wholesalePriceMinor ?? r.wholesale_price_minor) : null,
     minWholesaleQtyMilli: (r.minWholesaleQtyMilli != null || r.min_wholesale_qty_milli != null) ? Number(r.minWholesaleQtyMilli ?? r.min_wholesale_qty_milli) : null,
     costMinor: Number(r.costMinor ?? r.cost_minor ?? 0),
+    mrpMinor: Number(r.mrpMinor ?? r.mrp_minor ?? r.priceMinor ?? r.price_minor ?? 0),
+    offerPercentage: Number(r.offerPercentage ?? r.offer_percentage ?? 0),
     taxRateBp: Number(r.taxRateBp ?? r.tax_rate_bp ?? 0),
     taxInclusive: Boolean(r.taxInclusive ?? r.tax_inclusive),
     trackStock,
     reorderMilli: Number(r.reorderMilli ?? r.reorder_milli ?? 0),
     preferredSupplierId: r.preferredSupplierId ?? r.preferred_supplier_id ?? null,
+    preferredSupplierName: r.supplierName ?? r.supplier_name ?? r.preferredSupplierName ?? null,
     favorite: Boolean(r.favorite),
     imageUrl: r.imageUrl ?? r.image_url ?? (typeof r.custom === 'object' && r.custom?.image ? r.custom.image : null),
     image: r.imageUrl ?? r.image_url ?? (typeof r.custom === 'object' && r.custom?.image ? r.custom.image : null),
@@ -82,6 +95,10 @@ function formatItem(r: any) {
     currentStockMilli,
     active,
     deactivationReason,
+    purchaseDate: r.purchaseDate ?? r.purchase_date ?? null,
+    importedDate: r.importedDate ?? r.imported_date ?? r.createdAt ?? r.created_at ?? null,
+    restockedDate: r.restockedDate ?? r.restocked_date ?? null,
+    parentProductId: r.parentProductId ?? r.parent_product_id ?? null,
     createdAt: r.createdAt ?? r.created_at,
     updatedAt: r.updatedAt ?? r.updated_at,
   };
@@ -132,12 +149,19 @@ export function registerItems(r: Router) {
       )) ?? { id: scope.branchId, name: 'Branch', code: scope.branchId };
     }
 
+    const categoryId = (ctx.query.categoryId ?? '').trim();
+    const subcategoryId = (ctx.query.subcategoryId ?? '').trim();
+    const productType = (ctx.query.productType ?? '').trim().toLowerCase();
+
     let sql: string;
     const params: unknown[] = [];
 
     if (targetBranch) {
       sql = `
         SELECT i.*,
+               c_main.name AS category_name,
+               c_sub.name AS subcategory_name,
+               p_sup.name AS supplier_name,
                ? AS branch_id,
                ? AS branch_name,
                ? AS branch_code,
@@ -164,6 +188,9 @@ export function registerItems(r: Router) {
                    )
                ), 0) AS current_stock_milli
         FROM items i
+        LEFT JOIN categories c_main ON c_main.id = i.category_id AND c_main.tenant_id = i.tenant_id
+        LEFT JOIN categories c_sub ON c_sub.id = i.subcategory_id AND c_sub.tenant_id = i.tenant_id
+        LEFT JOIN parties p_sup ON p_sup.id = i.preferred_supplier_id AND p_sup.tenant_id = i.tenant_id
         WHERE i.tenant_id = ?
       `;
       params.push(
@@ -179,6 +206,9 @@ export function registerItems(r: Router) {
     } else {
       sql = `
         SELECT i.*,
+               c_main.name AS category_name,
+               c_sub.name AS subcategory_name,
+               p_sup.name AS supplier_name,
                b.name AS branch_name,
                b.code AS branch_code,
                COALESCE((
@@ -199,6 +229,9 @@ export function registerItems(r: Router) {
                ), 0) AS current_stock_milli
         FROM items i
         LEFT JOIN branches b ON b.id = i.branch_id AND b.tenant_id = i.tenant_id
+        LEFT JOIN categories c_main ON c_main.id = i.category_id AND c_main.tenant_id = i.tenant_id
+        LEFT JOIN categories c_sub ON c_sub.id = i.subcategory_id AND c_sub.tenant_id = i.tenant_id
+        LEFT JOIN parties p_sup ON p_sup.id = i.preferred_supplier_id AND p_sup.tenant_id = i.tenant_id
         WHERE i.tenant_id = ?
       `;
       params.push(tenantId);
@@ -239,6 +272,11 @@ export function registerItems(r: Router) {
           lower(i.name) LIKE ?
           OR lower(COALESCE(i.sku, '')) LIKE ?
           OR lower(COALESCE(i.barcode, '')) LIKE ?
+          OR lower(COALESCE(i.material, '')) LIKE ?
+          OR lower(COALESCE(i.design_pattern, '')) LIKE ?
+          OR lower(COALESCE(i.description, '')) LIKE ?
+          OR lower(COALESCE(c_main.name, '')) LIKE ?
+          OR lower(COALESCE(c_sub.name, '')) LIKE ?
           OR EXISTS (
             SELECT 1 FROM product_barcodes pb
             WHERE pb.tenant_id = i.tenant_id
@@ -247,12 +285,17 @@ export function registerItems(r: Router) {
               AND lower(pb.barcode) LIKE ?
           )
         )`;
-        params.push(`%${q}%`, `%${q}%`, `%${q}%`, targetBranch.id, `%${q}%`);
+        params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, targetBranch.id, `%${q}%`);
       } else {
         sql += ` AND (
           lower(i.name) LIKE ?
           OR lower(COALESCE(i.sku, '')) LIKE ?
           OR lower(COALESCE(i.barcode, '')) LIKE ?
+          OR lower(COALESCE(i.material, '')) LIKE ?
+          OR lower(COALESCE(i.design_pattern, '')) LIKE ?
+          OR lower(COALESCE(i.description, '')) LIKE ?
+          OR lower(COALESCE(c_main.name, '')) LIKE ?
+          OR lower(COALESCE(c_sub.name, '')) LIKE ?
           OR EXISTS (
             SELECT 1 FROM product_barcodes pb
             WHERE pb.tenant_id = i.tenant_id
@@ -260,13 +303,26 @@ export function registerItems(r: Router) {
               AND lower(pb.barcode) LIKE ?
           )
         )`;
-        params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+        params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
       }
     }
 
-    if (category) {
-      sql += ' AND i.category = ?';
-      params.push(category);
+    if (categoryId) {
+      sql += ' AND (i.category_id = ? OR i.category = ?)';
+      params.push(categoryId, categoryId);
+    } else if (category) {
+      sql += ' AND (i.category = ? OR c_main.name = ?)';
+      params.push(category, category);
+    }
+
+    if (subcategoryId) {
+      sql += ' AND i.subcategory_id = ?';
+      params.push(subcategoryId);
+    }
+
+    if (productType) {
+      sql += ' AND lower(i.product_type) = ?';
+      params.push(productType);
     }
 
     if (favoriteParam !== undefined && favoriteParam !== '') {
@@ -980,6 +1036,20 @@ export function registerItems(r: Router) {
     const hsn = V.optStr(b.hsn, 'HSN', 20);
     const unit = V.str(b.unit || 'pcs', 'Unit', { max: 20 });
     const category = V.optStr(b.category, 'Category', 60);
+    const categoryId = V.optStr(b.categoryId ?? b.category_id, 'Category ID', 60);
+    const subcategoryId = V.optStr(b.subcategoryId ?? b.subcategory_id, 'Subcategory ID', 60);
+    const rawProductType = (b.productType ?? b.product_type ?? '').toString().toLowerCase();
+    const productType = rawProductType === 'wholesale' ? 'wholesale' : 'retail';
+    const size = V.optStr(b.size, 'Size', 50);
+    const material = V.optStr(b.material, 'Material', 100);
+    const designPattern = V.optStr(b.designPattern ?? b.design_pattern, 'Design / Pattern', 100);
+    const description = V.optStr(b.description, 'Description', 1000);
+    const mrpMinor = (b.mrpMinor !== undefined && b.mrpMinor !== null && b.mrpMinor !== '')
+      ? V.int(b.mrpMinor, 'MRP (paise)', { min: 0 })
+      : priceMinor;
+    const offerPercentage = Math.max(0, Math.min(100, Number(b.offerPercentage ?? b.offer_percentage ?? 0)));
+    const parentProductId = V.optStr(b.parentProductId ?? b.parent_product_id, 'Parent Product ID', 60);
+    const itemType = (b.itemType ?? b.item_type) === 'variant' ? 'variant' : 'simple';
     const taxInclusive = false;
     const trackStock = V.bool(b.trackStock, true);
     const reorderMilli = V.int(b.reorderMilli ?? b.reorderLevelMilli ?? 0, 'Reorder quantity', { min: 0 });
@@ -1036,13 +1106,24 @@ export function registerItems(r: Router) {
       const initialActive = isTrackStock ? openingQtyMilli > 0 : true;
       const initialDeactivationReason = isTrackStock && openingQtyMilli <= 0 ? 'out_of_stock' : null;
 
+      const purchaseDate = b.purchaseDate || b.purchase_date || new Date().toISOString().slice(0, 10);
+
       await q.exec(
         `INSERT INTO items (
-          id, tenant_id, branch_id, name, sku, barcode, barcode_type, hsn, unit, category,
+          id, tenant_id, branch_id, name, sku, barcode, barcode_type, hsn, unit, category, category_id, subcategory_id,
+          product_type, item_type, size, material, design_pattern, description, mrp_minor, offer_percentage,
           price_minor, wholesale_price_minor, min_wholesale_qty_milli, cost_minor, tax_rate_bp, tax_inclusive, track_stock,
-          reorder_milli, preferred_supplier_id, favorite, custom, active, deactivation_reason, image_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)`,
-        [id, tenantId, branchId, name, sku, barcode, barcode ? barcodeType : 'INTERNAL', hsn, unit, category, priceMinor, wholesalePriceMinor, minWholesaleQtyMilli, costMinor, taxRateBp, taxInclusive, trackStock, reorderMilli, preferredSupplierId || null, favorite, JSON.stringify(custom), initialActive, initialDeactivationReason, imageUrl],
+          reorder_milli, preferred_supplier_id, favorite, custom, active, deactivation_reason, image_url,
+          imported_date, restocked_date, parent_product_id, purchase_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, now(), ?, ?, ?)`,
+        [
+          id, tenantId, branchId, name, sku, barcode, barcode ? barcodeType : 'INTERNAL', hsn, unit, category,
+          categoryId || null, subcategoryId || null, productType, itemType, size || null, material || null, designPattern || null, description || null,
+          mrpMinor, offerPercentage, priceMinor, wholesalePriceMinor, minWholesaleQtyMilli, costMinor, taxRateBp, taxInclusive,
+          trackStock, reorderMilli, preferredSupplierId || null, favorite, JSON.stringify(custom), initialActive,
+          initialDeactivationReason, imageUrl, openingQtyMilli > 0 ? new Date().toISOString() : null, parentProductId || null,
+          purchaseDate,
+        ],
       );
 
       if (barcode) {
@@ -1068,8 +1149,14 @@ export function registerItems(r: Router) {
 
     const created = await ctx.db.one(
       `SELECT i.*,
+              c_main.name AS category_name,
+              c_sub.name AS subcategory_name,
+              p_sup.name AS supplier_name,
               COALESCE((SELECT SUM(sm.qty_milli) FROM stock_moves sm WHERE sm.item_id = i.id AND sm.tenant_id = i.tenant_id AND sm.branch_id = i.branch_id), 0) AS current_stock_milli
        FROM items i
+       LEFT JOIN categories c_main ON c_main.id = i.category_id AND c_main.tenant_id = i.tenant_id
+       LEFT JOIN categories c_sub ON c_sub.id = i.subcategory_id AND c_sub.tenant_id = i.tenant_id
+       LEFT JOIN parties p_sup ON p_sup.id = i.preferred_supplier_id AND p_sup.tenant_id = i.tenant_id
        WHERE i.id = ? AND i.tenant_id = ?`,
       [id, tenantId],
     );
@@ -1115,6 +1202,21 @@ export function registerItems(r: Router) {
     const hsn = b.hsn !== undefined ? V.optStr(b.hsn, 'HSN', 20) : (item.hsn ?? null);
     const unit = b.unit !== undefined ? V.str(b.unit, 'Unit', { max: 20 }) : (item.unit ?? 'pcs');
     const category = b.category !== undefined ? V.optStr(b.category, 'Category', 60) : (item.category ?? null);
+    const categoryId = b.categoryId !== undefined ? V.optStr(b.categoryId, 'Category ID', 60) : (item.categoryId ?? item.category_id ?? null);
+    const subcategoryId = b.subcategoryId !== undefined ? V.optStr(b.subcategoryId, 'Subcategory ID', 60) : (item.subcategoryId ?? item.subcategory_id ?? null);
+    const rawProductType = b.productType !== undefined ? (b.productType || '').toString().toLowerCase() : (item.productType ?? item.product_type ?? 'retail');
+    const productType = rawProductType === 'wholesale' ? 'wholesale' : 'retail';
+    const size = b.size !== undefined ? V.optStr(b.size, 'Size', 50) : (item.size ?? null);
+    const material = b.material !== undefined ? V.optStr(b.material, 'Material', 100) : (item.material ?? null);
+    const designPattern = (b.designPattern !== undefined || b.design_pattern !== undefined) ? V.optStr(b.designPattern ?? b.design_pattern, 'Design / Pattern', 100) : (item.designPattern ?? item.design_pattern ?? null);
+    const description = b.description !== undefined ? V.optStr(b.description, 'Description', 1000) : (item.description ?? null);
+    const mrpMinor = b.mrpMinor !== undefined
+      ? (b.mrpMinor !== null && b.mrpMinor !== '' ? V.int(b.mrpMinor, 'MRP (paise)', { min: 0 }) : priceMinor)
+      : Number(item.mrpMinor ?? item.mrp_minor ?? priceMinor);
+    const offerPercentage = (b.offerPercentage !== undefined || b.offer_percentage !== undefined)
+      ? Math.max(0, Math.min(100, Number(b.offerPercentage ?? b.offer_percentage ?? 0)))
+      : Number(item.offerPercentage ?? item.offer_percentage ?? 0);
+    const parentProductId = b.parentProductId !== undefined ? V.optStr(b.parentProductId, 'Parent Product ID', 60) : (item.parentProductId ?? item.parent_product_id ?? null);
     const taxInclusive = false;
     const trackStock = b.trackStock !== undefined ? V.bool(b.trackStock) : Boolean(item.trackStock ?? item.track_stock);
     const reorderMilli = (b.reorderMilli !== undefined || b.reorderLevelMilli !== undefined) ? V.int(b.reorderMilli ?? b.reorderLevelMilli, 'Reorder quantity', { min: 0 }) : Number(item.reorderMilli ?? item.reorder_milli ?? 0);
@@ -1160,6 +1262,7 @@ export function registerItems(r: Router) {
         deactivationReason = null;
       }
     }
+    const itemType = (b.itemType ?? b.item_type) ? (String(b.itemType ?? b.item_type).toLowerCase() === 'variant' ? 'variant' : 'simple') : (item.item_type || 'simple');
     const hasImage = b.imageUrl !== undefined || b.image !== undefined;
     const imageUrl = hasImage ? ((b.imageUrl ?? b.image) ? String(b.imageUrl ?? b.image).trim() : null) : (item.imageUrl ?? item.image_url ?? null);
 
@@ -1206,11 +1309,24 @@ export function registerItems(r: Router) {
 
       await q.exec(
         `UPDATE items SET
-          name = ?, price_minor = ?, wholesale_price_minor = ?, min_wholesale_qty_milli = ?, cost_minor = ?, tax_rate_bp = ?, sku = ?, barcode = ?, barcode_type = ?,
+          name = ?, price_minor = ?, wholesale_price_minor = ?, min_wholesale_qty_milli = ?, cost_minor = ?,
+          mrp_minor = ?, offer_percentage = ?, product_type = ?, item_type = ?, size = ?, material = ?, design_pattern = ?, description = ?,
+          category_id = ?, subcategory_id = ?, parent_product_id = ?,
+          tax_rate_bp = ?, sku = ?, barcode = ?, barcode_type = ?,
           hsn = ?, unit = ?, category = ?, tax_inclusive = ?, track_stock = ?, reorder_milli = ?,
-          preferred_supplier_id = ?, favorite = ?, custom = ?::jsonb, active = ?, deactivation_reason = ?, image_url = ?, updated_at = now()
+          preferred_supplier_id = ?, favorite = ?, custom = ?::jsonb, active = ?, deactivation_reason = ?, image_url = ?,
+          purchase_date = COALESCE(?, purchase_date), updated_at = now()
          WHERE id = ? AND tenant_id = ?`,
-        [name, priceMinor, wholesalePriceMinor, minWholesaleQtyMilli, costMinor, taxRateBp, sku, barcode, barcode ? bType : (item.barcode_type || 'INTERNAL'), hsn, unit, category, taxInclusive, trackStock, reorderMilli, preferredSupplierId || null, favorite, JSON.stringify(custom ?? {}), active, deactivationReason, imageUrl, item.id, tenantId],
+        [
+          name, priceMinor, wholesalePriceMinor, minWholesaleQtyMilli, costMinor,
+          mrpMinor, offerPercentage, productType, itemType, size || null, material || null, designPattern || null, description || null,
+          categoryId || null, subcategoryId || null, parentProductId || null,
+          taxRateBp, sku, barcode, barcode ? bType : (item.barcode_type || 'INTERNAL'),
+          hsn, unit, category, taxInclusive, trackStock, reorderMilli,
+          preferredSupplierId || null, favorite, JSON.stringify(custom ?? {}), active, deactivationReason, imageUrl,
+          b.purchaseDate || b.purchase_date || null,
+          item.id, tenantId,
+        ],
       );
 
       if (!userActiveSpecified) {
@@ -1243,6 +1359,9 @@ export function registerItems(r: Router) {
 
     const updated = await ctx.db.one(
       `SELECT i.*,
+              c_main.name AS category_name,
+              c_sub.name AS subcategory_name,
+              p_sup.name AS supplier_name,
               COALESCE(?, i.branch_id) AS branch_id,
               COALESCE(?, b.name) AS branch_name,
               COALESCE(?, b.code) AS branch_code,
@@ -1258,6 +1377,9 @@ export function registerItems(r: Router) {
               ), 0) AS current_stock_milli
        FROM items i
        LEFT JOIN branches b ON b.id = i.branch_id AND b.tenant_id = i.tenant_id
+       LEFT JOIN categories c_main ON c_main.id = i.category_id AND c_main.tenant_id = i.tenant_id
+       LEFT JOIN categories c_sub ON c_sub.id = i.subcategory_id AND c_sub.tenant_id = i.tenant_id
+       LEFT JOIN parties p_sup ON p_sup.id = i.preferred_supplier_id AND p_sup.tenant_id = i.tenant_id
        WHERE i.id = ? AND i.tenant_id = ?`,
       [
         targetBranch?.id ?? null,

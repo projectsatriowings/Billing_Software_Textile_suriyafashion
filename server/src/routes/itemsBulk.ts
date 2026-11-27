@@ -21,18 +21,31 @@ export interface BulkImportRow {
   barcodeType?: 'INTERNAL' | 'MANUFACTURER' | null;
   additionalBarcodes?: (string | AdditionalBarcode)[] | null;
   productNature?: 'BRANDED' | 'SHOP_PRODUCT' | null;
+  productType?: 'retail' | 'wholesale' | 'Retail' | 'Wholesale' | string | null;
+  size?: string | null;
+  purchaseDate?: string | null;
+  material?: string | null;
+  designPattern?: string | null;
+  description?: string | null;
   imageUrl?: string | null;
   hsn?: string | null;
   unit?: string | null;
   categoryId?: string | null;
   category?: string | null;
+  subcategoryId?: string | null;
+  subcategory?: string | null;
   priceMinor: number;          // selling price in paise
   costMinor?: number | null;
+  mrpMinor?: number | null;
+  offerPercentage?: number | null;
+  supplierId?: string | null;
+  supplier?: string | null;
   taxRateBp?: number | null;
   taxInclusive?: boolean | null;
   openingQtyMilli?: number | null; // quantity supplied in this import
   reorderMilli?: number | null;
   reorderLevel?: number | null;
+  parentProductId?: string | null;
 
   // Restock & matching fields
   isRestock?: boolean;
@@ -161,6 +174,23 @@ function validateRow(raw: Record<string, unknown>, rowIndex: number): { errors: 
   const productNature: 'BRANDED' | 'SHOP_PRODUCT' | null =
     rawNature === 'BRANDED' || rawNature === 'SHOP_PRODUCT' ? rawNature : null;
 
+  const rawProductType = toStr(raw.productType);
+  const productType = rawProductType && rawProductType.toLowerCase() === 'wholesale' ? 'wholesale' : 'retail';
+  const size = toStr(raw.size);
+  const material = toStr(raw.material);
+  const designPattern = toStr(raw.designPattern ?? raw.design_pattern);
+  const description = toStr(raw.description);
+  const mrpRaw = toNum(raw.mrpMinor ?? raw.mrp);
+  const mrpMinor = mrpRaw !== null && mrpRaw >= 0 ? Math.round(mrpRaw) : Math.round(priceRaw!);
+  const offerRaw = toNum(raw.offerPercentage ?? raw.offer_percentage ?? raw.offer);
+  const offerPercentage = offerRaw !== null ? Math.max(0, Math.min(100, offerRaw)) : 0;
+  const subcategoryId = toStr(raw.subcategoryId);
+  const subcategory = toStr(raw.subcategory);
+  const supplierId = toStr(raw.supplierId ?? raw.supplier_id);
+  const supplier = toStr(raw.supplier ?? raw.supplierName);
+  const parentProductId = toStr(raw.parentProductId ?? raw.parent_product_id);
+  const purchaseDate = toStr(raw.purchaseDate ?? raw.purchase_date);
+
   if (errors.length > 0) return { errors };
 
   return {
@@ -172,13 +202,26 @@ function validateRow(raw: Record<string, unknown>, rowIndex: number): { errors: 
       barcodeType,
       additionalBarcodes,
       productNature,
+      productType,
+      size,
+      material,
+      designPattern,
+      description,
+      mrpMinor,
+      offerPercentage,
+      subcategoryId,
+      subcategory,
+      supplierId,
+      supplier,
+      parentProductId,
+      purchaseDate: purchaseDate || null,
       hsn,
       unit,
       categoryId,
       category,
       priceMinor: Math.round(priceRaw!),
       costMinor: costRaw !== null ? Math.round(costRaw) : 0,
-      taxRateBp: taxRateBpRaw ?? 500,
+      taxRateBp: taxRateBpRaw ?? 0,
       taxInclusive: false,
       openingQtyMilli: openingQtyRaw !== null ? Math.round(openingQtyRaw) : 0,
       reorderMilli: reorderRaw !== null ? Math.round(reorderRaw) : null,
@@ -231,20 +274,20 @@ export function registerItemsBulk(r: Router) {
     if (b.rows.length === 0) throw bad('rows array is empty', 'VALIDATION', { field: 'rows' });
     if (b.rows.length > 500) throw bad('Cannot import more than 500 products at a time', 'VALIDATION', { field: 'rows' });
 
-    // ── Supplier validation (Global supplier selection is mandatory) ────────
+    // ── Supplier validation (Optional) ────────
     const supplierId = toStr(b.supplierId || b.partyId);
-    if (!supplierId) {
-      throw bad('Supplier is required for bulk product import. Please select a supplier.', 'VALIDATION', { field: 'supplierId' });
-    }
-    const supplier = await ctx.db.one<{ id: string; name: string; type: string; active: boolean; gstin: string | null }>(
-      `SELECT id, name, type, active, gstin FROM parties WHERE id = ? AND tenant_id = ? AND type = 'supplier'`,
-      [supplierId, tenantId],
-    );
-    if (!supplier) {
-      throw bad('Selected supplier was not found or is invalid', 'VALIDATION', { field: 'supplierId' });
-    }
-    if (!supplier.active) {
-      throw bad(`Supplier "${supplier.name}" is deactivated. Please select an active supplier.`, 'VALIDATION', { field: 'supplierId' });
+    let supplier: { id: string; name: string; type: string; active: boolean; gstin: string | null } | null = null;
+    if (supplierId) {
+      supplier = (await ctx.db.one<{ id: string; name: string; type: string; active: boolean; gstin: string | null }>(
+        `SELECT id, name, type, active, gstin FROM parties WHERE id = ? AND tenant_id = ? AND type = 'supplier'`,
+        [supplierId, tenantId],
+      )) ?? null;
+      if (!supplier) {
+        throw bad('Selected supplier was not found or is invalid', 'VALIDATION', { field: 'supplierId' });
+      }
+      if (!supplier.active) {
+        throw bad(`Supplier "${supplier.name}" is deactivated. Please select an active supplier.`, 'VALIDATION', { field: 'supplierId' });
+      }
     }
 
     // ── Idempotency check ───────────────────────────────────────────────────
@@ -516,9 +559,57 @@ export function registerItemsBulk(r: Router) {
             // ignore
           }
         }
+        // Resolve subcategory if present
+        if (row.subcategoryId) {
+          const sub = await ctx.db.one<{ id: string; name: string }>(
+            'SELECT id, name FROM categories WHERE tenant_id = ? AND id = ?',
+            [tenantId, row.subcategoryId],
+          );
+          if (sub) {
+            row.subcategory = sub.name;
+          }
+        } else if (row.subcategory && row.subcategory.trim()) {
+          const subName = row.subcategory.trim();
+          let sub = await ctx.db.one<{ id: string; name: string }>(
+            'SELECT id, name FROM categories WHERE tenant_id = ? AND parent_id = ? AND lower(name) = lower(?)',
+            [tenantId, row.categoryId || '', subName],
+          );
+          if (!sub) {
+            sub = await ctx.db.one<{ id: string; name: string }>(
+              'SELECT id, name FROM categories WHERE tenant_id = ? AND lower(name) = lower(?)',
+              [tenantId, subName],
+            );
+          }
+          if (sub) {
+            row.subcategoryId = sub.id;
+            row.subcategory = sub.name;
+          } else {
+            const newSubId = newId('cat');
+            try {
+              await ctx.db.exec(
+                'INSERT INTO categories (id, tenant_id, branch_id, parent_id, name, active) VALUES (?, ?, ?, ?, ?, true)',
+                [newSubId, tenantId, branchId, row.categoryId || null, subName],
+              );
+              row.subcategoryId = newSubId;
+              row.subcategory = subName;
+            } catch {
+              // ignore
+            }
+          }
+        }
         rowsReadyForInsert.push(row);
       } else {
         // No category provided
+        if (row.subcategory && row.subcategory.trim()) {
+          const sub = await ctx.db.one<{ id: string; name: string }>(
+            'SELECT id, name FROM categories WHERE tenant_id = ? AND lower(name) = lower(?)',
+            [tenantId, row.subcategory.trim()],
+          );
+          if (sub) {
+            row.subcategoryId = sub.id;
+            row.subcategory = sub.name;
+          }
+        }
         rowsReadyForInsert.push(row);
       }
     }
@@ -619,7 +710,7 @@ export function registerItemsBulk(r: Router) {
           [
             purchaseId, tenantId, branchId, supplierId, purchaseNumber, importId, importId,
             todayStr, todayStr, todayStr,
-            `Bulk import from ${supplier.name} (${importId})`, ctx.user!.id, importId,
+            supplier ? `Bulk import from ${supplier.name} (${importId})` : `Bulk import initial stock (${importId})`, ctx.user!.id, importId,
           ],
         );
       }
@@ -682,7 +773,7 @@ export function registerItemsBulk(r: Router) {
             await q.exec(
               `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
                VALUES (?, ?, ?, ?, ?, ?, 'purchase', 'purchase', ?, ?, ?, 'Bulk import restock shipment', ?, ?)`,
-              [newId('sm'), tenantId, branchId, itemId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, `Supplier: ${supplier.name}`, ctx.user!.id],
+              [newId('sm'), tenantId, branchId, itemId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
             );
           }
 
@@ -702,27 +793,45 @@ export function registerItemsBulk(r: Router) {
           const finalRestockCategory = row.category && row.category.trim() ? row.category.trim() : null;
           const finalRestockImageUrl = row.imageUrl && row.imageUrl.trim() ? row.imageUrl.trim() : null;
 
-          // Always persist product metadata (SKU, HSN, Category, Image) and preserve existing preferred supplier
+          // Always persist product metadata and preserve existing preferred supplier
           await q.exec(
             `UPDATE items
              SET sku = COALESCE(NULLIF(?, ''), sku),
                  hsn = COALESCE(NULLIF(?, ''), hsn),
                  category = COALESCE(NULLIF(?, ''), category),
+                 category_id = COALESCE(?, category_id),
+                 subcategory_id = COALESCE(?, subcategory_id),
+                 product_type = COALESCE(NULLIF(?, ''), product_type),
+                 size = COALESCE(NULLIF(?, ''), size),
+                 material = COALESCE(NULLIF(?, ''), material),
+                 design_pattern = COALESCE(NULLIF(?, ''), design_pattern),
+                 description = COALESCE(NULLIF(?, ''), description),
+                 mrp_minor = COALESCE(?, mrp_minor),
+                 offer_percentage = COALESCE(?, offer_percentage),
                  image_url = COALESCE(NULLIF(?, ''), image_url),
                  preferred_supplier_id = COALESCE(preferred_supplier_id, ?),
                  reorder_milli = COALESCE(?, reorder_milli),
+                 purchase_date = COALESCE(?, (CASE WHEN (?::bigint) > 0 THEN now()::text ELSE purchase_date END)),
+                  restocked_date = (CASE WHEN (?::bigint) > 0 THEN now() ELSE restocked_date END),
                  updated_at = now()
              WHERE id = ? AND tenant_id = ?`,
-            [finalRestockSku, finalRestockHsn, finalRestockCategory, finalRestockImageUrl, supplierId, row.reorderMilli ?? null, itemId, tenantId],
+            [
+              finalRestockSku, finalRestockHsn, finalRestockCategory,
+              row.categoryId || null, row.subcategoryId || null, row.productType || null,
+              row.size || null, row.material || null, row.designPattern || null, row.description || null,
+              row.mrpMinor ?? null, row.offerPercentage ?? null,
+              finalRestockImageUrl, supplierId, row.reorderMilli ?? null,
+              row.openingQtyMilli ?? 0, itemId, tenantId,
+            ],
           );
 
           // If price updates requested, update product pricing
           if (row.updatePrices) {
             await q.exec(
               `UPDATE items
-               SET price_minor = ?, cost_minor = ?, tax_rate_bp = ?, tax_inclusive = false, updated_at = now()
+               SET price_minor = ?, cost_minor = ?, mrp_minor = COALESCE(?, mrp_minor), offer_percentage = COALESCE(?, offer_percentage), tax_rate_bp = ?, tax_inclusive = false, updated_at = now()
                WHERE id = ? AND tenant_id = ?`,
-              [row.priceMinor, row.costMinor ?? 0, row.taxRateBp ?? 500, itemId, tenantId],
+              [row.priceMinor, row.costMinor ?? 0, row.mrpMinor ?? null, row.offerPercentage ?? null, row.taxRateBp ?? 500, itemId, tenantId],
             );
           }
 
@@ -883,15 +992,21 @@ export function registerItemsBulk(r: Router) {
           await q.exec(
             `INSERT INTO items (
               id, tenant_id, branch_id, name, sku, barcode, barcode_type, hsn, unit, category,
-              price_minor, cost_minor, tax_rate_bp, tax_inclusive, track_stock,
-              reorder_milli, preferred_supplier_id, favorite, custom, active, deactivation_reason, image_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?, ?, false, '{}'::jsonb, ?, ?, ?)`,
+              category_id, subcategory_id, product_type, size, material, design_pattern, description,
+              price_minor, cost_minor, mrp_minor, offer_percentage, tax_rate_bp, tax_inclusive, track_stock,
+              reorder_milli, preferred_supplier_id, favorite, custom, active, deactivation_reason, image_url,
+              imported_date, restocked_date, parent_product_id, purchase_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false, true, ?, ?, false, '{}'::jsonb, ?, ?, ?, now(), ?, ?, ?)`,
             [
               id, tenantId, branchId, row.name, finalSku, finalBarcode, finalBarcode ? barcodeType : 'INTERNAL', row.hsn || null,
               row.unit || 'pcs', row.category || null,
-              row.priceMinor, row.costMinor ?? 0, row.taxRateBp ?? 500, false,
+              row.categoryId || null, row.subcategoryId || null, row.productType || 'Retail',
+              row.size || null, row.material || null, row.designPattern || null, row.description || null,
+              row.priceMinor, row.costMinor ?? 0, row.mrpMinor ?? null, row.offerPercentage ?? 0, row.taxRateBp ?? 0,
               row.reorderMilli ?? 0,
               supplierId, initialActive, initialDeactivationReason, row.imageUrl || null,
+              hasOpeningStock ? new Date().toISOString() : null, row.parentProductId || null,
+              row.purchaseDate || new Date().toISOString().slice(0, 10),
             ],
           );
 
@@ -983,7 +1098,7 @@ export function registerItemsBulk(r: Router) {
             await q.exec(
               `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
                VALUES (?, ?, ?, ?, ?, ?, 'opening', 'purchase', ?, ?, ?, 'Bulk import opening stock', ?, ?)`,
-              [newId('sm'), tenantId, branchId, id, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, `Supplier: ${supplier.name}`, ctx.user!.id],
+              [newId('sm'), tenantId, branchId, id, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
             );
           }
 
@@ -1048,7 +1163,7 @@ export function registerItemsBulk(r: Router) {
           purchaseId,
           purchaseNumber,
           supplierId,
-          supplierName: supplier.name,
+          supplierName: supplier?.name || null,
           totalRows: b.rows.length,
           created,
           restocked,
@@ -1066,7 +1181,7 @@ export function registerItemsBulk(r: Router) {
       purchaseId,
       purchaseNumber,
       supplierId,
-      supplierName: supplier.name,
+      supplierName: supplier?.name || null,
       totalRows: b.rows.length,
       created,
       restocked,

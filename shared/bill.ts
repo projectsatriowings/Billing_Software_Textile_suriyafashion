@@ -50,7 +50,7 @@ export interface PrintableBill {
   invoiceType?: 'retail' | 'wholesale';
   status?: string;
   dateText: string; // already formatted, e.g. 16 Oct 2026, 11:45
-  shop: { name: string; address?: string | null; phone?: string | null; gstin?: string | null; stateName?: string | null; upiId?: string | null; logoUrl?: string | null };
+  shop: { name: string; address?: string | null; phone?: string | null; gstin?: string | null; stateName?: string | null; upiId?: string | null; logoUrl?: string | null; gstEnabled?: boolean };
   customer?: {
     name?: string | null;
     phone?: string | null;
@@ -406,7 +406,7 @@ function thermalCopy(bill: PrintableBill, tpl: PrintTemplate, L: Record<string, 
     <div class="c xs foot-important">Important : Kindly keep a photo/photo copy of the Bill for future Use</div>
     <div class="c b foot-thanks">${esc(tpl.footer || L.thanks)}</div>
     ${bill.shop.phone ? `<div class="c xs foot-phone">Toll Free / Helpdesk: ${esc(bill.shop.phone)}</div>` : ''}
-    <div class="c xs foot-system">*** Computer Generated GST Invoice ***</div>
+    <div class="c xs foot-system">${bill.shop.gstEnabled !== false && (t.cgstMinor + t.sgstMinor + t.igstMinor > 0) ? '*** Computer Generated GST Invoice ***' : '*** Computer Generated Retail Invoice ***'}</div>
     ${opts.duplicate ? `<div class="c b dup">${L.duplicate}</div>` : ''}
   </div>
 </section>`;
@@ -463,14 +463,16 @@ function a4Copy(bill: PrintableBill, tpl: PrintTemplate, L: Record<string, strin
   <table class="items"><thead>${head}</thead><tbody>${body}</tbody></table>
   <div class="bottom">
     <div class="left">
-      ${tpl.showTaxBreakup && br.length ? `<table class="tx"><thead><tr><th>${L.gst}</th><th>${L.taxable}</th>${bill.intra ? `<th>${L.cgst}</th><th>${L.sgst}</th>` : `<th>${L.igst}</th>`}</tr></thead><tbody>${brRows}</tbody></table>` : ''}
+      ${tpl.showTaxBreakup && br.length && (bill.shop.gstEnabled !== false) && (t.cgstMinor + t.sgstMinor + t.igstMinor > 0) ? `<table class="tx"><thead><tr><th>${L.gst}</th><th>${L.taxable}</th>${bill.intra ? `<th>${L.cgst}</th><th>${L.sgst}</th>` : `<th>${L.igst}</th>`}</tr></thead><tbody>${brRows}</tbody></table>` : ''}
       ${opts.qrSvg ? `<div class="qr">${opts.qrSvg}<div class="sm">${esc(opts.qrCaption ?? '')}</div></div>` : ''}
     </div>
     <div class="right">
       <div class="rw"><span>${L.subtotal}</span><span>₹${money(t.subtotalMinor)}</span></div>
       ${t.discountMinor > 0 ? `<div class="rw"><span>${L.discount}</span><span>-₹${money(t.discountMinor)}</span></div>` : ''}
-      <div class="rw"><span>${L.taxable}</span><span>₹${money(t.taxableMinor)}</span></div>
-      ${bill.intra ? `<div class="rw"><span>${L.cgst}</span><span>₹${money(t.cgstMinor)}</span></div><div class="rw"><span>${L.sgst}</span><span>₹${money(t.sgstMinor)}</span></div>` : `<div class="rw"><span>${L.igst}</span><span>₹${money(t.igstMinor)}</span></div>`}
+      ${(bill.shop.gstEnabled !== false) && (t.cgstMinor + t.sgstMinor + t.igstMinor > 0) ? `
+        <div class="rw"><span>${L.taxable}</span><span>₹${money(t.taxableMinor)}</span></div>
+        ${bill.intra ? `<div class="rw"><span>${L.cgst}</span><span>₹${money(t.cgstMinor)}</span></div><div class="rw"><span>${L.sgst}</span><span>₹${money(t.sgstMinor)}</span></div>` : `<div class="rw"><span>${L.igst}</span><span>₹${money(t.igstMinor)}</span></div>`}
+      ` : ''}
       ${t.roundOffMinor !== 0 ? `<div class="rw"><span>${L.roundOff}</span><span>${t.roundOffMinor > 0 ? '+' : '-'}${money(Math.abs(t.roundOffMinor))}</span></div>` : ''}
       <div class="rw tot"><span>${L.total}</span><span>₹${money(t.totalMinor)}</span></div>
       ${pays}

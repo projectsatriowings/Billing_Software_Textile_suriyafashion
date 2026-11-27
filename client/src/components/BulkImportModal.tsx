@@ -177,6 +177,15 @@ const CopyIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?
   </svg>
 );
 
+const CalendarIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+
 const BarcodeIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
     <path d="M3 5v14" />
@@ -315,34 +324,26 @@ export const VALID_GST_BPS = new Set([0, 250, 500, 1200, 1800, 2800]);
 // ── Standard Units of measurement ─────────────────────────────────────────────
 export const UOM_OPTIONS = [
   { code: 'pcs', label: 'Pieces (pcs)' },
-  { code: 'kg', label: 'Kilogram (kg)' },
-  { code: 'g', label: 'Gram (g)' },
-  { code: 'l', label: 'Litre (l)' },
-  { code: 'ml', label: 'Millilitre (ml)' },
   { code: 'box', label: 'Box (box)' },
   { code: 'pack', label: 'Pack (pack)' },
   { code: 'm', label: 'Metre (m)' },
 ];
 
-// ── Simplified Supplier Excel / CSV Template Columns ───────────────────────────
+// ── Textile & General Retail Excel / CSV Template Columns ───────────────────
 export const TEMPLATE_COLUMNS = [
   'Product Name',
-  'UOM',
-  'Selling Price',
-  'Cost Price',
-  'HSN',
-  'GST Rate',
-  'Opening Stock',
-  'Barcode',
-  'Drive Link / Image URL',
+  'Size',
+  'Cost',
+  'Stock',
+  'Purchase Date',
 ];
 
 export const SAMPLE_SUPPLIER_ROWS = [
-  ['Toor Dal 1kg', 'kg', '145.50', '120', '0713', '5%', '50', '8901030384812', 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view'],
-  ['Basmati Rice 1kg', 'kg', '89', '65', '1006', '5%', '100', '8901030384850', ''],
-  ['Amul Butter 100g', 'pcs', '55', '48', '0401', '12%', '40', '8901262010011', ''],
-  ['Surf Excel 1kg', 'pcs', '200', '165', '3402', '18%', '25', '', ''],
-  ['Moong Dal 1kg', 'kg', '110', '95', '0713', '5%', '30', '', ''],
+  ["Men's Cotton Formal Shirt", 'L', '350', '25', new Date().toISOString().split('T')[0]],
+  ['Floral Printed Kurti', 'M', '220', '40', new Date().toISOString().split('T')[0]],
+  ["Boys Denim Shorts", '30', '180', '30', new Date().toISOString().split('T')[0]],
+  ["Men's Rubber Slippers", '8', '75', '50', new Date().toISOString().split('T')[0]],
+  ['5L Plastic Storage Container', 'Free Size', '110', '20', new Date().toISOString().split('T')[0]],
 ];
 
 export function isUrlOrDriveLink(val: string | null | undefined): boolean {
@@ -389,9 +390,21 @@ export interface GridRow {
   category: string;
   categoryId: string;
   isCategoryManuallyEdited: boolean;
+  subcategory?: string;
+  subcategoryId?: string;
+  productType?: string;
+  size?: string;
+  purchaseDate?: string;
+  material?: string;
+  designPattern?: string;
+  description?: string;
   unit: string;
   sellingPrice: string;
   costPrice: string;
+  mrp?: string;
+  offerPercentage?: string;
+  supplierName?: string;
+  supplierId?: string;
   hsn: string;
   gstRate: string; // e.g. "5%", "12%"
   taxInclusive: boolean;
@@ -517,16 +530,13 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       if (res && Array.isArray(res.parties)) {
         const activeSuppliers = res.parties.filter((p) => p.type === 'supplier' && p.active !== false);
         setSuppliersList(activeSuppliers);
-        if (activeSuppliers.length === 1 && !selectedSupplierId) {
-          setSelectedSupplierId(activeSuppliers[0].id);
-        }
       }
     } catch (err) {
       console.error('Failed to load suppliers:', err);
     } finally {
       setLoadingSuppliers(false);
     }
-  }, [selectedSupplierId]);
+  }, []);
 
   useEffect(() => {
     loadSuppliers();
@@ -1009,14 +1019,25 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       return -1;
     };
 
-    const iName = findCol(['product name', 'item name', 'product', 'name', 'item', 'description']);
+    const iName = findCol(['product name', 'item name', 'product', 'name', 'item']);
+    const iSize = findCol(['size', 'item size', 'product size']);
+    const iPurchaseDate = findCol(['purchase date', 'purchase_date', 'date of purchase', 'purchase', 'date']);
+    const iCategory = findCol(['category', 'main category']);
+    const iSubcategory = findCol(['subcategory', 'sub category', 'sub-category']);
+    const iProductType = findCol(['product type', 'type']);
+    const iMaterial = findCol(['material', 'fabric']);
+    const iDesign = findCol(['design / pattern', 'design/pattern', 'design', 'pattern', 'style']);
+    const iDesc = findCol(['description', 'desc', 'notes']);
+    const iCost = findCol(['cost', 'purchase price', 'cost price', 'buying price', 'rate']);
+    const iPrice = findCol(['selling price', 'sale price', 'selling', 'price']);
+    const iMrp = findCol(['mrp', 'maximum retail price']);
+    const iOffer = findCol(['offer percentage', 'offer %', 'offer', 'discount %', 'discount percentage']);
     const iUnit = findCol(['uom', 'unit', 'measurement']);
-    const iPrice = findCol(['selling price', 'sale price', 'price', 'mrp', 'rate']);
-    const iCost = findCol(['cost price', 'cost', 'purchase price', 'buying price']);
+    const iSupplier = findCol(['supplier', 'vendor', 'preferred supplier']);
     const iHsn = findCol(['hsn', 'sac', 'hsn code']);
     const iGst = findCol(['gst rate', 'gst', 'tax rate', 'tax']);
     const iInclusive = findCol(['price inclusive of gst', 'price inclusive', 'inclusive', 'incl']);
-    const iStock = findCol(['opening stock', 'current stock', 'stock', 'qty', 'quantity']);
+    const iStock = findCol(['stock', 'opening stock', 'current stock', 'qty', 'quantity']);
     const iBarcode = findCol(['barcode', 'ean', 'upc', 'gtin', 'bar code']);
     const iReorder = findCol(['reorder level', 'reorder qty', 'reorder quantity', 'reorder', 'min stock', 'minimum stock']);
     const iImage = findCol([
@@ -1059,22 +1080,46 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       const parts = dataLines[li];
       if (!parts || parts.every((p) => !String(p || '').trim())) continue;
 
+      const isFourColFormat = (parts.length === 4 && iCategory < 0) || (iSize >= 0 && iCost >= 0 && iStock >= 0 && iPrice < 0 && parts.length <= 4);
+      const isFiveColFormat = (parts.length === 5 && iCategory < 0);
+      const isCompactFormat = isFourColFormat || isFiveColFormat;
       const name = getVal(parts, iName, 0);
-      const unitRaw = getVal(parts, iUnit, 1);
-      const rawPrice = getVal(parts, iPrice, 2);
-      const rawCost = getVal(parts, iCost, 3);
-      const hsn = getVal(parts, iHsn, 4);
-      const gst = getVal(parts, iGst, 5);
-      const incl = getVal(parts, iInclusive, 6);
-      const rawStock = getVal(parts, iStock, 7);
+      const rawSize = iSize >= 0 ? getVal(parts, iSize, -1) : (isCompactFormat ? getVal(parts, -1, 1) : '');
+      const rawCategory = isCompactFormat ? '' : getVal(parts, iCategory, 1);
+      const rawSubcategory = isCompactFormat ? '' : getVal(parts, iSubcategory, 2);
+      const rawProductType = getVal(parts, iProductType, -1) || 'Retail';
+      const rawMaterial = isCompactFormat ? '' : getVal(parts, iMaterial, 4);
+      const rawDesign = isCompactFormat ? '' : getVal(parts, iDesign, 5);
+      const rawDesc = isCompactFormat ? '' : getVal(parts, iDesc, 6);
+      const rawCost = iCost >= 0 ? getVal(parts, iCost, -1) : (isCompactFormat ? getVal(parts, -1, 2) : getVal(parts, -1, 7));
+      const rawPrice = iPrice >= 0 ? getVal(parts, iPrice, -1) : (isCompactFormat ? '' : getVal(parts, -1, 8));
+      const rawMrp = isCompactFormat ? '' : getVal(parts, iMrp, 9);
+      const rawOffer = isCompactFormat ? '' : getVal(parts, iOffer, 10);
+      const unitRaw = isCompactFormat ? 'pcs' : getVal(parts, iUnit, 11);
+      const rawSupplier = isCompactFormat ? '' : getVal(parts, iSupplier, 12);
+      const rawStock = iStock >= 0 ? getVal(parts, iStock, -1) : (isCompactFormat ? getVal(parts, -1, 3) : getVal(parts, -1, 13));
+      const rawPurchaseDate = iPurchaseDate >= 0 ? getVal(parts, iPurchaseDate, -1) : (isFiveColFormat ? getVal(parts, -1, 4) : '');
+      let parsedPurchaseDate = '';
+      if (rawPurchaseDate) {
+        const pd = new Date(rawPurchaseDate);
+        if (!isNaN(pd.getTime())) {
+          parsedPurchaseDate = pd.toISOString().split('T')[0];
+        } else {
+          parsedPurchaseDate = rawPurchaseDate;
+        }
+      }
+      const hsn = getVal(parts, iHsn, -1);
+      const gst = getVal(parts, iGst, -1);
+      const incl = getVal(parts, iInclusive, -1);
       const reorderRaw = getVal(parts, iReorder, -1);
 
       // Clean numeric fields while preserving valid decimals (handles "90,000.00", "1,00,000", "4,50,000.50", etc.)
-      const numP = parseImportNumeric(rawPrice);
-      const price = numP !== null ? String(numP) : rawPrice;
-
       const numC = parseImportNumeric(rawCost);
-      const cost = numC !== null ? String(numC) : rawCost;
+      const cost = numC !== null ? String(numC) : (rawCost || '0');
+
+      const numP = parseImportNumeric(rawPrice);
+      // When selling price is not given (e.g. 4-column Excel with Name, Size, Cost, Stock), default selling price to cost price
+      const price = numP !== null ? String(numP) : (rawPrice ? rawPrice : cost);
 
       const numS = parseImportNumeric(rawStock);
       const stock = numS !== null ? String(numS) : rawStock;
@@ -1184,11 +1229,21 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       } else {
         // New Product or Ambiguous: automatically generate unique SKU
         finalSku = generateUniqueSku(name, existingSkusSet, seenImportSkus);
-        // Automatically suggest category
-        const suggested = suggestCategory(name, activeCategories);
-        if (suggested) {
-          category = suggested.name;
-          categoryId = suggested.id;
+        if (rawCategory) {
+          const found = activeCategories.find((c) => c.name.toLowerCase() === rawCategory.toLowerCase());
+          if (found) {
+            category = found.name;
+            categoryId = found.id;
+          } else {
+            category = rawCategory;
+          }
+        } else {
+          // Automatically suggest category
+          const suggested = suggestCategory(name, activeCategories);
+          if (suggested) {
+            category = suggested.name;
+            categoryId = suggested.id;
+          }
         }
         if (barcodeRaw) {
           barcode = barcodeRaw;
@@ -1229,11 +1284,21 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         category,
         categoryId,
         isCategoryManuallyEdited: false,
+        subcategory: rawSubcategory || '',
+        productType: rawProductType || 'Retail',
+        size: rawSize || '',
+        purchaseDate: parsedPurchaseDate || '',
+        material: rawMaterial || '',
+        designPattern: rawDesign || '',
+        description: rawDesc || '',
         unit,
         sellingPrice: price,
         costPrice: cost,
+        mrp: rawMrp || '',
+        offerPercentage: rawOffer || '0%',
+        supplierName: rawSupplier || '',
         hsn: hsn || (matchedItem?.hsn || ''),
-        gstRate: gst || (matchedItem ? `${matchedItem.taxRateBp / 100}%` : '5%'),
+        gstRate: gst || (matchedItem ? `${matchedItem.taxRateBp / 100}%` : '0%'),
         taxInclusive,
         openingStock: stock || '0',
         reorderLevel: initialReorder,
@@ -1673,6 +1738,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         category: '',
         categoryId: '',
         isCategoryManuallyEdited: false,
+        size: '',
+        purchaseDate: new Date().toISOString().split('T')[0],
         unit: 'pcs',
         sellingPrice: '',
         costPrice: '',
@@ -1958,12 +2025,6 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
 
   const handleExecuteImport = async () => {
     if (eligibleRows.length === 0) return;
-    if (!selectedSupplierId) {
-      setApiError('Please select a Supplier before proceeding to import.');
-      setStep('review');
-      setIsSupplierDropdownOpen(true);
-      return;
-    }
     const pendingBarcodes = eligibleRows.filter((r) => r.status !== 'RESTOCK' && (!r.barcode || !r.barcode.trim()));
     if (pendingBarcodes.length > 0) {
       setBarcodeValidationActive(true);
@@ -2015,6 +2076,11 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           reorderMilli = 0;
         }
 
+        const parsedMrp = r.mrp ? parseImportNumeric(r.mrp) : null;
+        const mrpMinor = parsedMrp !== null ? Math.round(parsedMrp * 100) : null;
+        const parsedOffer = r.offerPercentage ? parseImportNumeric(r.offerPercentage) : null;
+        const offerPercentage = parsedOffer !== null ? parsedOffer : 0;
+
         return {
           name: r.name.trim(),
           sku: r.sku.trim() || null,
@@ -2027,12 +2093,24 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           unit: r.unit.trim() || 'pcs',
           categoryId: finalCatId,
           category: finalCatName,
+          subcategoryId: r.subcategoryId?.trim() || null,
+          subcategory: r.subcategory?.trim() || null,
+          productType: r.productType || 'Retail',
+          size: r.size?.trim() || null,
+          purchaseDate: r.purchaseDate?.trim() || null,
+          material: r.material?.trim() || null,
+          designPattern: r.designPattern?.trim() || null,
+          description: r.description?.trim() || null,
           priceMinor: price,
           costMinor: cost,
+          mrpMinor,
+          offerPercentage,
           taxRateBp,
           taxInclusive: false,
           openingQtyMilli: stock,
           reorderMilli,
+          supplierId: r.supplierId?.trim() || null,
+          supplier: r.supplierName?.trim() || null,
           isRestock,
           matchedItemId: isRestock && r.matchedItem ? r.matchedItem.id : null,
           updatePrices: r.updatePrices,
@@ -2056,14 +2134,10 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
     const rows = invalidList.map((r) => [
       r.rowNum,
       r.name,
-      r.unit,
-      r.sellingPrice,
+      r.size || '',
       r.costPrice,
-      r.hsn,
-      r.gstRate,
       r.openingStock,
-      r.barcode || '',
-      r.imageUrl || '',
+      r.purchaseDate || '',
       r.status,
       r.errors.map((e) => e.message).join(' | '),
     ]);
@@ -2635,20 +2709,23 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                           </span>
                         </div>
                         <div className="bulk-bento-card-desc">
-                          SKU, Barcode & Category are auto-generated. Only 8 columns needed:
+                          Textile &amp; General Retail Template Columns:
                         </div>
 
                         <div className="bulk-columns-spec-grid">
-                          {TEMPLATE_COLUMNS.map((c, i) => (
-                            <div
-                              key={c}
-                              className={`bulk-column-pill ${i === 0 || i === 2 ? 'required' : ''}`}
-                              title={i === 0 || i === 2 ? `${c} is mandatory` : `${c} optional/auto-filled`}
-                            >
-                              <span>{c}</span>
-                              {i === 0 || i === 2 && <span className="bulk-col-req-badge">Req</span>}
-                            </div>
-                          ))}
+                          {TEMPLATE_COLUMNS.map((c, i) => {
+                            const isReq = c === 'Product Name';
+                            return (
+                              <div
+                                key={c}
+                                className={`bulk-column-pill ${isReq ? 'required' : ''}`}
+                                title={isReq ? `${c} is mandatory` : `${c} optional/auto-filled`}
+                              >
+                                <span>{c}</span>
+                                {isReq && <span className="bulk-col-req-badge">Req</span>}
+                              </div>
+                            );
+                          })}
                         </div>
 
                         <div className="bulk-bento-ai-footer">
@@ -2684,7 +2761,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         id="bulk-paste-area"
                         value={pasteText}
                         onChange={(e) => setPasteText(e.target.value)}
-                        placeholder={'Product Name\tUOM\tSelling Price\tCost Price\tHSN\tGST Rate\tOpening Stock\nToor Dal 1kg\tkg\t145.50\t120\t0713\t5%\t50\nBasmati Rice 1kg\tkg\t89\t65\t1006\t5%\t100'}
+                        placeholder={"Product Name\tSize\tCost\tStock\nMen's Cotton Formal Shirt\tL\t350\t25"}
                         style={{
                           width: '100%', minHeight: '190px', padding: '0.75rem',
                           borderRadius: '8px', border: '1px solid var(--border)',
@@ -2728,19 +2805,22 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                           </div>
                         </div>
                         <div className="bulk-bento-card-desc">
-                          Copy all 8 columns from Excel or Google Sheets and paste them on the left:
+                          Textile &amp; Retail columns parsed from Excel or Google Sheets:
                         </div>
 
                         <div className="bulk-columns-spec-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                          {TEMPLATE_COLUMNS.map((c, i) => (
-                            <div
-                              key={c}
-                              className={`bulk-column-pill ${i === 0 || i === 2 ? 'required' : ''}`}
-                            >
-                              <span>{i + 1}. {c}</span>
-                              {i === 0 || i === 2 && <span className="bulk-col-req-badge">Req</span>}
-                            </div>
-                          ))}
+                          {TEMPLATE_COLUMNS.map((c, i) => {
+                            const isReq = c === 'Product Name';
+                            return (
+                              <div
+                                key={c}
+                                className={`bulk-column-pill ${isReq ? 'required' : ''}`}
+                              >
+                                <span>{i + 1}. {c}</span>
+                                {isReq && <span className="bulk-col-req-badge">Req</span>}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
 
@@ -3036,25 +3116,25 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                           borderRadius: '8px',
                           border: selectedSupplier
                             ? '1.5px solid #10b981'
-                            : '1.5px solid #f59e0b',
-                          background: selectedSupplier ? '#f0fdf4' : '#fffbeb',
-                          color: selectedSupplier ? '#065f46' : '#92400e',
+                            : '1.5px solid #cbd5e1',
+                          background: selectedSupplier ? '#f0fdf4' : '#f8fafc',
+                          color: selectedSupplier ? '#065f46' : '#475569',
                           fontWeight: 600,
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
-                          boxShadow: selectedSupplier ? '0 1px 2px rgba(16, 185, 129, 0.1)' : '0 1px 3px rgba(245, 158, 11, 0.2)',
+                          boxShadow: selectedSupplier ? '0 1px 2px rgba(16, 185, 129, 0.1)' : 'none',
                         }}
-                        title={selectedSupplier ? `Selected Supplier: ${selectedSupplier.name}` : 'Supplier is mandatory for bulk product import'}
+                        title={selectedSupplier ? `Selected Supplier: ${selectedSupplier.name}` : 'Supplier selection is optional'}
                       >
-                        <TruckIcon size={14} color={selectedSupplier ? '#059669' : '#d97706'} />
+                        <TruckIcon size={14} color={selectedSupplier ? '#059669' : '#64748b'} />
                         <span style={{ maxWidth: '170px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {selectedSupplier ? (
                             <span>Supplier: <strong>{selectedSupplier.name}</strong></span>
                           ) : (
-                            <span>Select Supplier <strong style={{ color: '#dc2626' }}>*</strong></span>
+                            <span>Supplier: <strong>None (Optional)</strong></span>
                           )}
                         </span>
-                        <ChevronDownIcon size={12} color={selectedSupplier ? '#059669' : '#d97706'} />
+                        <ChevronDownIcon size={12} color={selectedSupplier ? '#059669' : '#64748b'} />
                       </button>
 
                       {isSupplierDropdownOpen && (
@@ -3079,7 +3159,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         >
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.2rem 0.35rem 0.35rem', borderBottom: '1px solid #f1f5f9' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                              Import Supplier <span style={{ color: '#dc2626' }}>*</span>
+                              Import Supplier <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>(Optional)</span>
                             </span>
                             {selectedSupplier && (
                               <button
@@ -3269,6 +3349,31 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                       </span>
                     </div>
 
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#f8fafc', padding: '0.2rem 0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                      <CalendarIcon size={13} color="#475569" />
+                      <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)' }}>Purchase Date:</span>
+                      <input
+                        type="date"
+                        id="bulk-global-purchase-date"
+                        defaultValue={new Date().toISOString().split('T')[0]}
+                        style={{ fontSize: '0.75rem', padding: '0.15rem 0.35rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          const val = (document.getElementById('bulk-global-purchase-date') as HTMLInputElement)?.value;
+                          if (val) {
+                            setRawRows((prev) => prev.map((r) => ({ ...r, purchaseDate: val })));
+                            showToast({ type: 'success', message: `Applied purchase date ${val} to all rows.` });
+                          }
+                        }}
+                        style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', fontWeight: 600 }}
+                      >
+                        Apply to All
+                      </button>
+                    </div>
+
                     <button
                       id="bulk-refresh-cats-btn"
                       type="button"
@@ -3424,25 +3529,6 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                       </button>
                     )}
                     <div style={{ width: '1px', height: '22px', background: '#cbd5e1', margin: '0 0.15rem' }} />
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.45rem',
-                        padding: '0.35rem 0.75rem',
-                        borderRadius: '20px',
-                        background: rawRows.filter((r) => Boolean(r.imageUrl)).length > 0 ? '#f0fdf4' : '#f1f5f9',
-                        border: rawRows.filter((r) => Boolean(r.imageUrl)).length > 0 ? '1px solid #bbf7d0' : '1px solid #e2e8f0',
-                        color: rawRows.filter((r) => Boolean(r.imageUrl)).length > 0 ? '#15803d' : '#64748b',
-                        fontSize: '0.8rem',
-                        fontWeight: 600,
-                      }}
-                      title="Number of imported products with images assigned. Click any row photo to change or drag & drop files."
-                    >
-                      <ImageIcon size={14} color={rawRows.filter((r) => Boolean(r.imageUrl)).length > 0 ? '#15803d' : '#64748b'} />
-                      <span>{rawRows.filter((r) => Boolean(r.imageUrl)).length} of {rawRows.length} with Photos</span>
-                    </div>
-
                     <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
                       {generatedBarcodesCount > 0
                         ? `${generatedBarcodesCount} internal barcode${generatedBarcodesCount !== 1 ? 's' : ''} generated.`
@@ -3480,16 +3566,16 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         </th>
                         <th style={thStyle}>ROW</th>
                         <th style={thStyle}>STATUS</th>
-                        <th style={{ ...thStyle, width: 62, minWidth: 60, textAlign: 'center' }}>IMAGE</th>
                         <th style={{ ...thStyle, minWidth: 200 }}>PRODUCT / ITEM NAME *</th>
+                        <th style={{ ...thStyle, width: 85, minWidth: 75 }}>SIZE</th>
                         <th style={{ ...thStyle, width: 105, minWidth: 95 }}>SKU / CODE</th>
                         <th style={{ ...thStyle, width: 145, minWidth: 140 }}>BARCODE / EAN</th>
                         <th style={{ ...thStyle, minWidth: 140 }}>CATEGORY *</th>
                         <th style={{ ...thStyle, minWidth: 110 }}>UOM</th>
+                        <th style={{ ...thStyle, minWidth: 95 }}>COST PRICE ₹</th>
                         <th style={{ ...thStyle, minWidth: 95 }}>SELLING ₹ *</th>
-                        <th style={{ ...thStyle, minWidth: 85 }}>COST ₹</th>
-                        <th style={{ ...thStyle, minWidth: 75 }}>HSN</th>
-                        <th style={{ ...thStyle, minWidth: 75 }}>GST</th>
+                        <th style={{ ...thStyle, minWidth: 75 }}>OFFER %</th>
+                        <th style={{ ...thStyle, minWidth: 140 }}>PURCHASE DATE</th>
                         <th style={{ ...thStyle, minWidth: 80 }}>INCOMING</th>
                         <th style={{ ...thStyle, minWidth: 80 }}>CURRENT</th>
                         <th style={{ ...thStyle, minWidth: 80 }}>FINAL STOCK</th>
@@ -3500,7 +3586,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                     <tbody>
                       {visibleRows.length === 0 ? (
                         <tr>
-                          <td colSpan={18} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                          <td colSpan={17} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                             No rows match the selected &quot;{filter}&quot; filter.
                           </td>
                         </tr>
@@ -3593,93 +3679,6 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                   )}
                                 </td>
 
-                                {/* IMAGE THUMBNAIL / ATTACH */}
-                                <td
-                                  style={{
-                                    padding: '0.35rem 0.35rem',
-                                    textAlign: 'center',
-                                    verticalAlign: 'middle',
-                                    width: 62,
-                                    minWidth: 60,
-                                  }}
-                                  onDragOver={(e) => e.preventDefault()}
-                                  onDrop={async (e) => {
-                                    e.preventDefault();
-                                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                                      try {
-                                        const dataUrl = await fileToOptimizedDataUrl(e.dataTransfer.files[0]);
-                                        updateRowField(row._id, 'imageUrl', dataUrl);
-                                      } catch (err: any) {
-                                        alert(err.message || 'Failed to process image');
-                                      }
-                                    }
-                                  }}
-                                >
-                                  {row.imageUrl ? (
-                                    <div
-                                      style={{
-                                        position: 'relative',
-                                        width: '34px',
-                                        height: '34px',
-                                        margin: '0 auto',
-                                        borderRadius: '6px',
-                                        overflow: 'hidden',
-                                        border: '1.5px solid #818cf8',
-                                        cursor: 'pointer',
-                                        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                                      }}
-                                      onClick={() => {
-                                        setEditingImageRow({ rowId: row._id, name: row.name, currentUrl: row.imageUrl });
-                                        setTempRowImageUrl(row.imageUrl || '');
-                                      }}
-                                      title="Click to edit/replace photo, or drag and drop an image file here"
-                                    >
-                                      <img
-                                        src={row.imageUrl}
-                                        alt={row.name}
-                                        referrerPolicy="no-referrer"
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        onError={(e) => handleProductImageError(e, row.imageUrl)}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditingImageRow({ rowId: row._id, name: row.name, currentUrl: '' });
-                                        setTempRowImageUrl('');
-                                      }}
-                                      style={{
-                                        width: '34px',
-                                        height: '34px',
-                                        margin: '0 auto',
-                                        borderRadius: '6px',
-                                        border: '1.5px dashed #cbd5e1',
-                                        background: '#f8fafc',
-                                        color: '#94a3b8',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        cursor: 'pointer',
-                                        padding: 0,
-                                        transition: 'all 0.15s ease',
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.borderColor = 'var(--primary)';
-                                        e.currentTarget.style.color = 'var(--primary)';
-                                        e.currentTarget.style.background = 'var(--primary-soft, #eef2ff)';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = '#cbd5e1';
-                                        e.currentTarget.style.color = '#94a3b8';
-                                        e.currentTarget.style.background = '#f8fafc';
-                                      }}
-                                      title="Add photo to this product (click to choose or drag & drop file)"
-                                    >
-                                      <CameraIcon size={14} />
-                                    </button>
-                                  )}
-                                </td>
                                 {/* PRODUCT NAME */}
                                 <td style={{ padding: '0.45rem 0.35rem' }}>
                                   <input
@@ -3693,44 +3692,23 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                       background: hasNameErr ? '#fff1f2' : '#ffffff',
                                     }}
                                   />
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleRowProductNature(row._id)}
-                                      title={`Classification: ${row.productNature === 'BRANDED' ? 'Branded Product' : 'Shop Product'} (click to change)`}
-                                      style={{
-                                        cursor: 'pointer',
-                                        borderRadius: '8px',
-                                        padding: '1px 6px',
-                                        fontSize: '0.67rem',
-                                        fontWeight: 700,
-                                        background: row.productNature === 'BRANDED' ? '#eff6ff' : '#f8fafc',
-                                        color: row.productNature === 'BRANDED' ? '#1d4ed8' : '#475569',
-                                        border: row.productNature === 'BRANDED'
-                                          ? (row.natureConfidence === 'LOW' ? '1px dashed #93c5fd' : '1px solid #bfdbfe')
-                                          : (row.natureConfidence === 'LOW' ? '1px dashed #cbd5e1' : '1px solid #cbd5e1'),
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '3px',
-                                        transition: 'all 0.15s ease',
-                                      }}
-                                    >
-                                      {row.productNature === 'BRANDED' ? (
-                                        <>
-                                          <TagIcon size={11} color="#1d4ed8" />
-                                          <span>Branded</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <StoreIcon size={11} color="#475569" />
-                                          <span>Shop</span>
-                                        </>
-                                      )}
-                                      {row.natureConfidence === 'LOW' && (
-                                        <span style={{ fontSize: '0.62rem', opacity: 0.75 }}>?</span>
-                                      )}
-                                    </button>
-                                  </div>
+                                </td>
+
+                                {/* SIZE */}
+                                <td style={{ padding: '0.45rem 0.35rem' }}>
+                                  <input
+                                    type="text"
+                                    value={row.size || ''}
+                                    placeholder="Size"
+                                    onChange={(e) => updateRowField(row._id, 'size', e.target.value)}
+                                    style={{
+                                      ...cellInputStyle,
+                                      width: '75px',
+                                      padding: '0.3rem 0.4rem',
+                                      fontSize: '0.78rem',
+                                      fontWeight: 600,
+                                    }}
+                                  />
                                 </td>
 
                                 {/* GENERATED / EDITABLE COMPACT SKU */}
@@ -3989,6 +3967,17 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                   </select>
                                 </td>
 
+                                {/* COST PRICE */}
+                                <td style={{ padding: '0.45rem 0.35rem' }}>
+                                  <input
+                                    type="text"
+                                    value={row.costPrice}
+                                    placeholder="0"
+                                    onChange={(e) => updateRowField(row._id, 'costPrice', e.target.value)}
+                                    style={cellInputStyle}
+                                  />
+                                </td>
+
                                 {/* SELLING PRICE */}
                                 <td style={{ padding: '0.45rem 0.35rem' }}>
                                   <input
@@ -4004,44 +3993,62 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                   />
                                 </td>
 
-                                {/* COST PRICE */}
+                                {/* OFFER % */}
                                 <td style={{ padding: '0.45rem 0.35rem' }}>
                                   <input
                                     type="text"
-                                    value={row.costPrice}
-                                    placeholder="0"
-                                    onChange={(e) => updateRowField(row._id, 'costPrice', e.target.value)}
+                                    value={row.offerPercentage || '0%'}
+                                    placeholder="0%"
+                                    onChange={(e) => updateRowField(row._id, 'offerPercentage', e.target.value)}
                                     style={cellInputStyle}
                                   />
                                 </td>
 
-                                {/* HSN */}
-                                <td style={{ padding: '0.45rem 0.35rem' }}>
-                                  <input
-                                    type="text"
-                                    value={row.hsn}
-                                    placeholder="HSN"
-                                    onChange={(e) => updateRowField(row._id, 'hsn', e.target.value)}
-                                    style={cellInputStyle}
-                                  />
-                                </td>
-
-                                {/* GST RATE */}
-                                <td style={{ padding: '0.45rem 0.35rem' }}>
-                                  <select
-                                    value={parseGstToBp(row.gstRate) !== null ? String(parseGstToBp(row.gstRate)) : '__custom__'}
-                                    onChange={(e) => {
-                                      if (e.target.value !== '__custom__') {
-                                        const opt = GST_RATE_OPTIONS.find((g) => String(g.bp) === e.target.value);
-                                        updateRowField(row._id, 'gstRate', opt ? opt.label : e.target.value);
-                                      }
-                                    }}
-                                    style={cellInputStyle}
-                                  >
-                                    {GST_RATE_OPTIONS.map((g) => (
-                                      <option key={g.bp} value={String(g.bp)}>{g.label}</option>
-                                    ))}
-                                  </select>
+                                {/* PURCHASE DATE */}
+                                <td style={{ padding: '0.45rem 0.35rem', minWidth: 145 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', position: 'relative', width: '100%' }}>
+                                    <input
+                                      id={`bulk-row-purchase-date-${row._id}`}
+                                      type="date"
+                                      value={row.purchaseDate || ''}
+                                      onChange={(e) => updateRowField(row._id, 'purchaseDate', e.target.value)}
+                                      style={{
+                                        ...cellInputStyle,
+                                        width: '100%',
+                                        padding: '0.22rem 0.4rem',
+                                        paddingRight: '1.8rem',
+                                        fontSize: '0.74rem',
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const el = document.getElementById(`bulk-row-purchase-date-${row._id}`) as HTMLInputElement | null;
+                                        if (el) {
+                                          if (typeof el.showPicker === 'function') {
+                                            el.showPicker();
+                                          } else {
+                                            el.focus();
+                                          }
+                                        }
+                                      }}
+                                      title="Open Calendar Picker"
+                                      style={{
+                                        position: 'absolute',
+                                        right: '4px',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '2px',
+                                        color: '#6366f1',
+                                      }}
+                                    >
+                                      <CalendarIcon size={14} color="#6366f1" />
+                                    </button>
+                                  </div>
                                 </td>
 
                                 {/* INCOMING STOCK */}
@@ -4520,14 +4527,14 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Total Inward Units</div>
                   </div>
                   <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
-                      <TruckIcon size={16} color="#d97706" />
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: selectedSupplier ? '#fef3c7' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
+                      <TruckIcon size={16} color={selectedSupplier ? '#d97706' : '#64748b'} />
                     </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#b45309', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {selectedSupplier?.name || 'Selected Supplier'}
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: selectedSupplier ? '#b45309' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedSupplier ? selectedSupplier.name : 'Supplier is not selected'}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      {selectedSupplier?.gstin ? `GST: ${selectedSupplier.gstin}` : 'Linked Supplier'}
+                      {selectedSupplier ? (selectedSupplier.gstin ? `GST: ${selectedSupplier.gstin}` : 'Linked Supplier') : 'Optional: Direct Import'}
                     </div>
                   </div>
                 </div>
@@ -4540,7 +4547,11 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                   </div>
                   <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.8 }}>
                     <li>
-                      All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and inward stock movements will be linked to supplier <strong style={{ color: '#b45309' }}>{selectedSupplier?.name}</strong>.
+                      {selectedSupplier ? (
+                        <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and inward stock movements will be linked to supplier <strong style={{ color: '#b45309' }}>{selectedSupplier.name}</strong>.</>
+                      ) : (
+                        <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and opening stock movements will be imported (<strong style={{ color: '#475569' }}>Supplier is not selected</strong> - optional).</>
+                      )}
                     </li>
                     <li>
                       <strong style={{ color: '#16a34a' }}>{restockRows.length} existing products</strong> will have incoming quantities added to current available inventory without duplicating products or modifying their existing barcodes.
@@ -4689,7 +4700,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         Successfully imported {importResult.created} new product{importResult.created !== 1 ? 's' : ''}, restocked {importResult.restocked} existing product{importResult.restocked !== 1 ? 's' : ''}, and saved {importResult.barcodesSaved ?? 0} barcode mapping{importResult.barcodesSaved !== 1 ? 's' : ''}!
                       </div>
                       <div style={{ fontSize: '0.8rem', color: '#059669', marginTop: '0.3rem', display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
-                        <span>Linked Supplier: <strong>{importResult.supplierName || selectedSupplier?.name || 'Selected Supplier'}</strong></span>
+                        <span>Linked Supplier: <strong>{importResult.supplierName || selectedSupplier?.name || 'None (Optional)'}</strong></span>
                         {importResult.purchaseNumber && (
                           <span>• Purchase Order: <strong>{importResult.purchaseNumber}</strong></span>
                         )}
@@ -4858,18 +4869,30 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '0.4rem',
-                          padding: '0.35rem 0.8rem',
+                          gap: '0.45rem',
+                          padding: '0.35rem 0.85rem',
                           borderRadius: '20px',
-                          background: '#fffbeb',
-                          border: '1px solid #fde68a',
-                          color: '#b45309',
+                          background: '#f8fafc',
+                          border: '1px solid #cbd5e1',
+                          color: '#475569',
                           fontSize: '0.82rem',
                           fontWeight: 600,
                         }}
+                        title="Supplier selection is optional. You can proceed with import."
                       >
-                        <AlertTriangleIcon size={14} color="#d97706" />
-                        <span>Select a Supplier above to proceed</span>
+                        <span
+                          style={{
+                            background: '#e2e8f0',
+                            color: '#334155',
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Optional
+                        </span>
+                        <span>Supplier is not selected • All <strong>{eligibleRows.length}</strong> rows ready</span>
                       </span>
                     ) : (
                       <span
@@ -4895,11 +4918,6 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                   <button
                     id="bulk-review-import-btn"
                     onClick={() => {
-                      if (!selectedSupplierId) {
-                        setApiError('Please select a Supplier before proceeding to import.');
-                        setIsSupplierDropdownOpen(true);
-                        return;
-                      }
                       const hasPendingBarcodes = validatedRows.some(
                         (r) => !r.matchedItem && r.status !== 'RESTOCK' && (!r.barcode || !r.barcode.trim())
                       );
@@ -4909,17 +4927,17 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                       }
                       setStep('confirm');
                     }}
-                    disabled={eligibleRows.length === 0 || !selectedSupplierId}
+                    disabled={eligibleRows.length === 0}
                     style={{
-                      background: eligibleRows.length > 0 && selectedSupplierId ? 'var(--primary)' : '#cbd5e1',
+                      background: eligibleRows.length > 0 ? 'var(--primary)' : '#cbd5e1',
                       color: '#ffffff',
                       border: 'none',
                       borderRadius: '10px',
                       padding: '0.65rem 1.4rem',
                       fontWeight: 700,
                       fontSize: '0.9rem',
-                      cursor: eligibleRows.length > 0 && selectedSupplierId ? 'pointer' : 'not-allowed',
-                      boxShadow: eligibleRows.length > 0 && selectedSupplierId ? '0 4px 14px var(--primary-glow, rgba(59, 30, 54, 0.25))' : 'none',
+                      cursor: eligibleRows.length > 0 ? 'pointer' : 'not-allowed',
+                      boxShadow: eligibleRows.length > 0 ? '0 4px 14px var(--primary-glow, rgba(59, 30, 54, 0.25))' : 'none',
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.5rem',
@@ -4944,6 +4962,26 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                   <ArrowLeftIcon size={14} />
                   <span>Back to Review</span>
                 </button>
+
+                {!selectedSupplierId && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '20px',
+                      background: '#f8fafc',
+                      border: '1px solid #cbd5e1',
+                      color: '#475569',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <TruckIcon size={14} color="#64748b" />
+                    <span>Supplier is not selected (Optional)</span>
+                  </span>
+                )}
 
                 <button
                   id="bulk-confirm-import-btn"

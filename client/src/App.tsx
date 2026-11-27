@@ -222,6 +222,11 @@ import { ReturnReportsView } from './components/reports/ReturnReportsView.tsx';
 import { NotificationsPageView } from './components/notifications/NotificationsPageView.tsx';
 import { submitExchange } from './api';
 import { ResponsiveNavbar } from './components/navigation/ResponsiveNavbar';
+import { VariantPickerModal } from './components/pos/VariantPickerModal.tsx';
+import { TailoringModal } from './components/tailoring/TailoringModal.tsx';
+import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
+import { TextileReportsView } from './components/reports/TextileReportsView.tsx';
+import { getItemVariants, saveItemVariants, type ProductVariant, type TailoringOrder } from './api.ts';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -400,6 +405,7 @@ export const TAB_PAGE_TITLES: Record<string, string> = {
   'gst-filing-history': 'GST Filing History',
   'day-closing': 'Day Closing & Register Reconciliation',
   'return-reports': 'Returns, Exchanges & Profit Reports',
+  'textile-reports': 'Textile & Variant Reports',
   'notifications': 'Notifications & Shift Activity',
 };
 
@@ -679,6 +685,10 @@ export const CASHIER_ALLOWED_TABS = new Set<string>(['pos', 'shifts', 'invoices'
 export interface PosCartItem {
   item: Item;
   qty: number;
+  variant?: ProductVariant | null;
+  lineType?: 'item' | 'cutting_charge' | 'tailoring';
+  lengthUnit?: 'm' | 'yd';
+  originalLength?: number;
   isReturn?: boolean;
   origInvoiceId?: string;
   origInvoiceNumber?: string;
@@ -747,6 +757,7 @@ export function App() {
     | 'user-management'
     | 'day-closing'
     | 'return-reports'
+    | 'textile-reports'
     | 'notifications'
   >(() => {
     try {
@@ -2135,6 +2146,7 @@ export function App() {
   const [settingsName, setSettingsName] = useState('');
   const [settingsWholesaleBusinessName, setSettingsWholesaleBusinessName] = useState('');
   const [settingsType, setSettingsType] = useState('retail');
+  const [settingsGstEnabled, setSettingsGstEnabled] = useState(false);
   const [settingsGstin, setSettingsGstin] = useState('');
   const [settingsPhone, setSettingsPhone] = useState('');
   const [settingsAddress, setSettingsAddress] = useState('');
@@ -2378,16 +2390,44 @@ export function App() {
   const [itemFormHsn, setItemFormHsn] = useState('');
   const [itemFormUnit, setItemFormUnit] = useState('pcs');
   const [itemFormCategory, setItemFormCategory] = useState('');
+  const [itemFormCategoryId, setItemFormCategoryId] = useState('');
+  const [itemFormSubcategoryId, setItemFormSubcategoryId] = useState('');
+  const [itemFormProductType, setItemFormProductType] = useState<'Retail' | 'Wholesale'>('Retail');
+  const [itemFormSize, setItemFormSize] = useState('');
+  const [itemFormMaterial, setItemFormMaterial] = useState('');
+  const [itemFormDesignPattern, setItemFormDesignPattern] = useState('');
+  const [itemFormDescription, setItemFormDescription] = useState('');
   const [itemFormPrice, setItemFormPrice] = useState('');
+  const [itemFormMrp, setItemFormMrp] = useState('');
+  const [itemFormOfferPercentage, setItemFormOfferPercentage] = useState('0');
   const [itemFormWholesalePrice, setItemFormWholesalePrice] = useState('');
   const [itemFormMinWholesaleQty, setItemFormMinWholesaleQty] = useState('');
   const [itemFormCost, setItemFormCost] = useState('');
+  const [itemFormPurchaseDate, setItemFormPurchaseDate] = useState('');
   const [itemFormTax, setItemFormTax] = useState('500');
   const [itemFormStock, setItemFormStock] = useState('0');
   const [itemFormReorder, setItemFormReorder] = useState('0');
   const [itemFormSupplierId, setItemFormSupplierId] = useState('');
   const [itemFormImageUrl, setItemFormImageUrl] = useState('');
   const [isUploadingItemImage, setIsUploadingItemImage] = useState(false);
+
+  // Textile Variants & Matrix Master State
+  const [itemFormItemType, setItemFormItemType] = useState<'simple' | 'variant'>('simple');
+  const [itemFormVariants, setItemFormVariants] = useState<any[]>([]);
+  const [matrixSizes, setMatrixSizes] = useState('S, M, L, XL');
+  const [matrixColours, setMatrixColours] = useState('Red, Blue, Black');
+
+  // POS Variant Picker & Exchange Modal State
+  const [isVariantPickerOpen, setIsVariantPickerOpen] = useState(false);
+  const [variantPickerItem, setVariantPickerItem] = useState<Item | null>(null);
+  const [variantPickerMode, setVariantPickerMode] = useState<'add_to_cart' | 'exchange'>('add_to_cart');
+  const [variantPickerCurrentVarId, setVariantPickerCurrentVarId] = useState<string | null>(null);
+
+  // Tailoring & Stitching Modal State
+  const [showTailoringModal, setShowTailoringModal] = useState(false);
+
+  // Size-Ratio Purchase Inward Modal State
+  const [showSizeRatioModal, setShowSizeRatioModal] = useState(false);
 
   const handleItemImageFileSelect = async (file: File) => {
     if (!file) return;
@@ -3080,6 +3120,7 @@ export function App() {
     setSettingsName(s.name || '');
     setSettingsWholesaleBusinessName(s.wholesaleBusinessName || (s as any).wholesale_business_name || (s.invoiceProfiles?.wholesale?.displayName) || '');
     setSettingsType(s.businessType || 'retail');
+    setSettingsGstEnabled(Boolean(s.gstEnabled));
     setSettingsGstin(s.gstin || '');
     setSettingsPhone(s.phone || '');
     setSettingsAddress(s.address || '');
@@ -4170,6 +4211,7 @@ export function App() {
               name: settingsName,
               wholesaleBusinessName: settingsWholesaleBusinessName.trim() || null,
               businessType: settingsType,
+              gstEnabled: settingsGstEnabled,
               gstin: settingsGstin || null,
               phone: settingsPhone || null,
               address: settingsAddress || null,
@@ -4208,6 +4250,7 @@ export function App() {
           name: settingsName,
           wholesaleBusinessName: settingsWholesaleBusinessName.trim() || null,
           businessType: settingsType,
+          gstEnabled: settingsGstEnabled,
           gstin: settingsGstin || null,
           phone: settingsPhone || null,
           address: settingsAddress || null,
@@ -4245,6 +4288,7 @@ export function App() {
           name: settingsName,
           wholesaleBusinessName: settingsWholesaleBusinessName.trim() || null,
           businessType: settingsType,
+          gstEnabled: settingsGstEnabled,
           gstin: settingsGstin || null,
           phone: settingsPhone || null,
           address: settingsAddress || null,
@@ -4408,6 +4452,141 @@ export function App() {
     );
   };
 
+  const updateCartQtyByIndex = (cartIdx: number, delta: number) => {
+    setCart((prev) => {
+      const target = prev[cartIdx];
+      if (!target) return prev;
+      if (delta > 0 && !target.isReturn) {
+        const avail = target.variant?.stockMilli != null
+          ? target.variant.stockMilli / 1000
+          : getAvailableStockUnits(target.item.id, target.item);
+        if (target.qty + delta > avail) {
+          playAlertTone();
+          showToast(`Insufficient stock. Only ${avail} unit${avail === 1 ? '' : 's'} available.`, 'warning');
+          return prev;
+        }
+      }
+      const newQty = target.qty + delta;
+      if (newQty <= 0) {
+        return prev.filter((_, idx) => idx !== cartIdx);
+      }
+      return prev.map((c, idx) => (idx === cartIdx ? { ...c, qty: newQty } : c));
+    });
+  };
+
+  const handleDirectCartQtyChange = (cartIdx: number, val: number) => {
+    setCart((prev) => {
+      const target = prev[cartIdx];
+      if (!target) return prev;
+      if (val <= 0) {
+        return prev.filter((_, idx) => idx !== cartIdx);
+      }
+      return prev.map((c, idx) => (idx === cartIdx ? { ...c, qty: val } : c));
+    });
+  };
+
+  const toggleLengthUnit = (cartIdx: number) => {
+    setCart((prev) => {
+      const target = prev[cartIdx];
+      if (!target) return prev;
+      const curUnit = target.lengthUnit || (target.item.unit === 'yd' || target.item.unit === 'yard' ? 'yd' : 'm');
+      if (curUnit === 'm') {
+        const inYards = Number((target.qty / 0.9144).toFixed(3));
+        return prev.map((c, idx) => (idx === cartIdx ? { ...c, qty: inYards, lengthUnit: 'yd' } : c));
+      } else {
+        const inMetres = Number((target.qty * 0.9144).toFixed(3));
+        return prev.map((c, idx) => (idx === cartIdx ? { ...c, qty: inMetres, lengthUnit: 'm' } : c));
+      }
+    });
+  };
+
+  const handleSelectVariantFromPicker = (variant: ProductVariant) => {
+    if (!variantPickerItem) return;
+    setCart((prev) => {
+      const foundIdx = prev.findIndex((c) => c.item.id === variantPickerItem.id && c.variant?.id === variant.id);
+      if (foundIdx >= 0) {
+        return prev.map((c, idx) =>
+          idx === foundIdx ? { ...c, qty: c.qty + 1 } : c
+        );
+      }
+      const variantItem: Item = {
+        ...variantPickerItem,
+        priceMinor: variant.priceMinor,
+        mrpMinor: variant.mrpMinor ?? variantPickerItem.mrpMinor,
+        currentStockMilli: variant.stockMilli ?? variantPickerItem.currentStockMilli,
+        sku: variant.sku || variantPickerItem.sku,
+        barcode: variant.barcode || variantPickerItem.barcode,
+      };
+      return [...prev, { item: variantItem, qty: 1, variant }];
+    });
+    playSupermarketBeep();
+    showToast(`Added ${variantPickerItem.name} (${variant.size || ''} / ${variant.colour || ''})`);
+  };
+
+  const handleExchangeVariant = (oldVariantId: string | null, newVariant: ProductVariant) => {
+    if (!variantPickerItem) return;
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c.item.id === variantPickerItem.id && (oldVariantId ? c.variant?.id === oldVariantId : true)) {
+          const updatedItem: Item = {
+            ...c.item,
+            priceMinor: newVariant.priceMinor,
+            mrpMinor: newVariant.mrpMinor ?? c.item.mrpMinor,
+            currentStockMilli: newVariant.stockMilli ?? c.item.currentStockMilli,
+            sku: newVariant.sku || c.item.sku,
+            barcode: newVariant.barcode || c.item.barcode,
+          };
+          return {
+            ...c,
+            item: updatedItem,
+            variant: newVariant,
+          };
+        }
+        return c;
+      })
+    );
+    showToast(`Exchanged to ${newVariant.size || ''} / ${newVariant.colour || ''}`);
+  };
+
+  const addCuttingCharge = () => {
+    const chargeStr = prompt('Enter Tailoring / Cutting / Stitching charge amount (₹):', '50');
+    if (!chargeStr) return;
+    const val = parseFloat(chargeStr);
+    if (isNaN(val) || val <= 0) return;
+    const chargeItem: Item = {
+      id: `charge_${Date.now()}`,
+      name: 'Tailoring / Cutting Charge (SAC 9988)',
+      priceMinor: Math.round(val * 100),
+      unit: 'svc',
+      currentStockMilli: 999000,
+      active: true,
+      hsn: '9988',
+      taxRateBp: Boolean(shop?.gstEnabled) ? 500 : 0,
+    } as Item;
+    setCart((prev) => [...prev, { item: chargeItem, qty: 1, lineType: 'cutting_charge' }]);
+    showToast(`Added Tailoring Charge of ₹${val.toFixed(2)}`);
+  };
+
+  const handleAddRatioLinesToPurchase = (lines: any[]) => {
+    setPurLines((prev) => [
+      ...prev,
+      ...lines.map((l) => ({
+        itemId: l.itemId,
+        name: l.name,
+        billedQty: l.billedQtyMilli / 1000,
+        receivedQty: l.receivedQtyMilli / 1000,
+        costRupees: l.costMinor / 100,
+        taxRateBp: l.taxRateBp || 0,
+        unit: l.unit || 'pcs',
+        discountRupees: 0,
+        batchNo: '',
+        expiry: '',
+        variantId: l.variantId || null,
+      })),
+    ]);
+    showToast(`Added ${lines.length} inward line(s) to purchase`);
+  };
+
   // Play authentic POS supermarket checkout beep tone
   const playSupermarketBeep = () => {
     if (!scannerSoundEnabled) return;
@@ -4545,6 +4724,36 @@ export function App() {
       } catch { }
     }
 
+    // 2b. If still not found, check variants lookup endpoint
+    if (!matched) {
+      try {
+        const vRes = await api<{ matches?: Array<{ id: string; product_id: string; size: string; colour: string; price_minor: number; mrp_minor?: number; stock_milli: number; sku: string; barcode: string; product_name: string }> }>(`/api/variants/lookup?q=${encodeURIComponent(clean)}`);
+        if (vRes?.matches && vRes.matches.length > 0) {
+          const match = vRes.matches[0];
+          const parentItem = catalog.find((it) => it.id === match.product_id);
+          if (parentItem) {
+            setActiveTab('pos');
+            const varObj: ProductVariant = {
+              id: match.id,
+              tenantId: '',
+              productId: match.product_id,
+              size: match.size,
+              colour: match.colour,
+              sku: match.sku,
+              barcode: match.barcode,
+              costMinor: (match as any).cost_minor ?? parentItem.costMinor ?? 0,
+              priceMinor: match.price_minor,
+              mrpMinor: match.mrp_minor,
+              stockMilli: match.stock_milli,
+              active: true,
+            };
+            handleSelectVariantFromPicker(varObj);
+            return;
+          }
+        }
+      } catch { }
+    }
+
     console.log('📱 Barcode received on desktop:', clean, 'Matched item:', matched?.name);
 
     if (matched) {
@@ -4555,6 +4764,15 @@ export function App() {
       }
       // Automatically switch to POS Billing tab if user is currently on another tab (like Products catalog)!
       setActiveTab('pos');
+
+      if (matched.itemType === 'variant') {
+        setVariantPickerItem(matched);
+        setVariantPickerCurrentVarId(null);
+        setVariantPickerMode('add_to_cart');
+        setIsVariantPickerOpen(true);
+        return;
+      }
+
       const added = addToCart(matched);
       if (added) {
         playSupermarketBeep();
@@ -4931,7 +5149,15 @@ export function App() {
   const pointsDiscountMinor = redeemPoints ? potentialDiscountMinor : 0;
   const pointsActuallyRedeemed = redeemPoints ? maxRedeemablePoints : 0;
   const promoDiscountMinor = promoEvalResult?.totalDiscountMinor || 0;
-  const discountMinor = percentDiscountMinor + pointsDiscountMinor + promoDiscountMinor;
+  const cartOfferDiscountMinor = useMemo(() => {
+    return normalCartItems.reduce((acc, c) => {
+      if (c.item.offerPercentage && c.item.offerPercentage > 0) {
+        return acc + Math.round((c.item.priceMinor * c.item.offerPercentage) / 100) * c.qty;
+      }
+      return acc;
+    }, 0);
+  }, [normalCartItems]);
+  const discountMinor = cartOfferDiscountMinor + percentDiscountMinor + pointsDiscountMinor + promoDiscountMinor;
 
   // Amount payable on new items after discounts
   const newItemsPayableMinor = Math.max(0, cartTotalMinor - discountMinor);
@@ -6156,17 +6382,25 @@ export function App() {
           ? (activeQrAttempt?.providerPaymentId || (upiManualRef.trim() ? upiManualRef.trim() : undefined))
           : (exchangeMethod === 'card' ? (paymentCardRef || 'CARD_PAYMENT') : undefined);
 
-        const exchangeLines = normalCartItems.map((c, idx) => ({
-          itemId: c.item.id?.startsWith('custom-') ? undefined : c.item.id,
-          name: c.item.name,
-          qtyMilli: Math.round(c.qty * 1000),
-          priceMinor: Math.round(c.item.priceMinor),
-          discountMinor: promoEvalResult?.lineDiscounts[idx] || 0,
-          taxRateBp: Math.round(c.item.taxRateBp || 0),
-          inclusive: false,
-          unit: c.item.unit,
-          hsn: c.item.hsn,
-        }));
+        const exchangeLines = normalCartItems.map((c, idx) => {
+          const lineOfferDiscount = c.item.offerPercentage && c.item.offerPercentage > 0
+            ? Math.round((c.item.priceMinor * c.item.offerPercentage) / 100) * c.qty
+            : 0;
+          return {
+            itemId: c.item.id?.startsWith('custom-') ? undefined : c.item.id,
+            variantId: c.variant?.id || undefined,
+            lineType: c.lineType || 'item',
+            decimalQty: c.qty,
+            name: c.variant ? `${c.item.name} (${c.variant.size}${c.variant.colour ? ` / ${c.variant.colour}` : ''})` : c.item.name,
+            qtyMilli: Math.round(c.qty * 1000),
+            priceMinor: Math.round(c.item.priceMinor),
+            discountMinor: (promoEvalResult?.lineDiscounts[idx] || 0) + lineOfferDiscount,
+            taxRateBp: Math.round(c.item.taxRateBp || 0),
+            inclusive: false,
+            unit: c.item.unit,
+            hsn: c.item.hsn,
+          };
+        });
 
         const exchangeRes = await submitExchange({
           origInvoiceId: activeExchangeLines[0].origInvoiceId,
@@ -6260,17 +6494,25 @@ export function App() {
         return;
       }
 
-      const lines = normalCartItems.map((c, idx) => ({
-        itemId: c.item.id?.startsWith('custom-') ? undefined : c.item.id,
-        name: c.item.name,
-        qtyMilli: Math.round(c.qty * 1000),
-        priceMinor: Math.round(c.item.priceMinor),
-        discountMinor: promoEvalResult?.lineDiscounts[idx] || 0,
-        taxRateBp: Math.round(c.item.taxRateBp || 0),
-        inclusive: false,
-        unit: c.item.unit,
-        hsn: c.item.hsn,
-      }));
+      const lines = normalCartItems.map((c, idx) => {
+        const lineOfferDiscount = c.item.offerPercentage && c.item.offerPercentage > 0
+          ? Math.round((c.item.priceMinor * c.item.offerPercentage) / 100) * c.qty
+          : 0;
+        return {
+          itemId: c.item.id?.startsWith('custom-') ? undefined : c.item.id,
+          variantId: c.variant?.id || undefined,
+          lineType: c.lineType || 'item',
+          decimalQty: c.qty,
+          name: c.variant ? `${c.item.name} (${c.variant.size}${c.variant.colour ? ` / ${c.variant.colour}` : ''})` : c.item.name,
+          qtyMilli: Math.round(c.qty * 1000),
+          priceMinor: Math.round(c.item.priceMinor),
+          discountMinor: (promoEvalResult?.lineDiscounts[idx] || 0) + lineOfferDiscount,
+          taxRateBp: Math.round(c.item.taxRateBp || 0),
+          inclusive: false,
+          unit: c.item.unit,
+          hsn: c.item.hsn,
+        };
+      });
 
       let paymentsPayload: { method: string; amountMinor: number; reference?: string }[] = [];
       let tenderPayload: { cashReceivedMinor: number; changeReturnedMinor: number } | null = null;
@@ -7027,12 +7269,25 @@ export function App() {
     setItemFormBarcode('');
     setItemFormHsn('');
     setItemFormUnit('pcs');
-    setItemFormCategory(categoriesList[0]?.name || '');
+    const firstParentCat = categoriesList.find((c) => !c.parentId && c.active);
+    setItemFormCategoryId(firstParentCat?.id || '');
+    setItemFormCategory(firstParentCat?.name || categoriesList[0]?.name || '');
+    setItemFormSubcategoryId('');
+    setItemFormItemType('simple');
+    setItemFormVariants([]);
+    setItemFormProductType('Retail');
+    setItemFormSize('');
+    setItemFormMaterial('');
+    setItemFormDesignPattern('');
+    setItemFormDescription('');
     setItemFormPrice('');
     setItemFormWholesalePrice('');
     setItemFormMinWholesaleQty('');
     setItemFormCost('');
-    setItemFormTax('500');
+    setItemFormPurchaseDate(new Date().toISOString().slice(0, 10));
+    setItemFormMrp('');
+    setItemFormOfferPercentage('0');
+    setItemFormTax('0');
     setItemFormStock('50');
     setItemFormReorder('10');
     setItemFormSupplierId('');
@@ -7051,12 +7306,29 @@ export function App() {
     setItemFormBarcode(item.barcode || '');
     setItemFormHsn(item.hsn || '');
     setItemFormUnit(item.unit || 'pcs');
-    setItemFormCategory(item.category || '');
+    setItemFormCategoryId(item.categoryId || '');
+    setItemFormCategory(item.category || item.categoryName || '');
+    setItemFormSubcategoryId(item.subcategoryId || '');
+    setItemFormProductType((item.productType as 'Retail' | 'Wholesale') || 'Retail');
+    const isVar = (item.itemType as any) === 'variant';
+    setItemFormItemType(isVar ? 'variant' : 'simple');
+    if (isVar) {
+      getItemVariants(item.id).then((res) => setItemFormVariants(res.variants || [])).catch(() => setItemFormVariants([]));
+    } else {
+      setItemFormVariants([]);
+    }
+    setItemFormSize(item.size || '');
+    setItemFormMaterial(item.material || '');
+    setItemFormDesignPattern(item.designPattern || '');
+    setItemFormDescription(item.description || '');
     setItemFormPrice((item.priceMinor / 100).toFixed(2));
     setItemFormWholesalePrice(item.wholesalePriceMinor != null ? (item.wholesalePriceMinor / 100).toFixed(2) : '');
     setItemFormMinWholesaleQty(item.minWholesaleQtyMilli != null ? String(item.minWholesaleQtyMilli / 1000) : '');
     setItemFormCost(item.costMinor ? (item.costMinor / 100).toFixed(2) : '');
-    setItemFormTax(String(item.taxRateBp));
+    setItemFormPurchaseDate(item.purchaseDate ? item.purchaseDate.slice(0, 10) : '');
+    setItemFormMrp(item.mrpMinor ? (item.mrpMinor / 100).toFixed(2) : '');
+    setItemFormOfferPercentage(String(item.offerPercentage ?? 0));
+    setItemFormTax(String(item.taxRateBp || 0));
     setItemFormStock(String(item.currentStockMilli / 1000));
     setItemFormReorder(String(((item.reorderMilli ?? item.reorderLevelMilli) || 0) / 1000));
     setItemFormSupplierId(item.preferredSupplierId || '');
@@ -7108,57 +7380,106 @@ export function App() {
     return () => clearTimeout(timer);
   }, [itemFormHsn, showItemModal]);
 
+  const handleGenerateVariantMatrix = () => {
+    const rawSizes = matrixSizes.split(',').map((s) => s.trim()).filter(Boolean);
+    const rawColours = matrixColours.split(',').map((c) => c.trim()).filter(Boolean);
+    const sizes = rawSizes.length > 0 ? rawSizes : ['Standard'];
+    const colours = rawColours.length > 0 ? rawColours : ['Standard'];
+    const basePrice = Math.round((parseFloat(itemFormPrice) || 0) * 100);
+    const baseMrp = itemFormMrp ? Math.round((parseFloat(itemFormMrp) || 0) * 100) : null;
+    const baseCost = itemFormCost ? Math.round((parseFloat(itemFormCost) || 0) * 100) : null;
+    const baseStock = Math.max(0, Math.round((parseFloat(itemFormStock) || 0) * 1000));
+    const cleanBaseSku = (itemFormSku || itemFormName.replace(/[^A-Za-z0-9]/g, '').slice(0, 6) || 'SKU').toUpperCase();
+
+    const newVariants: any[] = [];
+    sizes.forEach((sz) => {
+      colours.forEach((col) => {
+        const varSku = `${cleanBaseSku}-${sz.toUpperCase()}-${col.slice(0, 3).toUpperCase()}`;
+        const autoBc = '20' + Date.now().toString().slice(-9) + Math.floor(Math.random() * 10);
+        newVariants.push({
+          size: sz,
+          colour: col,
+          sku: varSku,
+          barcode: autoBc,
+          priceMinor: basePrice,
+          mrpMinor: baseMrp,
+          costMinor: baseCost,
+          stockMilli: baseStock > 0 ? Math.floor(baseStock / (sizes.length * colours.length)) : 0,
+          reorderLevelMilli: 10000,
+          active: true,
+        });
+      });
+    });
+    setItemFormVariants(newVariants);
+    showToast(`Generated ${newVariants.length} variant combinations!`);
+  };
+
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const targetBranchId = activeBranch?.id || (selectedBranchScope && selectedBranchScope.toLowerCase() !== 'all' ? selectedBranchScope : undefined);
+      const catObj = categoriesList.find((c) => c.id === itemFormCategoryId);
+      const categoryName = catObj ? catObj.name : itemFormCategory;
+
+      const payload = {
+        name: itemFormName,
+        sku: itemFormSku || null,
+        barcode: itemFormBarcode || null,
+        branchId: targetBranchId,
+        hsn: itemFormHsn || null,
+        unit: itemFormUnit,
+        itemType: itemFormItemType,
+        categoryId: itemFormCategoryId || null,
+        category: categoryName || null,
+        subcategoryId: itemFormSubcategoryId || null,
+        productType: itemFormProductType,
+        size: itemFormSize.trim() || null,
+        material: itemFormMaterial.trim() || null,
+        designPattern: itemFormDesignPattern.trim() || null,
+        description: itemFormDescription.trim() || null,
+        priceMinor: Math.round(parseFloat(itemFormPrice) * 100),
+        mrpMinor: itemFormMrp && !isNaN(parseFloat(itemFormMrp)) ? Math.round(parseFloat(itemFormMrp) * 100) : null,
+        offerPercentage: itemFormOfferPercentage && !isNaN(parseFloat(itemFormOfferPercentage)) ? parseFloat(itemFormOfferPercentage) : 0,
+        wholesalePriceMinor: itemFormWholesalePrice && !isNaN(parseFloat(itemFormWholesalePrice)) ? Math.round(parseFloat(itemFormWholesalePrice) * 100) : null,
+        minWholesaleQtyMilli: itemFormMinWholesaleQty && !isNaN(parseFloat(itemFormMinWholesaleQty)) ? Math.max(0, Math.round(parseFloat(itemFormMinWholesaleQty) * 1000)) : null,
+        costMinor: itemFormCost ? Math.round(parseFloat(itemFormCost) * 100) : 0,
+        purchaseDate: itemFormPurchaseDate.trim() || null,
+        taxRateBp: 0,
+        taxInclusive: false,
+        preferredSupplierId: itemFormSupplierId || null,
+        imageUrl: itemFormImageUrl.trim() || null,
+      };
+
+      let savedItemId = editingItem ? editingItem.id : null;
       if (editingItem) {
         await api(`/api/items/${editingItem.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            name: itemFormName,
-            sku: itemFormSku || null,
-            barcode: itemFormBarcode || null,
+            ...payload,
             branchId: editingItem.branchId || targetBranchId,
-            hsn: itemFormHsn || null,
-            unit: itemFormUnit,
-            category: itemFormCategory || null,
-            priceMinor: Math.round(parseFloat(itemFormPrice) * 100),
-            wholesalePriceMinor: itemFormWholesalePrice && !isNaN(parseFloat(itemFormWholesalePrice)) ? Math.round(parseFloat(itemFormWholesalePrice) * 100) : null,
-            minWholesaleQtyMilli: itemFormMinWholesaleQty && !isNaN(parseFloat(itemFormMinWholesaleQty)) ? Math.max(0, Math.round(parseFloat(itemFormMinWholesaleQty) * 1000)) : null,
-            costMinor: itemFormCost ? Math.round(parseFloat(itemFormCost) * 100) : 0,
-            taxRateBp: parseInt(itemFormTax, 10),
-            taxInclusive: false,
             reorderLevelMilli: Math.max(Math.round((parseFloat(itemFormReorder) || 0) * 1000), 0),
-            preferredSupplierId: itemFormSupplierId || null,
-            imageUrl: itemFormImageUrl.trim() || null,
           }),
         });
         showToast(`Item "${itemFormName}" updated successfully!`);
       } else {
-        await api('/api/items', {
+        const createRes = await api<{ item?: Item }>('/api/items', {
           method: 'POST',
           body: JSON.stringify({
-            name: itemFormName,
-            sku: itemFormSku || null,
-            barcode: itemFormBarcode || null,
-            branchId: targetBranchId,
-            hsn: itemFormHsn || null,
-            unit: itemFormUnit,
-            category: itemFormCategory || null,
-            priceMinor: Math.round(parseFloat(itemFormPrice) * 100),
-            wholesalePriceMinor: itemFormWholesalePrice && !isNaN(parseFloat(itemFormWholesalePrice)) ? Math.round(parseFloat(itemFormWholesalePrice) * 100) : null,
-            minWholesaleQtyMilli: itemFormMinWholesaleQty && !isNaN(parseFloat(itemFormMinWholesaleQty)) ? Math.max(0, Math.round(parseFloat(itemFormMinWholesaleQty) * 1000)) : null,
-            costMinor: itemFormCost ? Math.round(parseFloat(itemFormCost) * 100) : 0,
-            taxRateBp: parseInt(itemFormTax, 10),
-            taxInclusive: false,
+            ...payload,
             openingStockMilli: Math.max(Math.round((parseFloat(itemFormStock) || 0) * 1000), 0),
             reorderLevelMilli: Math.max(Math.round((parseFloat(itemFormReorder) || 0) * 1000), 0),
-            preferredSupplierId: itemFormSupplierId || null,
-            imageUrl: itemFormImageUrl.trim() || null,
           }),
         });
+        savedItemId = createRes?.item?.id || null;
         showToast(`Item "${itemFormName}" added to inventory!`);
+      }
+
+      if (savedItemId && itemFormItemType === 'variant' && itemFormVariants.length > 0) {
+        try {
+          await saveItemVariants(savedItemId, itemFormVariants);
+        } catch (vErr) {
+          console.error('Failed to save variants:', vErr);
+        }
       }
       setShowItemModal(false);
       loadItems();
@@ -9440,13 +9761,24 @@ export function App() {
                           <span className="nav-text">Returns &amp; Profit Report</span>
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        className={`sidebar-nav-item ${activeTab === 'textile-reports' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('textile-reports')}
+                      >
+                        <span className="nav-icon">
+                          <Layers size={16} strokeWidth={2.2} />
+                        </span>
+                        <span className="nav-text">Textile &amp; Variant Reports</span>
+                      </button>
                     </div>
                   )}
                 </>
               )}
 
-              {/* GST FILING - Matching upper section nav items */}
-              {user.role !== 'cashier' && isModuleVisible('gst') && (
+              {/* GST FILING - Only visible when GST is enabled for the shop profile */}
+              {user.role !== 'cashier' && Boolean(shop?.gstEnabled) && isModuleVisible('gst') && (
                 <>
                   <button
                     type="button"
@@ -10796,6 +11128,46 @@ export function App() {
                           </button>
                           <button
                             type="button"
+                            style={{
+                              background: '#f8fafc',
+                              border: '1px solid #cbd5e1',
+                              color: '#334155',
+                              padding: '0.35rem 0.65rem',
+                              borderRadius: '8px',
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            onClick={() => setShowTailoringModal(true)}
+                            title="Manage tailoring orders, repeat measurements and due dates"
+                          >
+                            ✂️ Tailoring
+                          </button>
+                          <button
+                            type="button"
+                            style={{
+                              background: '#f0fdf4',
+                              border: '1px solid #bbf7d0',
+                              color: '#166534',
+                              padding: '0.35rem 0.65rem',
+                              borderRadius: '8px',
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            onClick={addCuttingCharge}
+                            title="Add tailoring / cutting / stitching charge item"
+                          >
+                            + Cutting Charge
+                          </button>
+                          <button
+                            type="button"
                             className="bento-clear-cart-btn"
                             disabled={cart.length === 0}
                             onClick={() => {
@@ -11036,7 +11408,7 @@ export function App() {
 
                                 return (
                                   <div
-                                    key={item.id}
+                                    key={`${item.id}-${cartItem.variant?.id || 'base'}-${cartIdx}`}
                                     className={`bento-cart-row ${isReturn ? 'return-row' : ''}`}
                                     style={isReturn ? { background: '#fff5f5', borderLeft: '3.5px solid #ef4444' } : undefined}
                                   >
@@ -11071,6 +11443,61 @@ export function App() {
                                             <span className="bento-cart-cat-badge">
                                               {item.category || 'General'}
                                             </span>
+                                            {/* Textile Variant Size & Colour Badges + Exchange */}
+                                            {cartItem.variant && (
+                                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                                <span
+                                                  style={{
+                                                    background: '#eff6ff',
+                                                    color: '#1d4ed8',
+                                                    border: '1px solid #bfdbfe',
+                                                    padding: '1px 5px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '0.68rem',
+                                                    fontWeight: 750,
+                                                  }}
+                                                >
+                                                  Size: {cartItem.variant.size}
+                                                </span>
+                                                {cartItem.variant.colour && (
+                                                  <span
+                                                    style={{
+                                                      background: '#f8fafc',
+                                                      color: '#475569',
+                                                      border: '1px solid #cbd5e1',
+                                                      padding: '1px 5px',
+                                                      borderRadius: '4px',
+                                                      fontSize: '0.68rem',
+                                                      fontWeight: 600,
+                                                    }}
+                                                  >
+                                                    {cartItem.variant.colour}
+                                                  </span>
+                                                )}
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setVariantPickerItem(cartItem.item);
+                                                    setVariantPickerCurrentVarId(cartItem.variant?.id || null);
+                                                    setVariantPickerMode('exchange');
+                                                    setIsVariantPickerOpen(true);
+                                                  }}
+                                                  style={{
+                                                    background: '#e0e7ff',
+                                                    border: '1px solid #c7d2fe',
+                                                    color: '#4338ca',
+                                                    padding: '1px 6px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '0.68rem',
+                                                    fontWeight: 750,
+                                                    cursor: 'pointer',
+                                                  }}
+                                                  title="One-tap size/colour exchange with price difference settlement"
+                                                >
+                                                  ⇄ Exchange
+                                                </button>
+                                              </div>
+                                            )}
                                             {taxRateBp > 0 && !isReturn && (
                                               <span
                                                 className="bento-cart-tax-badge"
@@ -11120,12 +11547,20 @@ export function App() {
                                                 Save {formatRupees(lineSavings)}
                                               </span>
                                             )}
+                                            {item.offerPercentage && item.offerPercentage > 0 && (
+                                              <span
+                                                className="bento-cart-savings-tag bento-cart-offer-tag"
+                                                style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontWeight: 750 }}
+                                              >
+                                                Offer: {item.offerPercentage}% (-{formatRupees(Math.round((item.priceMinor * item.offerPercentage) / 100) * qty)})
+                                              </span>
+                                            )}
                                             {promoDiscount > 0 && (
                                               <span
                                                 className="bento-cart-savings-tag bento-cart-offer-tag"
                                                 style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontWeight: 750 }}
                                               >
-                                                Offer: -{formatRupees(promoDiscount)}
+                                                Promo: -{formatRupees(promoDiscount)}
                                               </span>
                                             )}
                                           </>
@@ -11133,28 +11568,74 @@ export function App() {
                                       </div>
                                     </div>
 
-                                    {/* Col 2: Quantity Stepper */}
+                                    {/* Col 2: Quantity Stepper & Metre/Yard Decimal Entry */}
                                     <div className="bento-row-qty-col">
-                                      <div className="bento-qty-stepper">
-                                        <button
-                                          type="button"
-                                          className="bento-qty-btn"
-                                          onClick={() => updateCartQty(item.id, -1)}
-                                          title="Decrease quantity"
-                                        >
-                                          -
-                                        </button>
-                                        <span className="bento-qty-value mono">{qty}</span>
-                                        <button
-                                          type="button"
-                                          className={`bento-qty-btn ${isMaxStock ? 'disabled' : ''}`}
-                                          disabled={isMaxStock}
-                                          onClick={() => updateCartQty(item.id, 1)}
-                                          title={isReturn ? 'Return quantity cannot exceed original bill quantity' : (isMaxStock ? `Insufficient stock. Only ${availStock} units available.` : 'Increase quantity')}
-                                        >
-                                          +
-                                        </button>
-                                      </div>
+                                      {item.unit === 'm' || item.unit === 'meter' || item.unit === 'yd' || item.unit === 'yard' || cartItem.lengthUnit ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              min="0.01"
+                                              className="mono"
+                                              value={qty}
+                                              onChange={(e) => handleDirectCartQtyChange(cartIdx, parseFloat(e.target.value) || 0)}
+                                              style={{
+                                                width: '56px',
+                                                padding: '2px 4px',
+                                                fontSize: '0.8rem',
+                                                fontWeight: 700,
+                                                textAlign: 'center',
+                                                border: '1px solid #cbd5e1',
+                                                borderRadius: '5px',
+                                              }}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleLengthUnit(cartIdx)}
+                                              style={{
+                                                fontSize: '0.68rem',
+                                                padding: '2px 5px',
+                                                borderRadius: '4px',
+                                                background: '#f1f5f9',
+                                                border: '1px solid #cbd5e1',
+                                                cursor: 'pointer',
+                                                fontWeight: 700,
+                                                color: '#334155',
+                                              }}
+                                              title={`Current: ${cartItem.lengthUnit === 'yd' ? 'Yards' : 'Metres'} (1 yd = 0.9144 m). Click to convert.`}
+                                            >
+                                              {cartItem.lengthUnit === 'yd' ? 'yd' : 'm'}
+                                            </button>
+                                          </div>
+                                          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>
+                                            {cartItem.lengthUnit === 'yd'
+                                              ? `≈ ${(qty * 0.9144).toFixed(2)} m`
+                                              : `≈ ${(qty / 0.9144).toFixed(2)} yd`}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="bento-qty-stepper">
+                                          <button
+                                            type="button"
+                                            className="bento-qty-btn"
+                                            onClick={() => updateCartQtyByIndex(cartIdx, -1)}
+                                            title="Decrease quantity"
+                                          >
+                                            -
+                                          </button>
+                                          <span className="bento-qty-value mono">{qty}</span>
+                                          <button
+                                            type="button"
+                                            className={`bento-qty-btn ${isMaxStock ? 'disabled' : ''}`}
+                                            disabled={isMaxStock}
+                                            onClick={() => updateCartQtyByIndex(cartIdx, 1)}
+                                            title={isReturn ? 'Return quantity cannot exceed original bill quantity' : (isMaxStock ? `Insufficient stock. Only ${availStock} units available.` : 'Increase quantity')}
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
 
                                     {/* Col 3: MRP */}
@@ -11182,20 +11663,30 @@ export function App() {
                                         <span className="bento-total-val mono" style={{ color: '#dc2626', fontWeight: 800 }}>
                                           -{formatRupees(Math.abs(lineTotal))}
                                         </span>
-                                      ) : promoEvalResult?.lineDiscounts[cartIdx] && promoEvalResult.lineDiscounts[cartIdx] > 0 ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                          <span style={{ textDecoration: 'line-through', color: '#94a3b8' }} className="bento-total-orig-val mono">
+                                      ) : (() => {
+                                        const lineOfferDiscount = item.offerPercentage && item.offerPercentage > 0
+                                          ? Math.round((item.priceMinor * item.offerPercentage) / 100) * qty
+                                          : 0;
+                                        const linePromoDiscount = promoEvalResult?.lineDiscounts[cartIdx] || 0;
+                                        const totalLineDiscount = lineOfferDiscount + linePromoDiscount;
+                                        if (totalLineDiscount > 0) {
+                                          return (
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                              <span style={{ textDecoration: 'line-through', color: '#94a3b8' }} className="bento-total-orig-val mono">
+                                                {formatRupees(lineTotal)}
+                                              </span>
+                                              <span className="bento-total-val mono text-success" style={{ fontWeight: 800 }}>
+                                                {formatRupees(Math.max(0, lineTotal - totalLineDiscount))}
+                                              </span>
+                                            </div>
+                                          );
+                                        }
+                                        return (
+                                          <span className="bento-total-val mono">
                                             {formatRupees(lineTotal)}
                                           </span>
-                                          <span className="bento-total-val mono text-success" style={{ fontWeight: 800 }}>
-                                            {formatRupees(Math.max(0, lineTotal - promoEvalResult.lineDiscounts[cartIdx]))}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <span className="bento-total-val mono">
-                                          {formatRupees(lineTotal)}
-                                        </span>
-                                      )}
+                                        );
+                                      })()}
                                     </div>
 
                                     {/* Col 6: Remove Action */}
@@ -11203,7 +11694,7 @@ export function App() {
                                       <button
                                         type="button"
                                         className="bento-row-remove-btn"
-                                        onClick={() => updateCartQty(item.id, -qty)}
+                                        onClick={() => updateCartQtyByIndex(cartIdx, -qty)}
                                         title={isReturn ? 'Remove return item' : 'Remove item'}
                                       >
                                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
@@ -11321,15 +11812,17 @@ export function App() {
                           )}
 
                           {/* CONSOLIDATED OVERALL GST WITH TAX BREAKDOWN */}
-                          <div className="bento-summary-row tax-row">
-                            <div className="tax-label-group">
-                              <span className="summary-label">{isExchangeActive ? 'New Items GST Tax' : 'Total GST Amount'}</span>
-                              <span className="tax-sub-breakdown">
-                                (CGST: {formatRupees(cartCgstMinor)} + SGST: {formatRupees(cartSgstMinor)})
-                              </span>
+                          {Boolean(shop?.gstEnabled) && (
+                            <div className="bento-summary-row tax-row">
+                              <div className="tax-label-group">
+                                <span className="summary-label">{isExchangeActive ? 'New Items GST Tax' : 'Total GST Amount'}</span>
+                                <span className="tax-sub-breakdown">
+                                  (CGST: {formatRupees(cartCgstMinor)} + SGST: {formatRupees(cartSgstMinor)})
+                                </span>
+                              </div>
+                              <span className="summary-val mono tax-val">+{formatRupees(cartTaxMinor)}</span>
                             </div>
-                            <span className="summary-val mono tax-val">+{formatRupees(cartTaxMinor)}</span>
-                          </div>
+                          )}
 
                           {/* LOYALTY POINTS EARNED / ADJUSTED ON BILL */}
                           {shopLoyaltyActive && cart.length > 0 && (
@@ -13689,6 +14182,13 @@ export function App() {
                                     showToast(`Insufficient stock. Only ${availStock} unit${availStock === 1 ? '' : 's'} available.`, 'warning');
                                     return;
                                   }
+                                  if (item.itemType === 'variant') {
+                                    setVariantPickerItem(item);
+                                    setVariantPickerCurrentVarId(null);
+                                    setVariantPickerMode('add_to_cart');
+                                    setIsVariantPickerOpen(true);
+                                    return;
+                                  }
                                   const added = addToCart(item);
                                   if (added) {
                                     playSupermarketBeep();
@@ -13798,6 +14298,13 @@ export function App() {
                                         if (isOutOfStock) {
                                           playAlertTone();
                                           showToast(`Insufficient stock for "${displayName}". 0 units available.`, 'warning');
+                                          return;
+                                        }
+                                        if (item.itemType === 'variant') {
+                                          setVariantPickerItem(item);
+                                          setVariantPickerCurrentVarId(null);
+                                          setVariantPickerMode('add_to_cart');
+                                          setIsVariantPickerOpen(true);
                                           return;
                                         }
                                         const added = addToCart(item);
@@ -14134,49 +14641,56 @@ export function App() {
                   <div className={`products-mobile-cards-wrap ${productMobileView === 'cards' ? 'active' : ''}`}>
                     {filteredMasterItems.map((i) => (
                       <div key={`m-card-${i.id}`} className={`product-mobile-card ${i.active === false ? 'inactive' : ''}`}>
-                        {/* Header: Thumbnail + Title + Badges */}
-                        <div className="product-mobile-card-header">
-                          <div className="product-mobile-img-box">
-                            {i.imageUrl || (i as any).image ? (
-                              <img
-                                src={i.imageUrl || (i as any).image}
-                                alt={i.name}
-                                referrerPolicy="no-referrer"
-                                onError={(e) => handleProductImageError(e, i.imageUrl || (i as any).image)}
-                              />
+                        {/* Header: Title + Badges (No Image) */}
+                        <div className="product-mobile-card-header" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <div className="product-mobile-name" style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a' }}>{i.name}</div>
+                            {i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? (
+                              <span className="badge badge-emerald" style={{ flexShrink: 0 }}>Active</span>
                             ) : (
-                              <div className="product-mobile-img-placeholder">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                                  <circle cx="8.5" cy="8.5" r="1.5" />
-                                  <polyline points="21 15 16 10 5 21" />
-                                </svg>
-                              </div>
+                              <span className="badge badge-amber" style={{ flexShrink: 0 }}>Inactive</span>
                             )}
                           </div>
-                          <div className="product-mobile-title-block">
-                            <div className="product-mobile-name">{i.name}</div>
-                            {i.custom?.batch && (
-                              <div className="product-mobile-batch">
-                                Batch: {i.custom.batch} {i.custom.expiry ? `| Exp: ${i.custom.expiry}` : ''} {i.custom.rack ? `| ${i.custom.rack}` : ''}
-                              </div>
+                          {i.description && (
+                            <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{i.description}</div>
+                          )}
+                          <div className="product-mobile-badges" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                            <span className="badge badge-blue">{i.category || 'General'}</span>
+                            {i.subcategoryName && <span className="badge badge-slate">{i.subcategoryName}</span>}
+                            <span className={`badge ${i.productType === 'Wholesale' ? 'badge-purple' : 'badge-slate'}`}>{i.productType || 'Retail'}</span>
+                            {(i.material || i.designPattern) && (
+                              <span className="badge badge-slate">{[i.material, i.designPattern].filter(Boolean).join(' • ')}</span>
                             )}
-                            <div className="product-mobile-badges">
-                              <span className="badge badge-blue">{i.category || 'General'}</span>
-                              {i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? (
-                                <span className="badge badge-emerald">Active</span>
-                              ) : (
-                                <span className="badge badge-amber">Inactive</span>
-                              )}
-                            </div>
                           </div>
                         </div>
 
                         {/* Specs Grid */}
                         <div className="product-mobile-spec-grid">
+                          {can(user?.role as any, 'purchases') && (
+                            <div className="product-mobile-spec-item">
+                              <span className="product-mobile-spec-label">Cost Price</span>
+                              <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                {i.costMinor ? formatRupees(i.costMinor) : '—'}
+                              </span>
+                            </div>
+                          )}
                           <div className="product-mobile-spec-item">
                             <span className="product-mobile-spec-label">Selling Price</span>
-                            <span className="product-mobile-spec-val price">{formatRupees(i.priceMinor)}</span>
+                            <span className="product-mobile-spec-val price">
+                              {i.offerPercentage && i.offerPercentage > 0 ? (
+                                <span style={{ color: '#059669', fontWeight: 800 }}>
+                                  {formatRupees(Math.round(i.priceMinor * (1 - i.offerPercentage / 100)))}
+                                </span>
+                              ) : (
+                                formatRupees(i.priceMinor)
+                              )}
+                            </span>
+                          </div>
+                          <div className="product-mobile-spec-item">
+                            <span className="product-mobile-spec-label">Offer %</span>
+                            <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem', fontWeight: 700, color: i.offerPercentage && i.offerPercentage > 0 ? '#059669' : '#64748b' }}>
+                              {i.offerPercentage && i.offerPercentage > 0 ? `${i.offerPercentage}% Off` : '0%'}
+                            </span>
                           </div>
                           <div className="product-mobile-spec-item">
                             <span className="product-mobile-spec-label">Current Stock</span>
@@ -14187,28 +14701,20 @@ export function App() {
                             </span>
                           </div>
                           <div className="product-mobile-spec-item">
+                            <span className="product-mobile-spec-label">Size</span>
+                            <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                              {i.size || '—'}
+                            </span>
+                          </div>
+                          <div className="product-mobile-spec-item">
+                            <span className="product-mobile-spec-label">Purchase Date</span>
+                            <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem', color: '#475569' }}>
+                              {i.purchaseDate ? new Date(i.purchaseDate).toLocaleDateString('en-IN') : '—'}
+                            </span>
+                          </div>
+                          <div className="product-mobile-spec-item">
                             <span className="product-mobile-spec-label">SKU / Code</span>
                             <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem' }}>{i.sku || '—'}</span>
-                          </div>
-                          <div className="product-mobile-spec-item">
-                            <span className="product-mobile-spec-label">GST Rate</span>
-                            <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem' }}>
-                              {i.taxRateBp / 100}%
-                            </span>
-                          </div>
-                          {can(user?.role as any, 'purchases') && (
-                            <div className="product-mobile-spec-item">
-                              <span className="product-mobile-spec-label">Purchase Cost</span>
-                              <span className="product-mobile-spec-val mono" style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                {i.costMinor ? formatRupees(i.costMinor) : '—'}
-                              </span>
-                            </div>
-                          )}
-                          <div className="product-mobile-spec-item">
-                            <span className="product-mobile-spec-label">Branch</span>
-                            <span className="product-mobile-spec-val" style={{ fontSize: '0.78rem', color: '#475569' }}>
-                              {branches.find(b => b.id === i.branchId || b.code === i.branchId)?.name || i.branchName || 'Main Store'}
-                            </span>
                           </div>
                         </div>
 
@@ -14373,16 +14879,17 @@ export function App() {
                       <table className="data-table">
                         <thead>
                           <tr>
-                            <th style={{ width: '74px', minWidth: '70px', textAlign: 'center' }} className="col-sticky-img">Image</th>
                             <th className="col-product-name col-sticky-name">Product Name</th>
-                            <th className="col-nowrap">Branch</th>
-                            <th className="col-nowrap">Category</th>
+                            <th className="col-nowrap">Category / Subcategory</th>
+                            <th className="col-nowrap">Type</th>
+                            <th className="col-nowrap">Material / Pattern</th>
                             <th className="col-nowrap">Current Stock</th>
                             <th className="col-nowrap">SKU / Code</th>
-                            <th className="col-nowrap">HSN / SAC</th>
+                            {can(user?.role as any, 'purchases') && <th className="col-nowrap">Cost Price</th>}
                             <th className="col-nowrap">Selling Price</th>
-                            {can(user?.role as any, 'purchases') && <th className="col-nowrap">Last Purchase Cost</th>}
-                            <th className="col-nowrap">GST Rate</th>
+                            <th className="col-nowrap">Size</th>
+                            <th className="col-nowrap">Offer %</th>
+                            <th className="col-nowrap">Purchase Date</th>
                             <th className="col-nowrap">Status</th>
                             <th className="col-nowrap" style={{ minWidth: '135px', textAlign: 'center' }}>Barcode Label</th>
                             <th className="col-nowrap col-sticky-actions" style={{ minWidth: '220px' }}>Actions</th>
@@ -14391,138 +14898,74 @@ export function App() {
                         <tbody>
                           {filteredMasterItems.map((i) => (
                             <tr key={i.id} style={{ opacity: i.active === false ? 0.75 : 1 }}>
-                              <td style={{ width: '74px', minWidth: '70px', textAlign: 'center', verticalAlign: 'middle', padding: '0.45rem 0.5rem' }} className="col-sticky-img">
-                                <div
-                                  className="product-table-image-cell"
-                                  style={{
-                                    width: '50px',
-                                    height: '50px',
-                                    minWidth: '50px',
-                                    minHeight: '50px',
-                                    maxWidth: '50px',
-                                    maxHeight: '50px',
-                                    margin: '0 auto',
-                                    borderRadius: '10px',
-                                    overflow: 'hidden',
-                                    border: '1.5px solid #e2e8f0',
-                                    background: '#ffffff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    flexShrink: 0,
-                                    position: 'relative',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                                    padding: '2px',
-                                    boxSizing: 'border-box',
-                                  }}
-                                >
-                                  {i.imageUrl || (i as any).image ? (
-                                    <>
-                                      <img
-                                        src={i.imageUrl || (i as any).image}
-                                        alt={i.name}
-                                        referrerPolicy="no-referrer"
-                                        className="product-thumb-img"
-                                        style={{
-                                          width: '100%',
-                                          height: '100%',
-                                          objectFit: 'contain',
-                                          display: 'block',
-                                        }}
-                                        onError={(e) => handleProductImageError(e, i.imageUrl || (i as any).image)}
-                                      />
-                                      <div
-                                        className="product-thumb-placeholder"
-                                        style={{
-                                          display: 'none',
-                                          width: '100%',
-                                          height: '100%',
-                                          alignItems: 'center',
-                                          justifyContent: 'center',
-                                          color: '#94a3b8',
-                                          background: '#f8fafc',
-                                        }}
-                                        title="Product Image Placeholder"
-                                      >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                                          <circle cx="8.5" cy="8.5" r="1.5" />
-                                          <polyline points="21 15 16 10 5 21" />
-                                        </svg>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div
-                                      className="product-thumb-placeholder"
-                                      style={{
-                                        display: 'flex',
-                                        width: '100%',
-                                        height: '100%',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        color: '#94a3b8',
-                                        background: '#f8fafc',
-                                      }}
-                                      title="Product Image Placeholder"
-                                    >
-                                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                                        <circle cx="8.5" cy="8.5" r="1.5" />
-                                        <polyline points="21 15 16 10 5 21" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
                               <td className="col-product-name col-sticky-name" style={{ fontWeight: 600 }}>
                                 <div style={{ color: '#0f172a', fontWeight: 600 }}>{i.name}</div>
-                                {i.custom?.batch && (
+                                {i.description && (
                                   <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>
-                                    Batch: {i.custom.batch} | Exp: {i.custom.expiry} | {i.custom.rack}
+                                    {i.description}
                                   </div>
                                 )}
                               </td>
-                              <td className="col-nowrap" style={{ verticalAlign: 'middle' }}>
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '0.35rem',
-                                    background: '#f8fafc',
-                                    color: '#334155',
-                                    border: '1px solid #e2e8f0',
-                                    padding: '0.2rem 0.55rem',
-                                    borderRadius: '6px',
-                                    fontSize: '0.78rem',
-                                    fontWeight: 600,
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                  title={branches.find(b => b.id === i.branchId || b.code === i.branchId)?.name || i.branchName || 'Main Central Branch'}
-                                >
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isSuperAdminUser ? '#49364A' : '#6366f1'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                    <path d="M3 21h18" />
-                                    <path d="M5 21V7l8-4v18" />
-                                    <path d="M19 21V11l-6-4" />
-                                    <line x1="9" y1="9" x2="9" y2="9.01" />
-                                    <line x1="9" y1="13" x2="9" y2="13.01" />
-                                    <line x1="9" y1="17" x2="9" y2="17.01" />
-                                  </svg>
-                                  <span>{branches.find(b => b.id === i.branchId || b.code === i.branchId)?.name || i.branchName || 'Main Store'}</span>
+                              <td className="col-nowrap">
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span className="badge badge-blue">{i.category || i.categoryName || 'General'}</span>
+                                  {i.subcategoryName && (
+                                    <span style={{ fontSize: '0.72rem', color: '#475569' }}>↳ {i.subcategoryName}</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="col-nowrap">
+                                <span className={`badge ${i.productType === 'Wholesale' ? 'badge-purple' : 'badge-slate'}`} style={{ fontWeight: 600 }}>
+                                  {i.productType || 'Retail'}
                                 </span>
                               </td>
-                              <td className="col-nowrap"><span className="badge badge-blue">{i.category || 'General'}</span></td>
+                              <td className="col-nowrap" style={{ fontSize: '0.78rem', color: '#334155' }}>
+                                {(i.material || i.designPattern) ? (
+                                  <span>{[i.material, i.designPattern].filter(Boolean).join(' • ')}</span>
+                                ) : '—'}
+                              </td>
                               <td className="col-nowrap">
                                 <span className={`badge ${i.currentStockMilli > 0 ? 'badge-emerald' : 'badge-amber'}`}>
                                   {i.currentStockMilli / 1000} {i.unit || 'pcs'}
                                 </span>
                               </td>
                               <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 500 }}>{i.sku || '—'}</td>
-                              <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 500 }}>{i.hsn || '—'}</td>
-                              <td className="mono col-nowrap" style={{ fontWeight: 700, color: isSuperAdminUser ? '#49364A' : '#6d4aff' }}>{formatRupees(i.priceMinor)}</td>
                               {can(user?.role as any, 'purchases') && (
                                 <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 600 }}>{i.costMinor ? formatRupees(i.costMinor) : '—'}</td>
                               )}
-                              <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 500 }}>{i.taxRateBp / 100}%</td>
+                              <td className="mono col-nowrap" style={{ fontWeight: 700, color: isSuperAdminUser ? '#49364A' : '#6d4aff' }}>
+                                {i.offerPercentage && i.offerPercentage > 0 ? (
+                                  <div>
+                                    <div style={{ color: '#059669', fontWeight: 800 }}>
+                                      {formatRupees(Math.round(i.priceMinor * (1 - i.offerPercentage / 100)))}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', textDecoration: 'line-through' }}>
+                                      {formatRupees(i.priceMinor)}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  formatRupees(i.priceMinor)
+                                )}
+                              </td>
+                              <td className="mono col-nowrap" style={{ fontWeight: 600, color: '#334155' }}>
+                                {i.size ? (
+                                  <span className="badge badge-slate" style={{ fontWeight: 700 }}>
+                                    {i.size}
+                                  </span>
+                                ) : '—'}
+                              </td>
+                              <td className="mono col-nowrap" style={{ fontWeight: 600 }}>
+                                {i.offerPercentage && i.offerPercentage > 0 ? (
+                                  <span className="badge badge-emerald" style={{ fontWeight: 700 }}>
+                                    {i.offerPercentage}% Off
+                                  </span>
+                                ) : (
+                                  <span style={{ color: '#94a3b8' }}>0%</span>
+                                )}
+                              </td>
+                              <td className="mono col-nowrap" style={{ fontSize: '0.78rem', color: '#475569' }}>
+                                {i.purchaseDate ? new Date(i.purchaseDate).toLocaleDateString('en-IN') : '—'}
+                              </td>
                               <td className="col-nowrap">
                                 {i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? (
                                   <span className="badge badge-emerald" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Active</span>
@@ -15673,6 +16116,13 @@ export function App() {
                   selectedBranch={selectedBranchScope}
                   branches={branches}
                 />
+              </div>
+            )}
+
+            {/* TAB: TEXTILE & VARIANT REPORTS */}
+            {(activeTab === 'textile-reports' || displayTab === 'textile-reports') && (
+              <div className="tab-content-wrapper" key={`textile-reports-${selectedBranchScope}`}>
+                <TextileReportsView />
               </div>
             )}
 
@@ -17147,6 +17597,27 @@ export function App() {
                                   value={settingsWholesaleBusinessName}
                                   onChange={(e) => setSettingsWholesaleBusinessName(e.target.value)}
                                 />
+                              </div>
+                              <div className="form-group" style={{ gridColumn: 'span 2', background: '#f8fafc', padding: '1rem', borderRadius: '10px', border: '1px solid #e2e8f0', margin: '0.5rem 0' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                                  <div>
+                                    <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#1e293b' }}>GST Enabled? (Yes / No)</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
+                                      {settingsGstEnabled
+                                        ? 'GST billing is enabled (5% slab up to ₹2,500, 18% above; tailoring 5% SAC 9988). GSTR filing menus active.'
+                                        : 'GST billing is disabled for this shop (no GST charged, GST breakup hidden on bills, GSTR menus hidden).'}
+                                    </div>
+                                  </div>
+                                  <select
+                                    className="form-input"
+                                    style={{ width: '130px', fontWeight: 700, padding: '0.45rem 0.65rem', background: '#ffffff', color: settingsGstEnabled ? '#059669' : '#64748b' }}
+                                    value={settingsGstEnabled ? 'yes' : 'no'}
+                                    onChange={(e) => setSettingsGstEnabled(e.target.value === 'yes')}
+                                  >
+                                    <option value="no">No (Off)</option>
+                                    <option value="yes">Yes (On)</option>
+                                  </select>
+                                </label>
                               </div>
                               <div className="form-group">
                                 <label className="form-label">GSTIN (15-digit GST Number)</label>
@@ -20104,23 +20575,290 @@ export function App() {
                         </div>
                       </div>
 
+                      {/* Item Configuration: Simple vs Variant Matrix */}
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 700, color: '#1e293b' }}>
+                          Item Configuration (Variant vs Simple) *
+                        </label>
+                        <select
+                          className="form-input"
+                          value={itemFormItemType}
+                          onChange={(e) => setItemFormItemType(e.target.value as 'simple' | 'variant')}
+                          style={{
+                            borderColor: itemFormItemType === 'variant' ? '#6366f1' : undefined,
+                            background: itemFormItemType === 'variant' ? '#f8faff' : '#ffffff',
+                            fontWeight: 600,
+                          }}
+                        >
+                          <option value="simple">📦 Simple Product (No variants, e.g. Containers, Household items)</option>
+                          <option value="variant">👗 Variant Product (Size × Colour Matrix, e.g. Readymade Dresses, Slippers)</option>
+                        </select>
+                      </div>
+
+                      {/* Variant Matrix Generator (when Variant Product is selected) */}
+                      {itemFormItemType === 'variant' && (
+                        <div
+                          style={{
+                            background: '#f8fafc',
+                            border: '1.5px solid #cbd5e1',
+                            borderRadius: '10px',
+                            padding: '1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.85rem',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: '0.85rem', fontWeight: 750, color: '#1e293b' }}>
+                                Variant Matrix Builder
+                              </div>
+                              <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                                Generate combination grid of sizes &amp; colours with auto-SKU, barcodes, and stock.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleGenerateVariantMatrix}
+                              style={{
+                                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                                color: '#ffffff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '0.35rem 0.85rem',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                            >
+                              ⚡ Generate Matrix
+                            </button>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <div>
+                              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#475569' }}>
+                                Sizes (comma-separated):
+                              </label>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={matrixSizes}
+                                onChange={(e) => setMatrixSizes(e.target.value)}
+                                placeholder="e.g. S, M, L, XL or 7, 8, 9"
+                                style={{ marginTop: '2px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.74rem', fontWeight: 600, color: '#475569' }}>
+                                Colours (comma-separated):
+                              </label>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={matrixColours}
+                                onChange={(e) => setMatrixColours(e.target.value)}
+                                placeholder="e.g. Red, Blue, Black, Olive"
+                                style={{ marginTop: '2px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Editable Variant Table */}
+                          {itemFormVariants.length > 0 && (
+                            <div style={{ overflowX: 'auto', maxHeight: '220px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                              <table style={{ width: '100%', fontSize: '0.76rem', borderCollapse: 'collapse', background: '#fff' }}>
+                                <thead>
+                                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'left' }}>
+                                    <th style={{ padding: '6px 8px' }}>Size</th>
+                                    <th style={{ padding: '6px 8px' }}>Colour</th>
+                                    <th style={{ padding: '6px 8px' }}>SKU</th>
+                                    <th style={{ padding: '6px 8px' }}>Barcode</th>
+                                    <th style={{ padding: '6px 8px' }}>Price ₹</th>
+                                    <th style={{ padding: '6px 8px' }}>Stock</th>
+                                    <th style={{ padding: '6px 8px', width: '30px' }}></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {itemFormVariants.map((v, vIdx) => (
+                                    <tr key={vIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                      <td style={{ padding: '4px 6px' }}>
+                                        <input
+                                          type="text"
+                                          value={v.size || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, size: val } : item)));
+                                          }}
+                                          style={{ width: '55px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '4px 6px' }}>
+                                        <input
+                                          type="text"
+                                          value={v.colour || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, colour: val } : item)));
+                                          }}
+                                          style={{ width: '65px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '4px 6px' }}>
+                                        <input
+                                          type="text"
+                                          value={v.sku || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, sku: val } : item)));
+                                          }}
+                                          style={{ width: '90px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '4px 6px' }}>
+                                        <input
+                                          type="text"
+                                          value={v.barcode || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, barcode: val } : item)));
+                                          }}
+                                          style={{ width: '100px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '4px 6px' }}>
+                                        <input
+                                          type="number"
+                                          value={v.priceMinor ? (v.priceMinor / 100).toFixed(0) : ''}
+                                          onChange={(e) => {
+                                            const val = Math.round((parseFloat(e.target.value) || 0) * 100);
+                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, priceMinor: val } : item)));
+                                          }}
+                                          style={{ width: '65px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '4px 6px' }}>
+                                        <input
+                                          type="number"
+                                          value={v.stockMilli ? Math.round(v.stockMilli / 1000) : 0}
+                                          onChange={(e) => {
+                                            const val = Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 1000));
+                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, stockMilli: val } : item)));
+                                          }}
+                                          style={{ width: '55px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+                                        />
+                                      </td>
+                                      <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => setItemFormVariants((prev) => prev.filter((_, i) => i !== vIdx))}
+                                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 0, fontWeight: 700 }}
+                                          title="Remove variant"
+                                        >
+                                          ✕
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const autoBc = '20' + Date.now().toString().slice(-9) + Math.floor(Math.random() * 10);
+                              const cleanBaseSku = (itemFormSku || itemFormName.replace(/[^A-Za-z0-9]/g, '').slice(0, 6) || 'SKU').toUpperCase();
+                              setItemFormVariants((prev) => [
+                                ...prev,
+                                {
+                                  size: 'M',
+                                  colour: 'Standard',
+                                  sku: `${cleanBaseSku}-VAR-${prev.length + 1}`,
+                                  barcode: autoBc,
+                                  priceMinor: Math.round((parseFloat(itemFormPrice) || 0) * 100),
+                                  mrpMinor: itemFormMrp ? Math.round((parseFloat(itemFormMrp) || 0) * 100) : null,
+                                  stockMilli: 10000,
+                                  active: true,
+                                },
+                              ]);
+                            }}
+                            style={{
+                              background: '#ffffff',
+                              border: '1px dashed #cbd5e1',
+                              borderRadius: '6px',
+                              padding: '0.35rem 0.65rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              color: '#475569',
+                              cursor: 'pointer',
+                              alignSelf: 'flex-start',
+                            }}
+                          >
+                            + Add Custom Variant Row
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Category & Subcategory */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
                         <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label">Category</label>
+                          <label className="form-label">Category *</label>
                           <select
                             className="form-input"
-                            value={itemFormCategory}
-                            onChange={(e) => setItemFormCategory(e.target.value)}
+                            value={itemFormCategoryId}
+                            onChange={(e) => {
+                              const catId = e.target.value;
+                              setItemFormCategoryId(catId);
+                              const selected = categoriesList.find((c) => c.id === catId);
+                              setItemFormCategory(selected ? selected.name : '');
+                              setItemFormSubcategoryId('');
+                            }}
+                            required
                           >
                             <option value="">— Select Category —</option>
-                            {itemFormCategory && !categoriesList.some((c) => c.name.toLowerCase() === itemFormCategory.toLowerCase()) && (
-                              <option value={itemFormCategory}>{itemFormCategory} (Current)</option>
-                            )}
-                            {categoriesList.filter((c) => c.active).map((c) => (
-                              <option key={c.id} value={c.name}>
-                                {c.parentName ? `${c.parentName} → ${c.name}` : c.name}
+                            {categoriesList.filter((c) => !c.parentId && c.active).map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
                               </option>
                             ))}
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Subcategory</label>
+                          <select
+                            className="form-input"
+                            value={itemFormSubcategoryId}
+                            onChange={(e) => setItemFormSubcategoryId(e.target.value)}
+                          >
+                            <option value="">— Select Subcategory (Optional) —</option>
+                            {categoriesList
+                              .filter((c) => c.active && (itemFormCategoryId ? c.parentId === itemFormCategoryId : Boolean(c.parentId)))
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.parentName ? `${c.parentName} → ${c.name}` : c.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Product Type & UOM */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Product Type *</label>
+                          <select
+                            className="form-input"
+                            value={itemFormProductType}
+                            onChange={(e) => setItemFormProductType(e.target.value as 'Retail' | 'Wholesale')}
+                            required
+                          >
+                            <option value="Retail">Retail</option>
+                            <option value="Wholesale">Wholesale</option>
                           </select>
                         </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
@@ -20139,9 +20877,55 @@ export function App() {
                           </select>
                         </div>
                       </div>
+
+                      {/* Material & Design / Pattern */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.85rem' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Material / Fabric</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={itemFormMaterial}
+                            onChange={(e) => setItemFormMaterial(e.target.value)}
+                            placeholder="e.g. Cotton, Polyester, Plastic"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Design / Pattern</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={itemFormDesignPattern}
+                            onChange={(e) => setItemFormDesignPattern(e.target.value)}
+                            placeholder="e.g. Floral, Plain, Striped"
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Size</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={itemFormSize}
+                            onChange={(e) => setItemFormSize(e.target.value)}
+                            placeholder="e.g. S, M, L, XL, 32, Free Size"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Description */}
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label">Description / Specifications</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={itemFormDescription}
+                          onChange={(e) => setItemFormDescription(e.target.value)}
+                          placeholder="Optional product notes, size range, or details"
+                        />
+                      </div>
                     </div>
 
-                    {/* Pricing & Tax Card */}
+                    {/* Pricing & Offers Card */}
                     <div
                       style={{
                         background: user?.role === 'cashier' ? 'var(--surface)' : '#ffffff',
@@ -20155,10 +20939,21 @@ export function App() {
                       }}
                     >
                       <div style={{ fontSize: '0.85rem', fontWeight: 700, color: user?.role === 'cashier' ? 'var(--sidebar)' : '#1e293b', borderBottom: user?.role === 'cashier' ? '1px solid var(--border)' : '1px solid #f1f5f9', paddingBottom: '0.45rem' }}>
-                        Pricing &amp; Taxation
+                        Product Pricing &amp; Offers
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Cost Price (₹)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="form-input"
+                            value={itemFormCost}
+                            onChange={(e) => setItemFormCost(e.target.value)}
+                            placeholder="e.g. 450.00"
+                          />
+                        </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label className="form-label">Selling Price (₹) *</label>
                           <input
@@ -20168,24 +20963,66 @@ export function App() {
                             required
                             value={itemFormPrice}
                             onChange={(e) => setItemFormPrice(e.target.value)}
-                            placeholder="e.g. 150.00"
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label">Purchase / Cost Price (₹)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-input"
-                            value={itemFormCost}
-                            onChange={(e) => setItemFormCost(e.target.value)}
-                            placeholder="e.g. 120.00"
+                            placeholder="e.g. 799.00"
                           />
                         </div>
                       </div>
 
-                      {/* Wholesale Pricing Tier */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Purchase Date (Optional)</label>
+                          <input
+                            type="date"
+                            className="form-input"
+                            value={itemFormPurchaseDate}
+                            onChange={(e) => setItemFormPurchaseDate(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Offer Percentage (Default: 0%)</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            className="form-input"
+                            value={itemFormOfferPercentage}
+                            onChange={(e) => setItemFormOfferPercentage(e.target.value)}
+                            placeholder="e.g. 10 (for 10% discount)"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Live Offer Calculation Preview */}
+                      {(() => {
+                        const sp = parseFloat(itemFormPrice) || 0;
+                        const op = parseFloat(itemFormOfferPercentage) || 0;
+                        if (sp > 0 && op > 0) {
+                          const disc = (sp * op) / 100;
+                          const finalP = Math.max(0, sp - disc);
+                          return (
+                            <div style={{ padding: '0.55rem 0.75rem', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', fontSize: '0.78rem', color: '#065f46', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span>Selling Price: ₹{sp.toFixed(2)} with {op}% Offer</span>
+                              <span style={{ fontWeight: 700 }}>Discount: -₹{disc.toFixed(2)} → Final Offer Price: ₹{finalP.toFixed(2)}</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {/* MRP and Wholesale Pricing Tier */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">MRP (₹)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="form-input"
+                            value={itemFormMrp}
+                            onChange={(e) => setItemFormMrp(e.target.value)}
+                            placeholder="e.g. 899.00"
+                          />
+                        </div>
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                             <label className="form-label" style={{ margin: 0 }}>Wholesale Price (₹)</label>
@@ -20197,9 +21034,12 @@ export function App() {
                             className="form-input"
                             value={itemFormWholesalePrice}
                             onChange={(e) => setItemFormWholesalePrice(e.target.value)}
-                            placeholder="Optional (e.g. 135.00)"
+                            placeholder="Optional (e.g. 650.00)"
                           />
                         </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label className="form-label">Min Wholesale Qty ({itemFormUnit || 'pcs'})</label>
                           <input
@@ -20211,150 +21051,6 @@ export function App() {
                             onChange={(e) => setItemFormMinWholesaleQty(e.target.value)}
                             placeholder="Optional (e.g. 10)"
                           />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
-                        <div className="form-group" style={{ position: 'relative', marginBottom: 0 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                            <label className="form-label" style={{ margin: 0 }}>HSN / SAC Code</label>
-                            <span style={{ fontSize: '0.72rem', color: '#38bdf8', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                              {isHsnSearching ? (
-                                <span>Searching...</span>
-                              ) : (
-                                <span>GST Directory</span>
-                              )}
-                            </span>
-                          </div>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={itemFormHsn}
-                            onChange={(e) => {
-                              setItemFormHsn(e.target.value);
-                              setShowHsnDropdown(true);
-                              if (!e.target.value) setSelectedHsnDesc('');
-                            }}
-                            onFocus={() => {
-                              if (hsnSearchResults.length > 0) setShowHsnDropdown(true);
-                            }}
-                            placeholder="Search code or name"
-                            autoComplete="off"
-                          />
-                          {showHsnDropdown && hsnSearchResults.length > 0 && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                top: '100%',
-                                left: 0,
-                                right: 0,
-                                maxHeight: '200px',
-                                overflowY: 'auto',
-                                background: '#0f172a',
-                                border: '1px solid #38bdf8',
-                                borderRadius: '8px',
-                                boxShadow: '0 12px 30px rgba(0, 0, 0, 0.8)',
-                                zIndex: 1050,
-                                marginTop: '4px',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  padding: '0.35rem 0.65rem',
-                                  fontSize: '0.7rem',
-                                  color: '#94a3b8',
-                                  borderBottom: '1px solid #1e293b',
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  background: '#1e293b',
-                                }}
-                              >
-                                <span>Select HSN / SAC ({hsnSearchResults.length} matches)</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowHsnDropdown(false)}
-                                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.75rem' }}
-                                >
-                                  ✕ Close
-                                </button>
-                              </div>
-                              {hsnSearchResults.map((item) => (
-                                <div
-                                  key={item.code}
-                                  onClick={() => {
-                                    setItemFormHsn(item.code);
-                                    setSelectedHsnDesc(item.desc);
-                                    setShowHsnDropdown(false);
-                                  }}
-                                  style={{
-                                    padding: '0.45rem 0.65rem',
-                                    borderBottom: '1px solid #1e293b',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: '0.15rem',
-                                    background: itemFormHsn === item.code ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                                    textAlign: 'left',
-                                  }}
-                                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(56, 189, 248, 0.12)')}
-                                  onMouseLeave={(e) =>
-                                  (e.currentTarget.style.background =
-                                    itemFormHsn === item.code ? 'rgba(56, 189, 248, 0.15)' : 'transparent')
-                                  }
-                                >
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span style={{ fontWeight: 700, color: '#38bdf8', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                                      {item.code}
-                                    </span>
-                                    <span
-                                      style={{
-                                        fontSize: '0.65rem',
-                                        padding: '1px 5px',
-                                        borderRadius: '4px',
-                                        background: item.type === 'SAC' ? '#0284c7' : '#334155',
-                                        color: '#e2e8f0',
-                                      }}
-                                    >
-                                      {item.type}
-                                    </span>
-                                  </div>
-                                  <div style={{ fontSize: '0.72rem', color: '#cbd5e1', lineHeight: '1.25' }}>{item.desc}</div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {selectedHsnDesc && (
-                            <div
-                              style={{
-                                fontSize: '0.72rem',
-                                color: '#10b981',
-                                marginTop: '0.25rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.3rem',
-                              }}
-                            >
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                ✓ {selectedHsnDesc}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label">GST Tax Rate</label>
-                          <select
-                            className="form-input"
-                            value={itemFormTax}
-                            onChange={(e) => setItemFormTax(e.target.value)}
-                          >
-                            <option value="0">0% (Nil / Exempt)</option>
-                            <option value="500">5% GST (2.5% CGST + 2.5% SGST)</option>
-                            <option value="1200">12% GST (6% CGST + 6% SGST)</option>
-                            <option value="1800">18% GST (9% CGST + 9% SGST)</option>
-                            <option value="2800">28% GST (14% CGST + 14% SGST)</option>
-                          </select>
                         </div>
                       </div>
                     </div>
@@ -22045,6 +22741,15 @@ export function App() {
                           onClick={openAddItemModal}
                         >
                           <PlusIcon size={12} /> New Item
+                        </button>
+                        <button
+                          type="button"
+                          className="pbm-pill-btn"
+                          style={{ background: '#fdf2f8', color: '#db2777', borderColor: '#fbcfe8' }}
+                          onClick={() => setShowSizeRatioModal(true)}
+                          title="Break down inward order by Size Ratio (S:M:L:XL), fabric roll metres with shrinkage/wastage %, or job work issue"
+                        >
+                          📏 Size-Ratio / Fabric Inward
                         </button>
                         <button
                           type="button"
@@ -25189,9 +25894,11 @@ export function App() {
                         <div className="ribbon-tile-val" style={{ color: '#0F2D2E' }}>
                           {formatRupees(invoiceDetailData.invoice.paidMinor)}
                         </div>
-                        <div className="ribbon-tile-sub">
-                          GST: {formatRupees(invoiceDetailData.invoice.cgstMinor + invoiceDetailData.invoice.sgstMinor)}
-                        </div>
+                        {Boolean(shop?.gstEnabled) && (
+                          <div className="ribbon-tile-sub">
+                            GST: {formatRupees(invoiceDetailData.invoice.cgstMinor + invoiceDetailData.invoice.sgstMinor)}
+                          </div>
+                        )}
                       </div>
 
                       {/* 3. Balance Due */}
@@ -25250,11 +25957,11 @@ export function App() {
                             <tr>
                               <th className="col-sno">#</th>
                               <th className="col-item">Item</th>
-                              <th className="col-hsn">HSN</th>
+                              {Boolean(shop?.gstEnabled) && <th className="col-hsn">HSN</th>}
                               <th className="col-qty">Qty</th>
                               <th className="col-rate">Rate</th>
-                              <th className="col-taxable">Taxable</th>
-                              <th className="col-tax">Tax</th>
+                              {Boolean(shop?.gstEnabled) && <th className="col-taxable">Taxable</th>}
+                              {Boolean(shop?.gstEnabled) && <th className="col-tax">Tax</th>}
                               <th className="col-amount">Amount</th>
                             </tr>
                           </thead>
@@ -25265,11 +25972,11 @@ export function App() {
                                 <td className="col-item">
                                   <div className="invoice-item-name">{l.name}</div>
                                 </td>
-                                <td className="col-hsn">{l.hsn || '—'}</td>
+                                {Boolean(shop?.gstEnabled) && <td className="col-hsn">{l.hsn || '—'}</td>}
                                 <td className="col-qty">{(l.qtyMilli / 1000).toLocaleString()} {l.unit || ''}</td>
                                 <td className="col-rate">{formatRupees(l.priceMinor)}</td>
-                                <td className="col-taxable">{formatRupees(l.taxableMinor)}</td>
-                                <td className="col-tax">{formatRupees(l.cgstMinor + l.sgstMinor)}</td>
+                                {Boolean(shop?.gstEnabled) && <td className="col-taxable">{formatRupees(l.taxableMinor)}</td>}
+                                {Boolean(shop?.gstEnabled) && <td className="col-tax">{formatRupees(l.cgstMinor + l.sgstMinor)}</td>}
                                 <td className="col-amount">{formatRupees(l.totalMinor)}</td>
                               </tr>
                             ))}
@@ -26741,6 +27448,36 @@ export function App() {
             setActiveSettingsTab('Payment Integrations');
           }}
           showToast={(msg, type) => showToast(msg, type)}
+        />
+
+        {/* Textile Variant Picker & One-Tap Exchange Modal */}
+        {isVariantPickerOpen && variantPickerItem && (
+          <VariantPickerModal
+            isOpen={isVariantPickerOpen}
+            item={variantPickerItem}
+            mode={variantPickerMode}
+            currentVariantId={variantPickerCurrentVarId}
+            onClose={() => {
+              setIsVariantPickerOpen(false);
+              setVariantPickerItem(null);
+            }}
+            onSelectVariant={handleSelectVariantFromPicker}
+            onExchangeVariant={handleExchangeVariant}
+          />
+        )}
+
+        {/* Textile Tailoring & Stitching Order Modal */}
+        <TailoringModal
+          isOpen={showTailoringModal}
+          onClose={() => setShowTailoringModal(false)}
+        />
+
+        {/* Textile Size-Ratio Purchase Inward & Job Work Modal */}
+        <SizeRatioInwardModal
+          isOpen={showSizeRatioModal}
+          onClose={() => setShowSizeRatioModal(false)}
+          items={items}
+          onAddLinesToPurchase={handleAddRatioLinesToPurchase}
         />
       </div>
     </BranchProvider>
