@@ -394,9 +394,13 @@ export interface Item {
   itemType?: 'simple' | 'variant';
   productType?: 'Retail' | 'Wholesale' | string;
   size?: string | null;
+  colour?: string | null;
   material?: string | null;
   designPattern?: string | null;
   description?: string | null;
+  variants?: ProductVariant[];
+  variantsCount?: number;
+  totalStockMilli?: number;
   priceMinor: number;
   mrpMinor?: number | null;
   offerPercentage?: number | null;
@@ -1522,9 +1526,13 @@ export interface BulkImportRow {
   subcategory?: string | null;
   productType?: 'Retail' | 'Wholesale' | string | null;
   size?: string | null;
+  colour?: string | null;
   material?: string | null;
   designPattern?: string | null;
   description?: string | null;
+  variants?: ProductVariant[];
+  variantsCount?: number;
+  totalStockMilli?: number;
   barcodeType?: 'INTERNAL' | 'MANUFACTURER' | null;
   additionalBarcodes?: (string | AdditionalBarcode)[] | null;
   productNature?: 'BRANDED' | 'SHOP_PRODUCT' | null;
@@ -3625,6 +3633,8 @@ export interface ProductVariant {
   priceMinor: number;
   mrpMinor?: number | null;
   costMinor: number;
+  offerPercentage?: number | null;
+  purchaseDate?: string | null;
   stockMilli: number;
   reorderLevelMilli?: number;
   active: boolean;

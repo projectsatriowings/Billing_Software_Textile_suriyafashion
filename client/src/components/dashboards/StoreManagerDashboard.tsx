@@ -386,7 +386,7 @@ ${creds.isReset ? `🔑 Your Cashier login credentials for ${storeName} have bee
                 gap: '6px',
               }}
             >
-              <span>📦</span> Stock Hub
+              <span></span> Stock Hub
             </button>
           </div>
         </div>

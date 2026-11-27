@@ -50,6 +50,25 @@ function formatItem(r: any) {
     (!active && trackStock && currentStockMilli <= 0) ? 'out_of_stock' : null
   );
 
+  const rawVariants = Array.isArray(r.variants) ? r.variants : (typeof r.variants === 'string' ? JSON.parse(r.variants) : (r.variants ?? []));
+  const variants = Array.isArray(rawVariants) ? rawVariants.map((v: any) => ({
+    id: v.id,
+    size: v.size ?? null,
+    colour: v.colour ?? null,
+    pattern: v.pattern ?? null,
+    sku: v.sku ?? null,
+    barcode: v.barcode ?? null,
+    costMinor: Number(v.costMinor ?? v.cost_minor ?? 0),
+    priceMinor: Number(v.priceMinor ?? v.price_minor ?? 0),
+    mrpMinor: v.mrpMinor != null || v.mrp_minor != null ? Number(v.mrpMinor ?? v.mrp_minor) : null,
+    stockMilli: Number(v.stockMilli ?? v.stock_milli ?? 0),
+    active: Boolean(v.active ?? true),
+  })) : [];
+  const variantsCount = Number(r.variantsCount ?? r.variants_count ?? variants.length);
+  const totalStockMilli = variants.length > 0
+    ? variants.reduce((sum: number, v: any) => sum + v.stockMilli, 0)
+    : currentStockMilli;
+
   return {
     id: r.id,
     tenantId: r.tenantId ?? r.tenant_id,
@@ -70,7 +89,7 @@ function formatItem(r: any) {
     categoryName: r.categoryName ?? r.category_name ?? r.category ?? null,
     subcategoryId: r.subcategoryId ?? r.subcategory_id ?? null,
     subcategoryName: r.subcategoryName ?? r.subcategory_name ?? null,
-    itemType: (r.itemType ?? r.item_type ?? 'simple') as 'simple' | 'variant',
+    itemType: (r.itemType ?? r.item_type ?? (variantsCount > 0 ? 'variant' : 'simple')) as 'simple' | 'variant',
     productType: (r.productType ?? r.product_type ?? 'retail').toString().toLowerCase() === 'wholesale' ? 'Wholesale' : 'Retail',
     size: r.size ?? null,
     material: r.material ?? null,
@@ -93,6 +112,9 @@ function formatItem(r: any) {
     image: r.imageUrl ?? r.image_url ?? (typeof r.custom === 'object' && r.custom?.image ? r.custom.image : null),
     custom: typeof r.custom === 'string' ? JSON.parse(r.custom) : (r.custom ?? {}),
     currentStockMilli,
+    totalStockMilli,
+    variants,
+    variantsCount,
     active,
     deactivationReason,
     purchaseDate: r.purchaseDate ?? r.purchase_date ?? null,
@@ -178,6 +200,25 @@ export function registerItems(r: Router) {
                  ) bc_row
                ), '[]'::json) AS all_barcodes,
                COALESCE((
+                 SELECT json_agg(json_build_object(
+                   'id', v.id,
+                   'size', v.size,
+                   'colour', v.colour,
+                   'pattern', v.pattern,
+                   'sku', v.sku,
+                   'barcode', v.barcode,
+                   'costMinor', v.cost_minor,
+                   'priceMinor', v.price_minor,
+                   'mrpMinor', v.mrp_minor,
+                   'offerPercentage', v.offer_percentage,
+                   'stockMilli', v.stock_milli,
+                   'active', v.active
+                 ) ORDER BY v.size ASC, v.colour ASC)
+                 FROM variants v
+                 WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+               ), '[]'::json) AS variants,
+               (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
+               COALESCE((
                  SELECT SUM(sm.qty_milli)
                  FROM stock_moves sm
                  WHERE sm.item_id = i.id
@@ -222,6 +263,25 @@ export function registerItems(r: Router) {
                    ORDER BY pb.barcode, pb.created_at ASC
                  ) bc_row
                ), '[]'::json) AS all_barcodes,
+               COALESCE((
+                 SELECT json_agg(json_build_object(
+                   'id', v.id,
+                   'size', v.size,
+                   'colour', v.colour,
+                   'pattern', v.pattern,
+                   'sku', v.sku,
+                   'barcode', v.barcode,
+                   'costMinor', v.cost_minor,
+                   'priceMinor', v.price_minor,
+                   'mrpMinor', v.mrp_minor,
+                   'offerPercentage', v.offer_percentage,
+                   'stockMilli', v.stock_milli,
+                   'active', v.active
+                 ) ORDER BY v.size ASC, v.colour ASC)
+                 FROM variants v
+                 WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+               ), '[]'::json) AS variants,
+               (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
                COALESCE((
                  SELECT SUM(sm.qty_milli)
                  FROM stock_moves sm
@@ -619,6 +679,25 @@ export function registerItems(r: Router) {
                       ) bc_row
                     ), '[]'::json) AS all_barcodes,
                     COALESCE((
+                      SELECT json_agg(json_build_object(
+                        'id', v.id,
+                        'size', v.size,
+                        'colour', v.colour,
+                        'pattern', v.pattern,
+                        'sku', v.sku,
+                        'barcode', v.barcode,
+                        'costMinor', v.cost_minor,
+                        'priceMinor', v.price_minor,
+                        'mrpMinor', v.mrp_minor,
+                        'offerPercentage', v.offer_percentage,
+                        'stockMilli', v.stock_milli,
+                        'active', v.active
+                      ) ORDER BY v.size ASC, v.colour ASC)
+                      FROM variants v
+                      WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+                    ), '[]'::json) AS variants,
+                    (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
+                    COALESCE((
                       SELECT SUM(sm.qty_milli)
                       FROM stock_moves sm
                       WHERE sm.item_id = i.id
@@ -653,6 +732,25 @@ export function registerItems(r: Router) {
                         ORDER BY pb.barcode, pb.created_at ASC
                       ) bc_row
                     ), '[]'::json) AS all_barcodes,
+                    COALESCE((
+                      SELECT json_agg(json_build_object(
+                        'id', v.id,
+                        'size', v.size,
+                        'colour', v.colour,
+                        'pattern', v.pattern,
+                        'sku', v.sku,
+                        'barcode', v.barcode,
+                        'costMinor', v.cost_minor,
+                        'priceMinor', v.price_minor,
+                        'mrpMinor', v.mrp_minor,
+                        'offerPercentage', v.offer_percentage,
+                        'stockMilli', v.stock_milli,
+                        'active', v.active
+                      ) ORDER BY v.size ASC, v.colour ASC)
+                      FROM variants v
+                      WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+                    ), '[]'::json) AS variants,
+                    (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
                     COALESCE((
                       SELECT SUM(sm.qty_milli)
                       FROM stock_moves sm
@@ -707,6 +805,44 @@ export function registerItems(r: Router) {
                   ) bc_row
                 ), '[]'::json) AS all_barcodes,
                 COALESCE((
+                  SELECT json_agg(json_build_object(
+                    'id', v.id,
+                    'size', v.size,
+                    'colour', v.colour,
+                    'pattern', v.pattern,
+                    'sku', v.sku,
+                    'barcode', v.barcode,
+                    'costMinor', v.cost_minor,
+                    'priceMinor', v.price_minor,
+                    'mrpMinor', v.mrp_minor,
+                    'offerPercentage', v.offer_percentage,
+                    'stockMilli', v.stock_milli,
+                    'active', v.active
+                  ) ORDER BY v.size ASC, v.colour ASC)
+                  FROM variants v
+                  WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+                ), '[]'::json) AS variants,
+                (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
+                COALESCE((
+                  SELECT json_agg(json_build_object(
+                    'id', v.id,
+                    'size', v.size,
+                    'colour', v.colour,
+                    'pattern', v.pattern,
+                    'sku', v.sku,
+                    'barcode', v.barcode,
+                    'costMinor', v.cost_minor,
+                    'priceMinor', v.price_minor,
+                    'mrpMinor', v.mrp_minor,
+                    'offerPercentage', v.offer_percentage,
+                    'stockMilli', v.stock_milli,
+                    'active', v.active
+                  ) ORDER BY v.size ASC, v.colour ASC)
+                  FROM variants v
+                  WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+                ), '[]'::json) AS variants,
+                (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
+                COALESCE((
                   SELECT SUM(sm.qty_milli)
                   FROM stock_moves sm
                   WHERE sm.item_id = i.id
@@ -758,6 +894,25 @@ export function registerItems(r: Router) {
                     ORDER BY pb.barcode, pb.created_at ASC
                   ) bc_row
                 ), '[]'::json) AS all_barcodes,
+                COALESCE((
+                  SELECT json_agg(json_build_object(
+                    'id', v.id,
+                    'size', v.size,
+                    'colour', v.colour,
+                    'pattern', v.pattern,
+                    'sku', v.sku,
+                    'barcode', v.barcode,
+                    'costMinor', v.cost_minor,
+                    'priceMinor', v.price_minor,
+                    'mrpMinor', v.mrp_minor,
+                    'offerPercentage', v.offer_percentage,
+                    'stockMilli', v.stock_milli,
+                    'active', v.active
+                  ) ORDER BY v.size ASC, v.colour ASC)
+                  FROM variants v
+                  WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+                ), '[]'::json) AS variants,
+                (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
                 COALESCE((
                   SELECT SUM(sm.qty_milli)
                   FROM stock_moves sm
@@ -859,6 +1014,25 @@ export function registerItems(r: Router) {
                         ORDER BY pb.barcode, pb.created_at ASC
                       ) bc_row
                     ), '[]'::json) AS all_barcodes,
+                    COALESCE((
+                      SELECT json_agg(json_build_object(
+                        'id', v.id,
+                        'size', v.size,
+                        'colour', v.colour,
+                        'pattern', v.pattern,
+                        'sku', v.sku,
+                        'barcode', v.barcode,
+                        'costMinor', v.cost_minor,
+                        'priceMinor', v.price_minor,
+                        'mrpMinor', v.mrp_minor,
+                        'offerPercentage', v.offer_percentage,
+                        'stockMilli', v.stock_milli,
+                        'active', v.active
+                      ) ORDER BY v.size ASC, v.colour ASC)
+                      FROM variants v
+                      WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id
+                    ), '[]'::json) AS variants,
+                    (SELECT COUNT(*)::int FROM variants v WHERE v.tenant_id = i.tenant_id AND v.product_id = i.id) AS variants_count,
                     COALESCE((
                       SELECT SUM(sm.qty_milli)
                       FROM stock_moves sm

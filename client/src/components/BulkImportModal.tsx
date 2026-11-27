@@ -339,10 +339,15 @@ export const TEMPLATE_COLUMNS = [
 ];
 
 export const SAMPLE_SUPPLIER_ROWS = [
+  ["Men's Cotton Formal Shirt", 'M', '350', '25', new Date().toISOString().split('T')[0]],
   ["Men's Cotton Formal Shirt", 'L', '350', '25', new Date().toISOString().split('T')[0]],
+  ["Men's Cotton Formal Shirt", 'XL', '370', '12', new Date().toISOString().split('T')[0]],
   ['Floral Printed Kurti', 'M', '220', '40', new Date().toISOString().split('T')[0]],
-  ["Boys Denim Shorts", '30', '180', '30', new Date().toISOString().split('T')[0]],
+  ['Floral Printed Kurti', 'L', '220', '20', new Date().toISOString().split('T')[0]],
+  ['Boys Denim Shorts', '30', '180', '30', new Date().toISOString().split('T')[0]],
+  ['Boys Denim Shorts', '32', '190', '15', new Date().toISOString().split('T')[0]],
   ["Men's Rubber Slippers", '8', '75', '50', new Date().toISOString().split('T')[0]],
+  ["Men's Rubber Slippers", '9', '80', '30', new Date().toISOString().split('T')[0]],
   ['5L Plastic Storage Container', 'Free Size', '110', '20', new Date().toISOString().split('T')[0]],
 ];
 
@@ -362,8 +367,8 @@ export function isUrlOrDriveLink(val: string | null | undefined): boolean {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type WizardStep = 'choose' | 'review' | 'confirm' | 'results';
-export type RowFilter = 'all' | 'new' | 'restock' | 'ambiguous' | 'duplicate' | 'error';
-export type RowStatus = 'NEW_PRODUCT' | 'RESTOCK' | 'AMBIGUOUS' | 'DUPLICATE' | 'ERROR';
+export type RowFilter = 'all' | 'new' | 'variant' | 'restock' | 'ambiguous' | 'duplicate' | 'error';
+export type RowStatus = 'NEW_PRODUCT' | 'NEW_VARIANT' | 'RESTOCK' | 'AMBIGUOUS' | 'DUPLICATE' | 'ERROR';
 
 export interface RowErrorItem {
   field?: 'name' | 'sellingPrice' | 'costPrice' | 'gstRate' | 'unit' | 'sku' | 'openingStock' | 'category' | 'barcode' | 'reorderLevel';
@@ -394,6 +399,7 @@ export interface GridRow {
   subcategoryId?: string;
   productType?: string;
   size?: string;
+  colour?: string;
   purchaseDate?: string;
   material?: string;
   designPattern?: string;
@@ -766,11 +772,38 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
     return categoryList.filter((c) => c.active !== false);
   }, [categoryList]);
 
+  // Pre-index existing parent products and existing variant combinations for fast variant matching
+  const existingParentByName = useMemo(() => {
+    const m = new Map<string, Item>();
+    for (const it of branchScopedItems) {
+      m.set(it.name.trim().toLowerCase(), it);
+    }
+    return m;
+  }, [branchScopedItems]);
+
+  const existingVariantKeySet = useMemo(() => {
+    const s = new Set<string>();
+    for (const it of branchScopedItems) {
+      const pKey = it.name.trim().toLowerCase();
+      if (it.variants && it.variants.length > 0) {
+        for (const v of it.variants) {
+          const sKey = (v.size || 'Free Size').trim().toLowerCase();
+          s.add(`${pKey}__${sKey}`);
+        }
+      } else {
+        const sKey = (it.size || 'Free Size').trim().toLowerCase();
+        s.add(`${pKey}__${sKey}`);
+      }
+    }
+    return s;
+  }, [branchScopedItems]);
+
   // ── Compute Classification & Validation for all rows ────────────────────────
   const validatedRows: GridRow[] = useMemo(() => {
-    const seenNames = new Map<string, number>(); // normalized name+unit -> rowNum
-    const seenSkus = new Map<string, number>();  // lower(sku) -> rowNum
-    const seenBarcodes = new Map<string, number>(); // barcode -> rowNum
+    const seenParentProducts = new Map<string, number>(); // normName -> first rowNum that introduced parent
+    const seenVariants = new Map<string, number>();       // normName__size -> first rowNum
+    const seenSkus = new Map<string, number>();           // lower(sku) -> rowNum
+    const seenBarcodes = new Map<string, number>();       // barcode -> rowNum
 
     return rawRows.map((r) => {
       const errors: RowErrorItem[] = [];
@@ -783,19 +816,25 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         errors.push({ field: 'name', message: 'Product name exceeds 120 characters' });
       }
 
-      // Check intra-file duplicate name & unit
-      const normKey = `${r.name.trim().toLowerCase()}__${r.unit.trim().toLowerCase()}`;
+      // ── Variant-Aware Intra-File Duplicate Check ──────────────────────────
+      // Separate Parent Product matching from Variant Duplicate detection:
+      // The same product name with DIFFERENT sizes is 100% allowed.
+      // Only the exact same variant (product + size) repeated is marked as duplicate.
+      const normName = r.name.trim().toLowerCase();
+      const normSize = (r.size || 'Free Size').trim().toLowerCase();
+      const variantKey = `${normName}__${normSize}`;
+
       if (r.name.trim()) {
-        if (seenNames.has(normKey)) {
-          const first = seenNames.get(normKey);
+        if (seenVariants.has(variantKey)) {
+          const firstRow = seenVariants.get(variantKey)!;
           errors.push({
             field: 'name',
             isDuplicate: true,
-            message: `Duplicate row: repeats product in row ${first}`,
+            message: `Duplicate variant (Size: ${r.size || 'Free Size'}): repeats row ${firstRow}`,
           });
           isDuplicateInFile = true;
         } else {
-          seenNames.set(normKey, r.rowNum);
+          seenVariants.set(variantKey, r.rowNum);
         }
       }
 
@@ -845,15 +884,27 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         });
       }
 
-      // Determine if row is acting as Restock or New Product
+      // Determine if row is acting as Restock or New Product/Variant
+      const isDbVariant = existingVariantKeySet.has(variantKey);
+      const isParentInDb = existingParentByName.has(normName);
+      const isParentIntroducedEarlier = seenParentProducts.has(normName) && seenParentProducts.get(normName) !== r.rowNum;
+      const isParentKnown = isParentInDb || isParentIntroducedEarlier;
+
       let isRestockAction = false;
       if (r.resolution === 'LINK' && r.matchedItem) {
         isRestockAction = true;
       } else if (r.resolution === 'NEW') {
         isRestockAction = false;
+      } else if (isDbVariant) {
+        isRestockAction = true;
       } else if (r.matchedItem) {
         const pComp = r.priceComparison || compareProductPrices(r.sellingPrice, r.costPrice, r.matchedItem);
         isRestockAction = pComp?.recommendedAction === 'RESTOCK';
+      }
+
+      // Track parent introduced in this file
+      if (r.name.trim() && !seenParentProducts.has(normName)) {
+        seenParentProducts.set(normName, r.rowNum);
       }
 
       // 6. Validate SKU
@@ -868,8 +919,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           const first = seenSkus.get(skuLower);
           errors.push({ field: 'sku', isDuplicate: true, message: `SKU "${skuTrim}" repeats row ${first}` });
           isDuplicateInFile = true;
-        } else if (!isRestockAction && existingSkusSet.has(skuLower)) {
-          // If it's a new product, check collision against existing database SKU in this branch
+        } else if (!isRestockAction && !isDbVariant && existingSkusSet.has(skuLower)) {
           errors.push({ field: 'sku', isDuplicate: true, message: `SKU "${skuTrim}" already exists in this branch` });
           isDuplicateInFile = true;
         } else {
@@ -896,7 +946,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
 
       // 8. Validate Barcode
       const barcodeTrim = (r.barcode || '').trim();
-      if (!isRestockAction) {
+      if (!isRestockAction && !isDbVariant) {
         if (!barcodeTrim) {
           if (barcodeValidationActive) {
             errors.push({ field: 'barcode', message: 'Barcode is required for new products. Click "Generate Barcodes" or enter one.' });
@@ -917,18 +967,20 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         seenBarcodes.set(barcodeTrim, r.rowNum);
       }
 
-      // Determine Row Classification
+      // ── Determine Row Classification ──────────────────────────────────────
       let status: RowStatus = 'NEW_PRODUCT';
       if (errors.some((e) => !e.isDuplicate)) {
         status = 'ERROR';
       } else if (isDuplicateInFile) {
         status = 'DUPLICATE';
-      } else if (isRestockAction) {
+      } else if (isRestockAction || isDbVariant) {
         status = 'RESTOCK';
       } else if (r.resolution === 'NEW') {
-        status = 'NEW_PRODUCT';
+        status = isParentKnown ? 'NEW_VARIANT' : 'NEW_PRODUCT';
       } else if (r.candidates && r.candidates.length > 1) {
         status = 'AMBIGUOUS';
+      } else if (isParentKnown) {
+        status = 'NEW_VARIANT';
       } else {
         status = 'NEW_PRODUCT';
       }
@@ -939,10 +991,11 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         errors,
       };
     });
-  }, [rawRows, existingSkusSet, existingBarcodesSet, activeCategories, barcodeValidationActive]);
+  }, [rawRows, existingSkusSet, existingBarcodesSet, activeCategories, barcodeValidationActive, existingParentByName, existingVariantKeySet]);
 
   // Counts
   const newRows = useMemo(() => validatedRows.filter((r) => r.status === 'NEW_PRODUCT'), [validatedRows]);
+  const newVariantRows = useMemo(() => validatedRows.filter((r) => r.status === 'NEW_VARIANT'), [validatedRows]);
   const restockRows = useMemo(() => validatedRows.filter((r) => r.status === 'RESTOCK'), [validatedRows]);
   const ambiguousRows = useMemo(() => validatedRows.filter((r) => r.status === 'AMBIGUOUS'), [validatedRows]);
   const duplicateRows = useMemo(() => validatedRows.filter((r) => r.status === 'DUPLICATE'), [validatedRows]);
@@ -962,18 +1015,19 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
     return rawRows.filter((r) => r.isBarcodeAutoGenerated && r.barcode && r.barcode.trim()).length;
   }, [rawRows]);
 
-  // Eligible to import = new products + restocks (without blocking errors)
-  const eligibleRows = useMemo(() => validatedRows.filter((r) => r.status === 'NEW_PRODUCT' || r.status === 'RESTOCK'), [validatedRows]);
+  // Eligible to import = new products + new variants + restocks (without blocking errors)
+  const eligibleRows = useMemo(() => validatedRows.filter((r) => r.status === 'NEW_PRODUCT' || r.status === 'NEW_VARIANT' || r.status === 'RESTOCK'), [validatedRows]);
 
   // Filtered rows for the table view
   const visibleRows = useMemo(() => {
     if (filter === 'new') return newRows;
+    if (filter === 'variant') return newVariantRows;
     if (filter === 'restock') return restockRows;
     if (filter === 'ambiguous') return ambiguousRows;
     if (filter === 'duplicate') return duplicateRows;
     if (filter === 'error') return errorRows;
     return validatedRows;
-  }, [filter, validatedRows, newRows, restockRows, ambiguousRows, duplicateRows, errorRows]);
+  }, [filter, validatedRows, newRows, newVariantRows, restockRows, ambiguousRows, duplicateRows, errorRows]);
 
   const allVisibleSelected = visibleRows.length > 0 && visibleRows.every((r) => selectedRowIds.has(r._id));
   const someVisibleSelected = visibleRows.some((r) => selectedRowIds.has(r._id)) && !allVisibleSelected;
@@ -1023,6 +1077,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
 
     const iName = findCol(['product name', 'item name', 'product', 'name', 'item']);
     const iSize = findCol(['size', 'item size', 'product size']);
+    const iColour = findCol(['colour', 'color', 'shade', 'pattern']);
     const iPurchaseDate = findCol(['purchase date', 'purchase_date', 'date of purchase', 'purchase', 'date']);
     const iCategory = findCol(['category', 'main category']);
     const iSubcategory = findCol(['subcategory', 'sub category', 'sub-category']);
@@ -1082,25 +1137,27 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       const parts = dataLines[li];
       if (!parts || parts.every((p) => !String(p || '').trim())) continue;
 
-      const isFourColFormat = (parts.length === 4 && iCategory < 0) || (iSize >= 0 && iCost >= 0 && iStock >= 0 && iPrice < 0 && parts.length <= 4);
+      const isSixColFormat = (parts.length === 6 && iCategory < 0);
       const isFiveColFormat = (parts.length === 5 && iCategory < 0);
-      const isCompactFormat = isFourColFormat || isFiveColFormat;
+      const isFourColFormat = (parts.length === 4 && iCategory < 0) || (iSize >= 0 && iCost >= 0 && iStock >= 0 && iPrice < 0 && parts.length <= 4);
+      const isCompactFormat = isFourColFormat || isFiveColFormat || isSixColFormat;
       const name = getVal(parts, iName, 0);
       const rawSize = iSize >= 0 ? getVal(parts, iSize, -1) : (isCompactFormat ? getVal(parts, -1, 1) : '');
+      const rawColour = iColour >= 0 ? getVal(parts, iColour, -1) : (isSixColFormat ? getVal(parts, -1, 2) : '');
       const rawCategory = isCompactFormat ? '' : getVal(parts, iCategory, 1);
       const rawSubcategory = isCompactFormat ? '' : getVal(parts, iSubcategory, 2);
       const rawProductType = getVal(parts, iProductType, -1) || 'Retail';
       const rawMaterial = isCompactFormat ? '' : getVal(parts, iMaterial, 4);
       const rawDesign = isCompactFormat ? '' : getVal(parts, iDesign, 5);
       const rawDesc = isCompactFormat ? '' : getVal(parts, iDesc, 6);
-      const rawCost = iCost >= 0 ? getVal(parts, iCost, -1) : (isCompactFormat ? getVal(parts, -1, 2) : getVal(parts, -1, 7));
+      const rawCost = iCost >= 0 ? getVal(parts, iCost, -1) : (isSixColFormat ? getVal(parts, -1, 3) : (isFiveColFormat || isFourColFormat ? getVal(parts, -1, 2) : getVal(parts, -1, 7)));
       const rawPrice = iPrice >= 0 ? getVal(parts, iPrice, -1) : (isCompactFormat ? '' : getVal(parts, -1, 8));
       const rawMrp = isCompactFormat ? '' : getVal(parts, iMrp, 9);
       const rawOffer = isCompactFormat ? '' : getVal(parts, iOffer, 10);
       const unitRaw = isCompactFormat ? 'pcs' : getVal(parts, iUnit, 11);
       const rawSupplier = isCompactFormat ? '' : getVal(parts, iSupplier, 12);
-      const rawStock = iStock >= 0 ? getVal(parts, iStock, -1) : (isCompactFormat ? getVal(parts, -1, 3) : getVal(parts, -1, 13));
-      const rawPurchaseDate = iPurchaseDate >= 0 ? getVal(parts, iPurchaseDate, -1) : (isFiveColFormat ? getVal(parts, -1, 4) : '');
+      const rawStock = iStock >= 0 ? getVal(parts, iStock, -1) : (isSixColFormat ? getVal(parts, -1, 4) : (isFiveColFormat || isFourColFormat ? getVal(parts, -1, 3) : getVal(parts, -1, 13)));
+      const rawPurchaseDate = iPurchaseDate >= 0 ? getVal(parts, iPurchaseDate, -1) : (isSixColFormat ? getVal(parts, -1, 5) : (isFiveColFormat ? getVal(parts, -1, 4) : ''));
       let parsedPurchaseDate = '';
       if (rawPurchaseDate) {
         const pd = new Date(rawPurchaseDate);
@@ -1120,8 +1177,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       const cost = numC !== null ? String(numC) : (rawCost || '0');
 
       const numP = parseImportNumeric(rawPrice);
-      // When selling price is not given (e.g. 4-column Excel with Name, Size, Cost, Stock), default selling price to cost price
-      const price = numP !== null ? String(numP) : (rawPrice ? rawPrice : cost);
+      // Selling price must be empty initially when not explicitly provided in the uploaded file
+      const price = numP !== null ? String(numP) : (rawPrice ? rawPrice : '');
 
       const numS = parseImportNumeric(rawStock);
       const stock = numS !== null ? String(numS) : rawStock;
@@ -1288,7 +1345,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         isCategoryManuallyEdited: false,
         subcategory: rawSubcategory || '',
         productType: rawProductType || 'Retail',
-        size: rawSize || '',
+        size: rawSize ? rawSize.trim() : 'Free Size',
+        colour: rawColour ? rawColour.trim() : 'No Colour',
         purchaseDate: parsedPurchaseDate || '',
         material: rawMaterial || '',
         designPattern: rawDesign || '',
@@ -1748,7 +1806,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         category: '',
         categoryId: '',
         isCategoryManuallyEdited: false,
-        size: '',
+        size: 'Free Size',
+        colour: 'No Colour',
         purchaseDate: new Date().toISOString().split('T')[0],
         unit: 'pcs',
         sellingPrice: '',
@@ -2106,8 +2165,9 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           subcategoryId: r.subcategoryId?.trim() || null,
           subcategory: r.subcategory?.trim() || null,
           productType: r.productType || 'Retail',
-          size: r.size?.trim() || null,
-          purchaseDate: r.purchaseDate?.trim() || null,
+          size: r.size?.trim() || 'Free Size',
+          colour: null,
+          purchaseDate: r.purchaseDate?.trim() || (document.getElementById('bulk-global-purchase-date') as HTMLInputElement)?.value || new Date().toISOString().split('T')[0],
           material: r.material?.trim() || null,
           designPattern: r.designPattern?.trim() || null,
           description: r.description?.trim() || null,
@@ -3005,6 +3065,33 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         {newRows.length}
                       </span>
                     </button>
+                    {newVariantRows.length > 0 && (
+                      <button
+                        id="bulk-filter-variant"
+                        onClick={() => setFilter('variant')}
+                        style={{
+                          padding: '0.35rem 0.75rem', borderRadius: '20px',
+                          border: filter === 'variant' ? '1.5px solid #0284c7' : '1px solid #bae6fd',
+                          background: filter === 'variant' ? '#e0f2fe' : '#f0f9ff',
+                          color: '#0369a1',
+                          fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                          transition: 'all 0.15s ease',
+                          boxShadow: filter === 'variant' ? '0 1px 4px rgba(2,132,199,0.2)' : 'none',
+                        }}
+                      >
+                        <SparklesIcon size={13} color="#0284c7" />
+                        <span>New Variants</span>
+                        <span style={{
+                          padding: '1px 6px', borderRadius: '10px',
+                          background: filter === 'variant' ? '#0284c7' : '#bae6fd',
+                          color: filter === 'variant' ? '#ffffff' : '#0369a1',
+                          fontSize: '0.72rem', fontWeight: 700,
+                        }}>
+                          {newVariantRows.length}
+                        </span>
+                      </button>
+                    )}
                     <button
                       id="bulk-filter-restock"
                       onClick={() => setFilter('restock')}
@@ -3538,12 +3625,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         <span>Undo {generatedBarcodesCount} generated</span>
                       </button>
                     )}
-                    <div style={{ width: '1px', height: '22px', background: '#cbd5e1', margin: '0 0.15rem' }} />
-                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                      {generatedBarcodesCount > 0
-                        ? `${generatedBarcodesCount} internal barcode${generatedBarcodesCount !== 1 ? 's' : ''} generated.`
-                        : 'Generate internal EAN-13 codes or scan manufacturer barcodes.'}
-                    </div>
+
                   </div>
                 </div>
 
@@ -3584,8 +3666,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         <th style={{ ...thStyle, minWidth: 110 }}>UOM</th>
                         <th style={{ ...thStyle, minWidth: 95 }}>COST PRICE ₹</th>
                         <th style={{ ...thStyle, minWidth: 95 }}>SELLING ₹ *</th>
-                        <th style={{ ...thStyle, minWidth: 75 }}>OFFER %</th>
-                        <th style={{ ...thStyle, minWidth: 140 }}>PURCHASE DATE</th>
+                        <th style={{ ...thStyle, minWidth: 80 }}>OFFER %</th>
                         <th style={{ ...thStyle, minWidth: 80 }}>INCOMING</th>
                         <th style={{ ...thStyle, minWidth: 80 }}>CURRENT</th>
                         <th style={{ ...thStyle, minWidth: 80 }}>FINAL STOCK</th>
@@ -3606,7 +3687,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                           const existingStock = row.matchedItem ? row.matchedItem.currentStockMilli / 1000 : 0;
                           const finalStock = existingStock + incomingStock;
 
-                          const hasNameErr = row.errors.some((e) => e.field === 'name');
+                          const hasNameErr = row.errors.some((e) => e.field === 'name' && !e.isDuplicate);
+                          const isNameDup = row.errors.some((e) => e.field === 'name' && e.isDuplicate);
                           const hasPriceErr = row.errors.some((e) => e.field === 'sellingPrice');
                           const isSkuDup = row.errors.some((e) => e.field === 'sku' && e.isDuplicate);
                           const hasSkuErr = row.errors.some((e) => e.field === 'sku');
@@ -3663,6 +3745,12 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                       <span>New Product</span>
                                     </span>
                                   )}
+                                  {row.status === 'NEW_VARIANT' && (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0.2rem 0.55rem', borderRadius: '12px', background: '#e0f2fe', border: '1px solid #bae6fd', color: '#0369a1', fontWeight: 700, fontSize: '0.72rem' }}>
+                                      <SparklesIcon size={11} color="#0369a1" />
+                                      <span>New Variant</span>
+                                    </span>
+                                  )}
                                   {row.status === 'RESTOCK' && (
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0.2rem 0.55rem', borderRadius: '12px', background: '#dcfce7', border: '1px solid #bbf7d0', color: '#15803d', fontWeight: 700, fontSize: '0.72rem' }}>
                                       <RefreshCwIcon size={11} color="#15803d" />
@@ -3678,7 +3766,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                   {row.status === 'DUPLICATE' && (
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0.2rem 0.55rem', borderRadius: '12px', background: '#ffedd5', border: '1px solid #fed7aa', color: '#c2410c', fontWeight: 700, fontSize: '0.72rem' }}>
                                       <CopyIcon size={11} color="#c2410c" />
-                                      <span>Duplicate</span>
+                                      <span>Duplicate Variant</span>
                                     </span>
                                   )}
                                   {row.status === 'ERROR' && (
@@ -3698,8 +3786,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                     onChange={(e) => updateRowField(row._id, 'name', e.target.value)}
                                     style={{
                                       ...cellInputStyle,
-                                      borderColor: hasNameErr ? '#ef4444' : undefined,
-                                      background: hasNameErr ? '#fff1f2' : '#ffffff',
+                                      borderColor: hasNameErr ? '#ef4444' : (isNameDup ? '#f97316' : undefined),
+                                      background: hasNameErr ? '#fff1f2' : (isNameDup ? '#fff7ed' : '#ffffff'),
                                     }}
                                   />
                                 </td>
@@ -4004,61 +4092,25 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                 </td>
 
                                 {/* OFFER % */}
-                                <td style={{ padding: '0.45rem 0.35rem' }}>
-                                  <input
-                                    type="text"
-                                    value={row.offerPercentage || '0%'}
-                                    placeholder="0%"
+                                <td style={{ padding: '0.45rem 0.35rem', minWidth: 80 }}>
+                                  <select
+                                    value={row.offerPercentage ? (row.offerPercentage.endsWith('%') ? row.offerPercentage : `${row.offerPercentage}%`) : '0%'}
                                     onChange={(e) => updateRowField(row._id, 'offerPercentage', e.target.value)}
-                                    style={cellInputStyle}
-                                  />
-                                </td>
-
-                                {/* PURCHASE DATE */}
-                                <td style={{ padding: '0.45rem 0.35rem', minWidth: 145 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', position: 'relative', width: '100%' }}>
-                                    <input
-                                      id={`bulk-row-purchase-date-${row._id}`}
-                                      type="date"
-                                      value={row.purchaseDate || ''}
-                                      onChange={(e) => updateRowField(row._id, 'purchaseDate', e.target.value)}
-                                      style={{
-                                        ...cellInputStyle,
-                                        width: '100%',
-                                        padding: '0.22rem 0.4rem',
-                                        paddingRight: '1.8rem',
-                                        fontSize: '0.74rem',
-                                      }}
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const el = document.getElementById(`bulk-row-purchase-date-${row._id}`) as HTMLInputElement | null;
-                                        if (el) {
-                                          if (typeof el.showPicker === 'function') {
-                                            el.showPicker();
-                                          } else {
-                                            el.focus();
-                                          }
-                                        }
-                                      }}
-                                      title="Open Calendar Picker"
-                                      style={{
-                                        position: 'absolute',
-                                        right: '4px',
-                                        background: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        padding: '2px',
-                                        color: '#6366f1',
-                                      }}
-                                    >
-                                      <CalendarIcon size={14} color="#6366f1" />
-                                    </button>
-                                  </div>
+                                    style={{
+                                      ...cellInputStyle,
+                                      cursor: 'pointer',
+                                      padding: '0.22rem 0.35rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    {['0%', '5%', '10%', '15%', '20%', '25%', '30%', '35%', '40%', '50%'].map((opt) => (
+                                      <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                    {row.offerPercentage && !['0%', '5%', '10%', '15%', '20%', '25%', '30%', '35%', '40%', '50%'].includes(row.offerPercentage.endsWith('%') ? row.offerPercentage : `${row.offerPercentage}%`) && (
+                                      <option value={row.offerPercentage}>{row.offerPercentage}</option>
+                                    )}
+                                  </select>
                                 </td>
 
                                 {/* INCOMING STOCK */}
@@ -4560,7 +4612,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                       {selectedSupplier ? (
                         <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and inward stock movements will be linked to supplier <strong style={{ color: '#b45309' }}>{selectedSupplier.name}</strong>.</>
                       ) : (
-                        <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and opening stock movements will be imported (<strong style={{ color: '#475569' }}>Supplier is not selected</strong> - optional).</>
+                        <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and opening stock movements will be imported (<strong style={{ color: '#475569' }}>Supplier is not selected</strong>).</>
                       )}
                     </li>
                     <li>
@@ -4890,18 +4942,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         }}
                         title="Supplier selection is optional. You can proceed with import."
                       >
-                        <span
-                          style={{
-                            background: '#e2e8f0',
-                            color: '#334155',
-                            padding: '1px 6px',
-                            borderRadius: '10px',
-                            fontSize: '0.7rem',
-                            fontWeight: 700,
-                          }}
-                        >
-                          Optional
-                        </span>
+
                         <span>Supplier is not selected • All <strong>{eligibleRows.length}</strong> rows ready</span>
                       </span>
                     ) : (
@@ -4989,7 +5030,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                     }}
                   >
                     <TruckIcon size={14} color="#64748b" />
-                    <span>Supplier is not selected (Optional)</span>
+                    <span style={{ color: 'red' }}>Supplier is not selected</span>
                   </span>
                 )}
 
