@@ -241,9 +241,9 @@ export function registerPurchases(r: Router) {
       }
     }
 
-    const supplierId = V.str(b.supplierId, 'Supplier', { required: true, max: 60 });
-    const supplierInvoiceNumber = V.str(b.supplierInvoiceNumber || b.billNo, 'Supplier Invoice Number', { required: true, min: 1, max: 60 });
-    const supplierInvoiceDate = V.str(b.supplierInvoiceDate || b.bdate, 'Supplier Invoice Date', { required: true, min: 10, max: 20 });
+    const supplierId = V.optStr(b.supplierId, 'Supplier', 60) || null;
+    const supplierInvoiceNumber = V.str(b.supplierInvoiceNumber || b.billNo || 'DIRECT', 'Supplier Invoice Number', { required: true, min: 1, max: 60 });
+    const supplierInvoiceDate = V.str(b.supplierInvoiceDate || b.bdate || new Date().toISOString().slice(0, 10), 'Supplier Invoice Date', { required: true, min: 10, max: 20 });
     const purchaseDate = V.optStr(b.purchaseDate || b.bdate, 'Purchase Date', 20) || new Date().toISOString().slice(0, 10);
     const note = V.optStr(b.note, 'Note', 500);
     const linesInput = V.arr(b.lines, 'Purchase items', { min: 1 });
@@ -266,38 +266,38 @@ export function registerPurchases(r: Router) {
       throw bad('Purchase date cannot be before the supplier invoice date', 'INVALID_DATE');
     }
 
-    // 1. Verify supplier belongs to this business
-    const supplier = await ctx.db.one<{ id: string; name: string; gstin?: string; state_code?: string; stateCode?: string; address?: string }>(
+    // 1. Verify supplier belongs to this business (optional for internal/direct inward)
+    const supplier = supplierId ? await ctx.db.one<{ id: string; name: string; gstin?: string; state_code?: string; stateCode?: string; address?: string }>(
       'SELECT id, name, gstin, state_code, address FROM parties WHERE id = ? AND tenant_id = ?',
       [supplierId, tenantId],
-    );
-    if (!supplier) {
-      throw notFound('Supplier not found in your business');
-    }
+    ) : null;
 
     // 2. Duplicate Check: same supplier + same supplier invoice number already recorded (non-voided)
-    const duplicate = await ctx.db.one<{ id: string; purchase_number?: string; purchaseNumber?: string; bdate?: string; purchase_date?: string; purchaseDate?: string }>(
-      `SELECT id, purchase_number, bdate, purchase_date
-       FROM purchases
-       WHERE tenant_id = ?
-         AND supplier_id = ?
-         AND lower(COALESCE(supplier_invoice_number, bill_no, '')) = lower(?)
-         AND status != 'voided'`,
-      [tenantId, supplierId, supplierInvoiceNumber],
-    );
-    if (duplicate) {
-      const purNum = duplicate.purchaseNumber ?? duplicate.purchase_number ?? duplicate.id;
-      const purDate = duplicate.purchaseDate ?? duplicate.purchase_date ?? duplicate.bdate ?? '';
-      throw bad(
-        `Invoice ${supplierInvoiceNumber} from this supplier is already recorded as ${purNum} on ${purDate}.`,
-        'DUPLICATE_PURCHASE',
+    if (supplierId) {
+      const duplicate = await ctx.db.one<{ id: string; purchase_number?: string; purchaseNumber?: string; bdate?: string; purchase_date?: string; purchaseDate?: string }>(
+        `SELECT id, purchase_number, bdate, purchase_date
+         FROM purchases
+         WHERE tenant_id = ?
+           AND supplier_id = ?
+           AND lower(COALESCE(supplier_invoice_number, bill_no, '')) = lower(?)
+           AND status != 'voided'`,
+        [tenantId, supplierId, supplierInvoiceNumber],
       );
+      if (duplicate) {
+        const purNum = duplicate.purchaseNumber ?? duplicate.purchase_number ?? duplicate.id;
+        const purDate = duplicate.purchaseDate ?? duplicate.purchase_date ?? duplicate.bdate ?? '';
+        throw bad(
+          `Invoice ${supplierInvoiceNumber} from this supplier is already recorded as ${purNum} on ${purDate}.`,
+          'DUPLICATE_PURCHASE',
+        );
+      }
     }
 
     // 3. Verify items and lines
     let totalReceivedUnits = 0;
     const formattedLines: Array<{
       itemId: string;
+      variantId?: string | null;
       name: string;
       hsn: string | null;
       unit: string;
@@ -339,8 +339,11 @@ export function registerPurchases(r: Router) {
         throw bad(`Batch and expiry are required for batch-tracked item "${itemRow.name}"`, 'BATCH_REQUIRED');
       }
 
+      const variantId = V.optStr(l.variantId ?? l.variant_id, 'Variant ID', 60);
+
       formattedLines.push({
         itemId,
+        variantId,
         name: itemRow.name,
         hsn: itemRow.hsn ?? V.optStr(l.hsn, 'HSN', 20),
         unit: itemRow.unit ?? 'pcs',
@@ -362,11 +365,11 @@ export function registerPurchases(r: Router) {
     // 4. Exact Tax & ITC Calculations using shared purchase engine
     const shop = await ctx.db.one<{ state_code?: string; stateCode?: string }>('SELECT state_code FROM tenants WHERE id = ?', [tenantId]);
     const shopState = shop?.stateCode ?? shop?.state_code ?? '33';
-    const supplierState = supplier.stateCode ?? supplier.state_code ?? (supplier.gstin ? supplier.gstin.slice(0, 2) : shopState);
+    const supplierState = supplier ? (supplier.stateCode ?? supplier.state_code ?? (supplier.gstin ? supplier.gstin.slice(0, 2) : shopState)) : shopState;
 
     const calc = calcPurchase({
       lines: formattedLines,
-      supplierGstin: supplier.gstin,
+      supplierGstin: supplier?.gstin,
       supplierState,
       shopState,
       otherChargesLabel,
@@ -485,6 +488,12 @@ export function registerPurchases(r: Router) {
 
         // Stock inward: only for receivedQtyMilli > 0
         if (item.receivedQtyMilli > 0) {
+          if ((item as any).variantId) {
+            await q.exec(
+              'UPDATE variants SET stock_milli = stock_milli + ?, updated_at = now() WHERE id = ? AND tenant_id = ?',
+              [item.receivedQtyMilli, (item as any).variantId, tenantId],
+            );
+          }
           await q.exec(
             `INSERT INTO stock_moves (
               id, tenant_id, branch_id, item_id, location, qty_milli, kind,
@@ -505,9 +514,9 @@ export function registerPurchases(r: Router) {
             ],
           );
 
-          // Update Last purchase price on product master (Section 6.5)
+          // Update Last purchase price on product master (Section 6.5) and update restocked_date
           await q.exec(
-            'UPDATE items SET cost_minor = ?, updated_at = now() WHERE id = ? AND tenant_id = ?',
+            'UPDATE items SET cost_minor = ?, restocked_date = now(), updated_at = now() WHERE id = ? AND tenant_id = ?',
             [item.costMinor, item.itemId, tenantId],
           );
         }

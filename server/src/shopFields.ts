@@ -7,6 +7,7 @@ export interface ShopFields {
   name: string;
   wholesaleBusinessName: string | null;
   businessType: BusinessType;
+  gstEnabled: boolean;
   gstin: string | null;
   stateCode: string;
   address: string | null;
@@ -28,7 +29,7 @@ export interface ShopFields {
 }
 
 export const SHOP_DEFAULTS: ShopFields = {
-  name: '', wholesaleBusinessName: null, businessType: 'retail', gstin: null, stateCode: '33', address: null, phone: null, upiId: null, invoicePrefix: 'INV', language: 'en', locations: ['MAIN'],
+  name: '', wholesaleBusinessName: null, businessType: 'retail', gstEnabled: false, gstin: null, stateCode: '33', address: null, phone: null, upiId: null, invoicePrefix: 'INV', language: 'en', locations: ['MAIN'],
   whatsappEnabled: true, whatsappDefaultLang: 'en', whatsappIncludeLink: false,
   loyaltyEnabled: true, loyaltyPointsPer100: 10, loyaltyPointValueMinor: 10, loyaltyMinPointsRedeem: 10, ownerEmail: null,
   invoiceProfiles: DEFAULT_INVOICE_PROFILES,
@@ -60,6 +61,7 @@ export function parseShopFields(body: any, cur: ShopFields = SHOP_DEFAULTS): Sho
   const out: ShopFields = { ...cur, locations: [...cur.locations] };
 
   if (has(body, 'name') || !cur.name) out.name = V.str(body?.name, 'Shop name', { required: true, max: 120 });
+  if (has(body, 'gstEnabled') || has(body, 'gst_enabled')) out.gstEnabled = V.bool(body.gstEnabled ?? body.gst_enabled, false);
   if (has(body, 'businessType')) out.businessType = V.oneOf(body.businessType, 'Business type', BUSINESS_TYPES);
   if (has(body, 'language')) out.language = V.oneOf(body.language, 'Language', ['en', 'ta', 'hi'] as const);
   if (has(body, 'address')) out.address = V.optStr(body.address, 'Address', 300);
@@ -229,7 +231,7 @@ export function normalizeInvoiceProfiles(raw: any, shopFallback?: any): InvoiceP
 export function shopView(t: any) {
   return {
     id: t.id, name: t.name, wholesaleBusinessName: t.wholesaleBusinessName ?? t.wholesale_business_name ?? (typeof t.invoiceProfiles === 'object' ? t.invoiceProfiles?.wholesale?.displayName : null) ?? null,
-    businessType: t.businessType, gstin: t.gstin, stateCode: t.stateCode, address: t.address, phone: t.phone,
+    businessType: t.businessType, gstEnabled: Boolean(t.gstEnabled ?? t.gst_enabled ?? false), gstin: t.gstin, stateCode: t.stateCode, address: t.address, phone: t.phone,
     upiId: t.upiId, invoicePrefix: t.invoicePrefix, plan: t.plan, timezone: t.timezone, language: t.language, locations: t.locations,
     whatsappEnabled: Boolean(t.whatsappEnabled ?? t.whatsapp_enabled ?? true),
     whatsappDefaultLang: (t.whatsappDefaultLang ?? t.whatsapp_default_lang ?? 'en') as Lang,
@@ -248,7 +250,7 @@ export function shopView(t: any) {
 export function shopFromRow(t: any): ShopFields {
   return {
     name: t.name, wholesaleBusinessName: t.wholesaleBusinessName ?? t.wholesale_business_name ?? null,
-    businessType: t.businessType, gstin: t.gstin, stateCode: t.stateCode, address: t.address, phone: t.phone,
+    businessType: t.businessType, gstEnabled: Boolean(t.gstEnabled ?? t.gst_enabled ?? false), gstin: t.gstin, stateCode: t.stateCode, address: t.address, phone: t.phone,
     upiId: t.upiId, invoicePrefix: t.invoicePrefix, language: t.language, locations: t.locations,
     whatsappEnabled: Boolean(t.whatsappEnabled ?? t.whatsapp_enabled ?? true),
     whatsappDefaultLang: (t.whatsappDefaultLang ?? t.whatsapp_default_lang ?? 'en') as Lang,
