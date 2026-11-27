@@ -19,6 +19,7 @@ async function getTesseract() {
 export interface ExtractedProductItem {
   id: string;
   name: string;
+  size?: string;
   uom: string;
   sellingPrice: string;
   costPrice: string;
@@ -28,6 +29,8 @@ export interface ExtractedProductItem {
   openingStock: string;
   rawRate?: string;
   rawQty?: string;
+  rawBox?: string;
+  isDitto?: boolean;
   rawDiscount?: string;
   rawTaxable?: string;
   rawTotal?: string;
@@ -430,6 +433,7 @@ export function isSummaryOrFooterRow(line: string): boolean {
     /^(?:terms\s*(?:and|&)\s*conditions|subject\s*to|our\s*responsibility|goods\s*once\s*sold|delivery\s*ex-premises)\b/i,
     /^(?:authorised\s*signatory|authorized\s*signatory|certified\s*that|for\s+go\s+gst|for\s+[a-z0-9&.,\- ]+demo|signature)\b/i,
     /^(?:e\.?\s*&\s*o\.?e\.?|customer\s*detail|delivery\s*date|store\s*location)\b/i,
+    /^(?:notes?|remarks?)\b(?:\s*[:\-]|\s+sub\s*total|\s*$)/i,
   ];
 
   return summaryPatterns.some((rx) => rx.test(l));
@@ -1276,6 +1280,187 @@ export function parseSparseTable(sparseText: string): ExtractedProductItem[] {
   return items.filter(isValidProductRow);
 }
 
+// ── Product Name Cleaning & Ditto Marks ──────────────────────────────────────
+const DITTO_NAME_RX = /^(?:["“”'`,.\-~\s]+|do\.?|ditto|same)$/i;
+const DITTO_MARKER_RX = /\(\s*ditto\s*\)|\bditto\b|(?:^|\s)(?:"|“|”|,,|''|do\.)(?=\s|$)/i;
+
+/** True when a "Particulars" cell is (or contains) a ditto mark: ", ,, do, ditto, (ditto). */
+export function isDittoProductName(raw: string): boolean {
+  const s = (raw || '').trim();
+  if (!s) return false;
+  return DITTO_NAME_RX.test(s) || DITTO_MARKER_RX.test(s);
+}
+
+/**
+ * Removes text that does not belong to the product name: transcription notes from
+ * neighbouring columns ("Unclear in source", "Ditto / unclear"), ditto markers,
+ * "Possibly", footnote asterisks and quote marks.
+ * A quoted note followed by a footnote "*" after real name text (e.g. `ANAND VEST “Raw colour”*`)
+ * belongs to another column and is dropped.
+ */
+export function cleanInvoiceProductName(raw: string): string {
+  let s = (raw || '').replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+
+  s = s
+    .replace(/\bditto\s*\/\s*(?:unclear|illegible)\b/gi, ' ')
+    .replace(/\b(?:not\s+transcribed|handwriting\s+unclear)\b/gi, ' ')
+    .replace(/\b(?:unclear|illegible|unreadable)(?:\s+in(?:\s+the)?\s+source)?\b/gi, ' ')
+    .replace(/\(\s*ditto\s*\)/gi, ' ')
+    .replace(/\bditto\b/gi, ' ')
+    .replace(/^\s*(?:possibly|probably|maybe)\b/i, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Drop a trailing quoted note marked with a footnote asterisk when real name text precedes it
+  const quotedNote = s.match(/^(.*?[A-Za-z0-9].*?)\s*["“”][^"“”]*["“”]\s*\*+\s*$/);
+  if (quotedNote && quotedNote[1].replace(/["“”*]/g, '').trim()) {
+    s = quotedNote[1];
+  }
+
+  s = s
+    .replace(/["“”]/g, '')
+    .replace(/\*+/g, ' ')
+    .replace(/^[\s/|,.\-:;]+|[\s/|,.\-:;]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return s;
+}
+
+/** Fills ditto / blank product names from the previous row, in invoice order. */
+export function applyDittoNames<T extends { name: string; isDitto?: boolean; hsn?: string }>(items: T[]): T[] {
+  let lastName = '';
+  let lastHsn = '';
+  return items.map((item) => {
+    const name = (item.name || '').trim();
+    const blank = !name || DITTO_NAME_RX.test(name);
+    let next = item;
+    if (blank && lastName) {
+      next = { ...item, name: lastName, isDitto: true, hsn: item.hsn || lastHsn };
+    } else if (item.isDitto && !item.hsn && lastHsn) {
+      next = { ...item, hsn: lastHsn };
+    }
+    if (next.name && !DITTO_NAME_RX.test(next.name)) lastName = next.name;
+    if (next.hsn) lastHsn = next.hsn;
+    return next;
+  });
+}
+
+// ── Size + Box + Qty × Rate = Amount rows (textile / garment invoices) ───────
+const LETTER_SIZE_RX = /^(?:XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|[2-6]X|FS|F\/S|FREE|FREESIZE|STD|SMALL|MEDIUM|LARGE)$/i;
+const ALNUM_SIZE_RX = /^(?:\d{1,3}\s*[-\/xX×]\s*\d{1,3}|\d{1,2}\s*(?:Y|YR|YRS|M|MON)|\d{2,3}\s*(?:CM|IN))$/i;
+
+export interface TableLayoutHints {
+  hasSize?: boolean;
+  hasBox?: boolean;
+}
+
+export function layoutHintsFromHeaders(headers: string[] = [], rawHeaderLine = ''): TableLayoutHints {
+  const text = `${headers.join(' ')} ${rawHeaderLine}`.toLowerCase();
+  return {
+    hasSize: /\bsize\b/.test(text),
+    hasBox: /\b(?:box|boxes|bx|ctn|carton|bundle|bdl)\b/.test(text),
+  };
+}
+
+export interface QtyRateAmountRow {
+  sno: string;
+  name: string;
+  isDitto: boolean;
+  hsn: string;
+  size: string;
+  box: string;
+  qty: string;
+  rate: string;
+  amount: string;
+}
+
+const PLAIN_NUMBER_RX = /^(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?$/;
+
+/**
+ * Parses rows shaped like `SL | PARTICULARS | HSN | SIZE | BOX | PCS | RATE | AMOUNT`, e.g.
+ * `1 ANAND Unclear in source 80 2 20 135 2,700` → size 80, box 2, qty 20, rate 135.
+ * The columns are identified by arithmetic (PCS × RATE = AMOUNT), so a numeric size is never
+ * mistaken for the quantity. Returns null unless the row carries a size or box, leaving plain
+ * `qty rate amount` rows to the generic parser.
+ */
+export function parseQtyRateAmountRow(line: string, hints: TableLayoutHints = {}): QtyRateAmountRow | null {
+  const raw = (line || '').trim();
+  if (!raw || /^\*/.test(raw) || isSummaryOrFooterRow(raw)) return null;
+
+  const tokens = raw.replace(/[|[\]]/g, ' ').replace(/₹/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  let start = tokens.length;
+  while (start > 0 && PLAIN_NUMBER_RX.test(tokens[start - 1])) start--;
+  const numTokens = tokens.slice(start);
+  let head = tokens.slice(0, start);
+  if (numTokens.length < 3) return null;
+
+  const nums = numTokens.map((t) => parseFloat(t.replace(/,/g, '')));
+  let sno = '';
+  if (head.length > 0 && /^\d+[.)]?$/.test(head[0])) {
+    sno = head[0].replace(/[.)]/g, '');
+    head = head.slice(1);
+  } else if (head.length === 0 && nums.length >= 4) {
+    sno = numTokens.shift()!;
+    nums.shift();
+  }
+
+  const n = nums.length;
+  const amount = nums[n - 1];
+  let qty = nums[n - 3];
+  let rate = nums[n - 2];
+  const approx = (a: number, b: number) => Math.abs(a - b) <= Math.max(1, b * 0.005);
+  if (!(amount > 0 && qty > 0 && rate > 0 && approx(qty * rate, amount))) return null;
+  // Quantities are whole pieces; if the order is "rate qty amount", swap
+  if (!Number.isInteger(qty) && Number.isInteger(rate)) [qty, rate] = [rate, qty];
+
+  const preTokens = numTokens.slice(0, n - 3);
+  let hsn = '';
+  if (preTokens.length > 0 && /^\d{4,8}$/.test(preTokens[0])) {
+    hsn = preTokens.shift()!;
+  }
+
+  // Letter / text size at the end of the name (M, XL, Free Size, 2-3Y)
+  let textSize = '';
+  const lastTwo = head.slice(-2).join(' ');
+  if (head.length >= 3 && /^free\s*size$/i.test(lastTwo)) {
+    textSize = 'Free Size';
+    head = head.slice(0, -2);
+  } else if (head.length >= 2 && (LETTER_SIZE_RX.test(head[head.length - 1]) || ALNUM_SIZE_RX.test(head[head.length - 1]))) {
+    textSize = head[head.length - 1].toUpperCase() === 'FREE' ? 'Free Size' : head[head.length - 1].toUpperCase();
+    head = head.slice(0, -1);
+  }
+
+  let size = textSize;
+  let box = '';
+  if (preTokens.length >= 2) {
+    if (!size) size = preTokens[0];
+    box = preTokens[preTokens.length - 1];
+  } else if (preTokens.length === 1) {
+    if (size || (hints.hasBox && !hints.hasSize)) box = preTokens[0];
+    else size = preTokens[0];
+  }
+
+  // A plain "name qty rate amount" row (no size/box) is left to the generic parser
+  if (!size && !box && !hints.hasSize) return null;
+
+  const rawName = head.join(' ');
+  const name = cleanInvoiceProductName(rawName);
+  const isDitto = isDittoProductName(rawName);
+  return {
+    sno,
+    name,
+    isDitto,
+    hsn,
+    size,
+    box,
+    qty: String(qty),
+    rate: rate.toFixed(2),
+    amount: amount.toFixed(2),
+  };
+}
+
 // ── Line Items Parser ─────────────────────────────────────────────────────────
 export function parseLineItems(
   dataLines: string[],
@@ -1296,9 +1481,12 @@ export function parseLineItems(
       const headerRow = tableData[tableHeaderIdx];
       const nameColIdx = headerRow.findIndex((h) => /description|product|particulars|item/i.test(h));
       const hsnColIdx = headerRow.findIndex((h) => /hsn|sac/i.test(h));
-      const qtyColIdx = headerRow.findIndex((h) => /qty|quantity|units|nos/i.test(h));
-      const uomColIdx = headerRow.findIndex((h) => /uom|unit|pkg/i.test(h));
-      const rateColIdx = headerRow.findIndex((h) => /rate|price|unit price/i.test(h));
+      const sizeColIdx = headerRow.findIndex((h) => /\bsize\b/i.test(h));
+      const boxColIdx = headerRow.findIndex((h) => /\b(box|boxes|bx|ctn|carton|bundle)\b/i.test(h));
+      const pcsColIdx = headerRow.findIndex((h) => /\b(pcs|pieces|total\s*qty|billed\s*qty)\b/i.test(h));
+      const qtyColIdx = pcsColIdx >= 0 ? pcsColIdx : headerRow.findIndex((h) => /\b(qty|quantity|units|nos)\b/i.test(h));
+      const uomColIdx = headerRow.findIndex((h) => /\b(uom|unit|pkg)\b/i.test(h));
+      const rateColIdx = headerRow.findIndex((h) => /\b(rate|price|unit price)\b/i.test(h));
       const taxableColIdx = headerRow.findIndex((h) => /taxable/i.test(h));
       const gstColIdx = headerRow.findIndex((h) => /gst|tax %|tax rate|cgst|igst/i.test(h));
       const totalColIdx = headerRow.findIndex((h) => /total|amount after tax|net amount|amount/i.test(h));
@@ -1309,12 +1497,16 @@ export function parseLineItems(
       for (let r = tableHeaderIdx + 1; r < tableData.length; r++) {
         const row = tableData[r];
         const rowJoined = row.join(' ').trim();
-        if (!rowJoined || isSummaryOrFooterRow(rowJoined)) continue;
+        if (!rowJoined || isSummaryOrFooterRow(rowJoined) || /^\*/.test(rowJoined)) continue;
 
-        const nameRaw = nameColIdx >= 0 ? (row[nameColIdx] || '').trim() : '';
-        if (!nameRaw || isSummaryOrFooterRow(nameRaw)) continue;
+        const nameCell = nameColIdx >= 0 ? (row[nameColIdx] || '').trim() : '';
+        if (isSummaryOrFooterRow(nameCell) || /^\*/.test(nameCell)) continue;
+        const cellIsDitto = isDittoProductName(nameCell);
+        const nameRaw = cleanInvoiceProductName(nameCell);
+        if (!nameRaw && !cellIsDitto) continue;
 
         const hsnRaw = hsnColIdx >= 0 ? (row[hsnColIdx] || '').replace(/[^0-9]/g, '') : '';
+        const sizeRaw = sizeColIdx >= 0 ? (row[sizeColIdx] || '').trim() : '';
         const qtyRaw = qtyColIdx >= 0 ? row[qtyColIdx] : '1';
         const uomRaw = uomColIdx >= 0 ? row[uomColIdx] : '';
         const { qty, uom } = parseUomAndQty(qtyRaw, uomRaw, nameRaw);
@@ -1332,19 +1524,20 @@ export function parseLineItems(
         const qVal = parseFloat(qty) || 1;
         const gstVal = parseFloat(gstRate.replace('%', '')) || 5;
 
-        // Cost Price: final line amount after tax divided by quantity
+        // Cost Price: prefer exact unit rate from the bill when available
         let costPrice = '';
-        if (totalNum > 0 && qVal > 0) {
+        if (rateNum > 0) {
+          costPrice = rateNum.toFixed(2);
+        } else if (totalNum > 0 && qVal > 0) {
           costPrice = (totalNum / qVal).toFixed(2);
         } else if (taxableNum > 0 && qVal > 0) {
           costPrice = ((taxableNum * (1 + gstVal / 100)) / qVal).toFixed(2);
-        } else if (rateNum > 0) {
-          costPrice = (rateNum * (1 + gstVal / 100)).toFixed(2);
         }
 
         gridItems.push({
           id: `inv-item-${rowSeq++}`,
           name: nameRaw,
+          size: sizeRaw,
           uom,
           sellingPrice: '', // Kept empty per requirement
           costPrice,
@@ -1354,14 +1547,16 @@ export function parseLineItems(
           openingStock: !isNaN(qVal) && Math.floor(qVal) === qVal ? Math.floor(qVal).toString() : qty,
           rawRate: row[rateColIdx],
           rawQty: qty,
+          rawBox: boxColIdx >= 0 ? (row[boxColIdx] || '').trim() : undefined,
           rawTaxable: row[taxableColIdx],
           rawTotal: row[totalColIdx],
+          isDitto: cellIsDitto,
           confidence: 'high',
           flags: ['Selling Price required'],
         });
       }
 
-      const validGrid = gridItems.filter(isValidProductRow);
+      const validGrid = applyDittoNames(gridItems).filter(isValidProductRow);
       if (validGrid.length > 0) return validGrid;
     }
   }
@@ -1370,10 +1565,48 @@ export function parseLineItems(
   const items: ExtractedProductItem[] = [];
   let currentItem: ExtractedProductItem | null = null;
   let rowSeq = 1;
+  const layoutHints = layoutHintsFromHeaders(headers);
 
   for (let idx = 0; idx < dataLines.length; idx++) {
     const rawLine = dataLines[idx].trim();
     if (!rawLine) continue;
+
+    // Footnote lines ("* Product / HSN handwriting is unclear…") are never products,
+    // and the prose after them must not be appended to the previous product.
+    if (/^\*/.test(rawLine)) {
+      if (currentItem) {
+        items.push(currentItem);
+        currentItem = null;
+      }
+      continue;
+    }
+
+    // Garment-style rows: SIZE | BOX | PCS | RATE | AMOUNT resolved by PCS × RATE = AMOUNT
+    const sized = parseQtyRateAmountRow(rawLine, layoutHints);
+    if (sized) {
+      if (currentItem) items.push(currentItem);
+      currentItem = {
+        id: `inv-item-${rowSeq++}`,
+        name: sized.name,
+        size: sized.size,
+        uom: 'pcs',
+        sellingPrice: '', // Kept empty per requirement
+        costPrice: sized.rate, // Exact unit RATE from the bill
+        hsn: sized.hsn,
+        gstRate: '5%',
+        priceInclusive: 'Yes',
+        openingStock: sized.qty,
+        rawRate: sized.rate,
+        rawQty: sized.qty,
+        rawBox: sized.box || undefined,
+        rawTotal: sized.amount,
+        isDitto: sized.isDitto,
+        confidence: sized.name ? 'high' : 'medium',
+        flags: ['Selling Price required'],
+      };
+      if (!sized.hsn) currentItem.flags?.push('HSN missing');
+      continue;
+    }
 
     // Check if line is a summary or footer row -> stop table processing
     if (isSummaryOrFooterRow(rawLine)) {
@@ -1586,7 +1819,12 @@ export function parseLineItems(
     items.push(currentItem);
   }
 
-  const validItems = items.filter(isValidProductRow);
+  const withNames = applyDittoNames(items).map((item, i) =>
+    item.name.trim()
+      ? item
+      : { ...item, name: `Product Item ${i + 1}`, flags: [...(item.flags || []), 'Product name unclear'] }
+  );
+  const validItems = withNames.filter(isValidProductRow);
 
   if (validItems.length === 0 && sparseText) {
     return parseSparseTable(sparseText).filter(isValidProductRow);

@@ -27,7 +27,7 @@ interface Props {
   suppliers?: Party[];
   existingItems?: Item[];
   onClose: () => void;
-  onOpenBulkImport?: () => void;
+  onOpenBulkImport?: (rows?: string[][]) => void;
 }
 
 type WizardStep = 'upload' | 'extracting' | 'review' | 'download';
@@ -227,6 +227,22 @@ export function SupplierInvoiceConverterModal({
       const dateStr = new Date().toISOString().slice(0, 10);
       setDownloadFilename(`Supplier_Invoice_${cleanInv}_${dateStr}.xlsx`);
 
+      // Automatically open Bulk Product Import (Step 2: Review & Fix) with extracted products
+      if (onOpenBulkImport && res.items.length > 0) {
+        const rows: string[][] = [
+          ['Product Name', 'Size', 'Cost', 'Stock'],
+          ...res.items.map((p) => [
+            p.name || '',
+            p.size ?? p.sizeWeightVolume ?? '',
+            p.costPrice || '',
+            p.openingStock || '0',
+          ]),
+        ];
+        onClose();
+        onOpenBulkImport(rows);
+        return;
+      }
+
       setStep('review');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to extract invoice data. Please try another invoice or check the scan clarity.');
@@ -305,9 +321,10 @@ export function SupplierInvoiceConverterModal({
 
   // Add row manually
   const handleAddRow = () => {
-    const newRow: ExtractedSupplierInvoiceItem = {
+    const newRow: IntelligentInvoiceItem = {
       id: `manual-row-${Date.now()}`,
       name: '',
+      size: '',
       uom: 'pcs',
       sellingPrice: '',
       costPrice: '',
@@ -315,7 +332,9 @@ export function SupplierInvoiceConverterModal({
       gstRate: '5%',
       priceInclusive: 'Yes',
       openingStock: '1',
-      flags: ['Selling Price required', 'Cost Price uncertain'],
+      flags: ['Cost Price uncertain'],
+      reviewStatus: 'missing_information',
+      userApproved: true,
     };
     setProducts((prev) => [...prev, newRow]);
   };
@@ -410,12 +429,27 @@ export function SupplierInvoiceConverterModal({
     }
   };
 
-  // Verified items count
+  const handleOpenInBulkImport = () => {
+    if (!onOpenBulkImport) return;
+    const rows: string[][] = [
+      ['Product Name', 'Size', 'Cost', 'Stock'],
+      ...products.map((p) => [
+        p.name || '',
+        p.size ?? p.sizeWeightVolume ?? '',
+        p.costPrice || '',
+        p.openingStock || '0',
+      ]),
+    ];
+    onClose();
+    onOpenBulkImport(rows);
+  };
+
+  // Verified items count (matches 4-column format: Product Name, Size, Cost, Stock)
   const verifiedCount = useMemo(() => {
     return products.filter((p) => {
-      const sp = parseImportNumeric(p.sellingPrice);
       const cp = parseImportNumeric(p.costPrice);
-      return p.name.trim() && sp !== null && sp > 0 && cp !== null && cp > 0;
+      const stock = parseImportNumeric(p.openingStock);
+      return p.name.trim() && cp !== null && cp >= 0 && stock !== null && stock > 0;
     }).length;
   }, [products]);
 
@@ -567,7 +601,7 @@ export function SupplierInvoiceConverterModal({
                 </span>
               </div>
               <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.85)' }}>
-                Extract product catalog items from PDF, JPG, and PNG supplier invoices into the standard 8-column product template.
+                Extract product catalog items from PDF, JPG, and PNG supplier invoices into the 4-column product template.
               </p>
             </div>
           </div>
@@ -744,10 +778,10 @@ export function SupplierInvoiceConverterModal({
                   )}
                 </div>
 
-                {/* 8-Column Format Guarantee Card */}
+                {/* 4-Column Format Guarantee Card */}
                 <div style={{ background: 'var(--bg-main)', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border-light)' }}>
                   <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.65rem', color: 'var(--text-main)' }}>
-                    Exact 8-Column Product Template
+                    Exact 4-Column Product Template
                   </h4>
                   <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 0.85rem' }}>
                     Regardless of supplier invoice layout, output always produces our exact product import template:
@@ -755,13 +789,9 @@ export function SupplierInvoiceConverterModal({
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.45rem', fontSize: '0.78rem' }}>
                     <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155', fontWeight: 600 }}>1. Product Name</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>2. UOM</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>3. Selling Price</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>4. Cost Price</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>5. HSN</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>6. GST Rate</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>7. Price Inclusive</div>
-                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155' }}>8. Opening Stock</div>
+                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155', fontWeight: 600 }}>2. Size</div>
+                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155', fontWeight: 600 }}>3. Cost</div>
+                    <div style={{ padding: '0.35rem 0.55rem', background: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0', color: '#334155', fontWeight: 600 }}>4. Stock</div>
                   </div>
                 </div>
 
@@ -950,6 +980,30 @@ export function SupplierInvoiceConverterModal({
                     <span>Add Row</span>
                   </button>
 
+                  {onOpenBulkImport && (
+                    <button
+                      type="button"
+                      onClick={handleOpenInBulkImport}
+                      disabled={products.length === 0}
+                      title="Open these extracted products directly in Bulk Product Import"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.45rem 0.95rem',
+                        borderRadius: '8px',
+                        background: products.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        cursor: products.length === 0 ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      <span>Open in Bulk Import →</span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={handleDirectImport}
@@ -959,13 +1013,13 @@ export function SupplierInvoiceConverterModal({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '0.4rem',
-                      padding: '0.45rem 0.95rem',
+                      padding: '0.45rem 0.85rem',
                       borderRadius: '8px',
-                      background: products.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
-                      color: '#ffffff',
-                      border: 'none',
-                      fontWeight: 700,
-                      fontSize: '0.82rem',
+                      background: '#f1f5f9',
+                      color: '#334155',
+                      border: '1px solid #cbd5e1',
+                      fontWeight: 600,
+                      fontSize: '0.8rem',
                       cursor: isImportingDirect || products.length === 0 ? 'not-allowed' : 'pointer',
                     }}
                   >
@@ -1203,14 +1257,10 @@ export function SupplierInvoiceConverterModal({
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', textAlign: 'left', position: 'sticky', top: 0, zIndex: 10 }}>
                       <th style={{ padding: '0.65rem 0.75rem', width: '38px', textAlign: 'center' }}>#</th>
-                      <th style={{ padding: '0.65rem 0.75rem', minWidth: '220px' }}>Product Name <span style={{ color: '#ef4444' }}>*</span></th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '85px' }}>UOM</th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '130px' }}>Selling Price <span style={{ color: '#ef4444' }}>*</span></th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '120px' }}>Cost Price</th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '95px' }}>HSN</th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '95px' }}>GST Rate</th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '115px' }}>Incl. GST</th>
-                      <th style={{ padding: '0.65rem 0.75rem', width: '100px' }}>Opening Stock</th>
+                      <th style={{ padding: '0.65rem 0.75rem', minWidth: '240px' }}>Product Name <span style={{ color: '#ef4444' }}>*</span></th>
+                      <th style={{ padding: '0.65rem 0.75rem', width: '110px' }}>Size</th>
+                      <th style={{ padding: '0.65rem 0.75rem', width: '120px' }}>Cost <span style={{ color: '#ef4444' }}>*</span></th>
+                      <th style={{ padding: '0.65rem 0.75rem', width: '110px' }}>Stock <span style={{ color: '#ef4444' }}>*</span></th>
                       <th style={{ padding: '0.65rem 0.75rem', minWidth: '150px' }}>Status & Match</th>
                       <th style={{ padding: '0.65rem 0.75rem', width: '45px', textAlign: 'center' }}></th>
                     </tr>
@@ -1218,7 +1268,7 @@ export function SupplierInvoiceConverterModal({
                   <tbody>
                     {products.length === 0 ? (
                       <tr>
-                        <td colSpan={11} style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
+                        <td colSpan={7} style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '52px', height: '52px', borderRadius: '50%', background: '#fef2f2', color: '#ef4444', marginBottom: '0.85rem' }}>
                             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                           </div>
@@ -1287,13 +1337,13 @@ export function SupplierInvoiceConverterModal({
                               />
                             </td>
 
-                            {/* 2. UOM */}
+                            {/* 2. SIZE */}
                             <td style={{ padding: '0.4rem 0.5rem' }}>
                               <input
                                 type="text"
-                                value={p.uom}
-                                onChange={(e) => handleCellChange(idx, 'uom', e.target.value)}
-                                placeholder="pcs"
+                                value={p.size ?? p.sizeWeightVolume ?? ''}
+                                onChange={(e) => handleCellChange(idx, 'size', e.target.value)}
+                                placeholder="M / L / Free Size"
                                 style={{
                                   width: '100%',
                                   padding: '0.35rem 0.45rem',
@@ -1305,30 +1355,7 @@ export function SupplierInvoiceConverterModal({
                               />
                             </td>
 
-                            {/* 3. SELLING PRICE */}
-                            <td style={{ padding: '0.4rem 0.5rem' }}>
-                              <div style={{ position: 'relative' }}>
-                                <input
-                                  type="text"
-                                  value={p.sellingPrice}
-                                  onChange={(e) => handleCellChange(idx, 'sellingPrice', e.target.value)}
-                                  placeholder="Enter SP"
-                                  style={{
-                                    width: '100%',
-                                    padding: '0.35rem 0.55rem',
-                                    borderRadius: '6px',
-                                    border: isSpMissing ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
-                                    background: isSpMissing ? '#fffbeb' : '#ffffff',
-                                    fontSize: '0.84rem',
-                                    fontWeight: 600,
-                                    textAlign: 'right',
-                                    color: isSpMissing ? '#b45309' : '#1e293b',
-                                  }}
-                                />
-                              </div>
-                            </td>
-
-                            {/* 4. COST PRICE */}
+                            {/* 3. COST */}
                             <td style={{ padding: '0.4rem 0.5rem' }}>
                               <input
                                 type="text"
@@ -1343,71 +1370,18 @@ export function SupplierInvoiceConverterModal({
                                   background: isCpMissing ? '#fffbeb' : '#ffffff',
                                   fontSize: '0.84rem',
                                   textAlign: 'right',
+                                  fontWeight: 600,
                                 }}
                               />
                             </td>
 
-                            {/* 5. HSN */}
-                            <td style={{ padding: '0.4rem 0.5rem' }}>
-                              <input
-                                type="text"
-                                value={p.hsn}
-                                onChange={(e) => handleCellChange(idx, 'hsn', e.target.value)}
-                                placeholder="HSN"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.35rem 0.45rem',
-                                  borderRadius: '6px',
-                                  border: '1px solid #cbd5e1',
-                                  fontSize: '0.84rem',
-                                  textAlign: 'center',
-                                }}
-                              />
-                            </td>
-
-                            {/* 6. GST RATE */}
-                            <td style={{ padding: '0.4rem 0.5rem' }}>
-                              <input
-                                type="text"
-                                value={p.gstRate}
-                                onChange={(e) => handleCellChange(idx, 'gstRate', e.target.value)}
-                                placeholder="5%"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.35rem 0.45rem',
-                                  borderRadius: '6px',
-                                  border: '1px solid #cbd5e1',
-                                  fontSize: '0.84rem',
-                                  textAlign: 'center',
-                                }}
-                              />
-                            </td>
-
-                            {/* 7. PRICE INCLUSIVE */}
-                            <td style={{ padding: '0.4rem 0.5rem' }}>
-                              <select
-                                value={p.priceInclusive}
-                                onChange={(e) => handleCellChange(idx, 'priceInclusive', e.target.value as 'Yes' | 'No')}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.35rem 0.45rem',
-                                  borderRadius: '6px',
-                                  border: '1px solid #cbd5e1',
-                                  fontSize: '0.82rem',
-                                }}
-                              >
-                                <option value="Yes">Yes</option>
-                                <option value="No">No</option>
-                              </select>
-                            </td>
-
-                            {/* 8. OPENING STOCK */}
+                            {/* 4. STOCK */}
                             <td style={{ padding: '0.4rem 0.5rem' }}>
                               <input
                                 type="text"
                                 value={p.openingStock}
                                 onChange={(e) => handleCellChange(idx, 'openingStock', e.target.value)}
-                                placeholder="Qty"
+                                placeholder="Stock"
                                 style={{
                                   width: '100%',
                                   padding: '0.35rem 0.45rem',
@@ -1518,7 +1492,7 @@ export function SupplierInvoiceConverterModal({
                 Excel File Ready!
               </h3>
               <p style={{ fontSize: '0.9rem', color: '#475569', margin: '0 0 1.5rem', textAlign: 'center', maxWidth: '480px' }}>
-                Your supplier invoice was converted into our exact 8-column product import template using ExcelJS.
+                Your supplier invoice was converted into the exact 4-column product import template (Product Name, Size, Cost, Stock).
               </p>
 
               {/* Template File Card */}
@@ -1541,7 +1515,7 @@ export function SupplierInvoiceConverterModal({
                 <div>
                   <div style={{ fontSize: '0.96rem', fontWeight: 700, color: '#1e293b' }}>{downloadFilename}</div>
                   <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                    {products.length} products · 8 Template Columns · Ready for Product Import
+                    {products.length} products · 4 Template Columns (Product Name, Size, Cost, Stock) · Ready for Product Import
                   </div>
                 </div>
               </div>
@@ -1572,10 +1546,7 @@ export function SupplierInvoiceConverterModal({
                 {onOpenBulkImport && (
                   <button
                     type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenBulkImport();
-                    }}
+                    onClick={handleOpenInBulkImport}
                     style={{
                       padding: '0.75rem 1.6rem',
                       background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',

@@ -125,12 +125,10 @@ export function validateExtractedInvoice(
       reviewStatus = 'calculation_mismatch';
     } else if (isDuplicateRow) {
       reviewStatus = 'duplicate_product';
-    } else if (sp === null || sp <= 0) {
-      reviewStatus = item.matchType === 'new_product' ? 'new_catalog_item' : 'needs_review';
     } else if (warningMessages.size > 0 || item.matchType === 'ambiguous_match') {
       reviewStatus = 'needs_review';
     } else if (!item.userApproved && item.matchType === 'new_product') {
-      reviewStatus = 'new_catalog_item';
+      reviewStatus = 'verified';
     }
 
     for (const err of validationErrors) {

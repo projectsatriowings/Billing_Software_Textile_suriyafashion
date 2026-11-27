@@ -117,19 +117,16 @@ function mapAiPayloadToRecords(
     const gstPct = item.gstPercentage ?? 5;
     const priceIncl = item.priceInclusiveOfGst === false ? 'No' : 'Yes';
 
-    // Compute cost per unit cleanly
+    // Prefer exact unitPurchaseRate from the bill when available
     let costPrice = '';
-    if (lineAmt !== null && lineAmt > 0 && qty > 0) {
-      costPrice = (lineAmt / qty).toFixed(2);
-    } else if (rate !== null && rate > 0) {
+    if (rate !== null && rate > 0) {
       costPrice = rate.toFixed(2);
+    } else if (lineAmt !== null && lineAmt > 0 && qty > 0) {
+      costPrice = (lineAmt / qty).toFixed(2);
     }
 
-    const nameParts = [item.productName || ''];
-    if (item.sizeWeightVolume && !nameParts[0].toLowerCase().includes(item.sizeWeightVolume.toLowerCase())) {
-      nameParts.push(item.sizeWeightVolume);
-    }
-    const displayName = nameParts.filter(Boolean).join(' ').trim();
+    const displayName = (item.productName || '').trim();
+    const sizeStr = (item.sizeWeightVolume || item.variant || '').trim();
 
     const confScore = item.confidence ?? ocr.averageConfidence ?? null;
     const matchedLine = item.originalText
@@ -140,6 +137,7 @@ function mapAiPayloadToRecords(
       id: `inv-item-${idx + 1}`,
       rowOrder: idx + 1,
       name: displayName,
+      size: sizeStr,
       uom: (item.uom || 'PCS').toUpperCase(),
       sellingPrice: '',
       costPrice,
@@ -405,24 +403,26 @@ export async function runExtractionJob(
       const gstNum = parseImportNumeric(p.gstRate ? p.gstRate.replace('%', '') : null) ?? 5;
       const ocrLine = ocrResult.lines[idx];
       const dittoInfo = resolvedLocal[idx];
+      const { rawBox, isDitto, ...rest } = p;
       return {
-        ...p,
+        ...rest,
         name: dittoInfo?.productName || p.name,
+        size: p.size || '',
         hsn: dittoInfo?.hsnCode || p.hsn,
         rowOrder: idx + 1,
         brand: null,
         description: null,
         variant: null,
-        sizeWeightVolume: null,
+        sizeWeightVolume: p.size || null,
         quantity: qty,
-        boxCartonQty: null,
+        boxCartonQty: parseImportNumeric(rawBox),
         piecesPerBox: null,
         unitPurchaseRate: parseImportNumeric(p.rawRate) ?? cost,
         lineItemAmount: parseImportNumeric(p.rawTotal) ?? (cost !== null ? cost * qty : null),
         discountAmount: parseImportNumeric(p.rawDiscount),
         gstPercentage: gstNum,
         gstAmount: null,
-        isDittoInherited: false,
+        isDittoInherited: Boolean(isDitto),
         originalOcrText: ocrLine?.text ?? null,
         sourcePage: ocrLine?.page ?? 1,
         sourceBbox: ocrLine?.bbox ?? null,
@@ -625,14 +625,13 @@ export async function importJobToInventory(
     items: ExtractedProductRecord[];
   }
 ) {
-  // Only import explicitly user-approved or verified items with valid selling price & name
+  // Only import explicitly user-approved or verified items with a valid product name
   const eligible = opts.items.filter((item) => {
-    const sp = parseImportNumeric(item.sellingPrice);
-    return (item.userApproved || item.reviewStatus === 'verified') && item.name.trim() && sp !== null && sp > 0;
+    return (item.userApproved || item.reviewStatus === 'verified') && item.name.trim().length > 0;
   });
 
   if (eligible.length === 0) {
-    throw new Error('No verified or user-approved items with valid Selling Price to import.');
+    throw new Error('No verified or user-approved items to import.');
   }
 
   const branchRow = await db.one<{ name: string }>('SELECT name FROM branches WHERE id = ? AND tenant_id = ?', [
@@ -683,15 +682,16 @@ export async function importJobToInventory(
 
       await db.exec(
         `INSERT INTO items (
-          id, tenant_id, branch_id, name, sku, barcode, barcode_type, hsn, unit,
+          id, tenant_id, branch_id, name, size, sku, barcode, barcode_type, hsn, unit,
           price_minor, cost_minor, tax_rate_bp, tax_inclusive, track_stock,
           preferred_supplier_id, active
-        ) VALUES (?, ?, ?, ?, ?, ?, 'INTERNAL', ?, ?, ?, ?, ?, ?, true, ?, true)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INTERNAL', ?, ?, ?, ?, ?, ?, true, ?, true)`,
         [
           itemId,
           opts.tenantId,
           opts.branchId,
           row.name.trim(),
+          (row.size || row.sizeWeightVolume || '').trim() || null,
           sku,
           barcode,
           row.hsn || null,

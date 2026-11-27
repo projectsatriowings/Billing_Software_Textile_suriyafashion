@@ -4,6 +4,11 @@ import {
   type AiRawInvoicePayload,
   type AiRawLineItem,
 } from '../schemas/invoice.schema.ts';
+import {
+  cleanInvoiceProductName,
+  isDittoProductName,
+  isSummaryOrFooterRow,
+} from '../../../services/supplierInvoiceParser.ts';
 
 export interface AiExtractionResult {
   provider: 'gemini-vision' | 'none';
@@ -71,12 +76,81 @@ Return STRICT JSON matching this exact structure (no markdown fences, no comment
   ]
 }
 CRITICAL RULES:
-1. Preserve the exact original product row order.
-2. Handle handwritten ditto marks (", ,, do) by inheriting the productName/brand/design from the previous row and setting "isDitto": true.
-3. Combine size/variant/design into productName or variant/sizeWeightVolume cleanly when helpful (e.g. "ANAND TRUNK 80").
-4. If quantity has BOX and PCS (e.g. 2 BOX x 20 PCS), extract boxCartonQty=2, piecesPerBox=20, and total quantity=20 (or the billed quantity matching rate * qty = lineItemAmount).
-5. NEVER invent or guess missing values. Use null for unreadable or absent fields.
-6. "confidence" must be 0..1 or null if uncertain.`;
+1. Preserve the exact original product row order. One JSON item per product row of the item table only.
+2. "productName" = ONLY the text of the PARTICULARS / DESCRIPTION / ITEM column. Never append text from the HSN / CODE column, notes such as "Unclear in source", "Ditto / unclear", "Possibly", quote marks or footnote asterisks (*), and never append the size.
+3. "sizeWeightVolume" = the SIZE column value exactly as written. Sizes can be numbers ("80", "90", "95", "30", "8") or letters/words ("S", "M", "L", "XL", "Free Size"). A number in the SIZE column is a size, NEVER a quantity.
+4. Typical garment layout: SL | PARTICULARS | HSN/CODE | SIZE | BOX | PCS | RATE | AMOUNT.
+   - "boxCartonQty" = BOX column, "quantity" = PCS / QTY column (total pieces billed), "unitPurchaseRate" = RATE column exactly as printed, "lineItemAmount" = AMOUNT column.
+   - Always check quantity * unitPurchaseRate = lineItemAmount (e.g. 20 * 135 = 2700). If it does not hold, you mapped the columns wrongly: fix them. Never compute the rate as amount / size.
+   Example row "1 | ANAND | Unclear in source | 80 | 2 | 20 | 135 | 2,700" →
+   {"productName":"ANAND","hsnCode":null,"sizeWeightVolume":"80","boxCartonQty":2,"quantity":20,"unitPurchaseRate":135,"lineItemAmount":2700}
+5. Handle handwritten ditto marks (", ,, do, ditto, (ditto)) by inheriting the productName/brand from the previous row and setting "isDitto": true.
+6. "hsnCode" must be digits only (4-8 digits) or null; text like "Unclear" or "Raw colour" is NOT an HSN code.
+7. Skip footnotes and notes (lines starting with "*", "NOTES", remarks), subtotal / tax / total rows, bank and signature lines.
+8. NEVER invent or guess missing values. Use null for unreadable or absent fields.
+9. "confidence" must be 0..1 or null if uncertain.`;
+
+const approxEqual = (a: number, b: number) => Math.abs(a - b) <= Math.max(1, Math.abs(b) * 0.005);
+
+/**
+ * Cleans AI line items before ditto resolution:
+ * drops footnote / summary rows, strips non-name text from productName, and repairs
+ * column mix-ups using PCS × RATE = AMOUNT (so a numeric size is never used as the quantity
+ * and the cost is never amount ÷ size).
+ */
+export function normalizeAiLineItems(items: AiRawLineItem[]): AiRawLineItem[] {
+  const out: AiRawLineItem[] = [];
+  for (const item of items) {
+    const rawName = (item.productName || '').trim();
+    if (/^\*/.test(rawName) || (rawName && isSummaryOrFooterRow(rawName))) continue;
+
+    const amount = item.lineItemAmount ?? null;
+    let rate = item.unitPurchaseRate ?? null;
+    let qty = item.quantity ?? null;
+    const box = item.boxCartonQty ?? null;
+    const perBox = item.piecesPerBox ?? null;
+    const sizeStr = (item.sizeWeightVolume || '').trim();
+    const sizeNum = /^\d+(?:\.\d+)?$/.test(sizeStr) ? Number(sizeStr) : null;
+
+    // Footnote-like rows with no numbers at all are not products
+    if (!rawName && rate === null && amount === null && qty === null) continue;
+
+    if (amount !== null && amount > 0) {
+      const qtyCandidates = [qty, perBox, box !== null && perBox !== null ? box * perBox : null]
+        .filter((v): v is number => v !== null && v > 0 && v !== sizeNum);
+      if (rate !== null && rate > 0 && !(qty !== null && approxEqual(qty * rate, amount))) {
+        // Rate is known: choose the quantity that satisfies qty × rate = amount
+        const fit = qtyCandidates.find((q) => approxEqual(q * rate!, amount));
+        if (fit !== undefined) qty = fit;
+        else if (Number.isInteger(Math.round(amount / rate)) && approxEqual(Math.round(amount / rate) * rate, amount)) {
+          qty = Math.round(amount / rate);
+        }
+      }
+      // Quantity was the size (e.g. qty 80 / rate 33.75 = 2700/80): take the real PCS and the printed rate
+      if (sizeNum !== null && qty === sizeNum && qtyCandidates.length > 0) {
+        qty = qtyCandidates[0];
+        rate = Number((amount / qty).toFixed(2));
+      }
+      if ((rate === null || rate <= 0) && qty !== null && qty > 0) {
+        rate = Number((amount / qty).toFixed(2));
+      }
+    }
+
+    const hsnDigits = (item.hsnCode || '').replace(/\s+/g, '');
+    out.push({
+      ...item,
+      productName: cleanInvoiceProductName(rawName) || null,
+      isDitto: Boolean(item.isDitto) || isDittoProductName(rawName),
+      hsnCode: /^\d{4,8}$/.test(hsnDigits) ? hsnDigits : null,
+      sizeWeightVolume: sizeStr || null,
+      quantity: qty,
+      unitPurchaseRate: rate,
+    });
+  }
+  return out;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Resolves handwritten ditto marks in extracted AI items using previous row context.
@@ -117,33 +191,59 @@ export class GeminiVisionExtractor implements AiInvoiceExtractor {
   }
 
   private async callGemini(parts: any[]): Promise<string> {
-    const model = env.ai.geminiModel || 'gemini-3.8-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.ai.geminiApiKey)}`;
+    const primary = env.ai.geminiModel || 'gemini-3.8-flash';
+    const candidates = Array.from(new Set([primary, 'gemini-3.7-flash', 'gemini-flash-latest']));
+    let lastError = 'Gemini API call failed';
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(35000),
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
+    // Each model gets one retry after a short back-off on overload (503/429); a timeout moves on,
+    // then the next fallback model is tried. Only after all fail does the caller fall back to local OCR.
+    for (const model of candidates) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.ai.geminiApiKey)}`;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let res: Response;
+        try {
+          res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(45000),
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts }],
+              generationConfig: {
+                temperature: 0.1,
+                responseMimeType: 'application/json',
+              },
+            }),
+          });
+        } catch (err: any) {
+          // Timeout / network error: move on to the next model instead of failing the whole extraction
+          lastError = `Gemini (${model}) request failed: ${err?.message || 'network error'}`;
+          break;
+        }
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Gemini API error (${res.status}): ${errText.slice(0, 220)}`);
+        if (res.ok) {
+          const data: any = await res.json();
+          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (text && typeof text === 'string') {
+            return text;
+          }
+          lastError = `Gemini (${model}) returned empty content`;
+          break;
+        }
+
+        const errText = await res.text().catch(() => '');
+        lastError = `Gemini API error (${res.status} on ${model}): ${errText.slice(0, 220)}`;
+        if ((res.status === 503 || res.status === 429) && attempt === 0) {
+          await sleep(2000);
+          continue; // retry same model once
+        }
+        if (res.status === 503 || res.status === 429 || res.status === 404) {
+          break; // try next fallback model
+        }
+        throw new Error(lastError);
+      }
     }
 
-    const data: any = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text || typeof text !== 'string') {
-      throw new Error('Gemini API returned empty content');
-    }
-    return text;
+    throw new Error(lastError);
   }
 
   async extract(input: {
@@ -161,7 +261,8 @@ export class GeminiVisionExtractor implements AiInvoiceExtractor {
     }
 
     const parts: any[] = [{ text: EXTRACTION_SYSTEM_PROMPT }];
-    if (input.mimeType.startsWith('image/') || input.mimeType === 'application/pdf') {
+    const hasRichDigitalPdfText = input.mimeType === 'application/pdf' && input.ocrText.trim().length >= 80;
+    if (!hasRichDigitalPdfText && (input.mimeType.startsWith('image/') || input.mimeType === 'application/pdf')) {
       parts.push({
         inlineData: {
           mimeType: input.mimeType,
@@ -170,7 +271,7 @@ export class GeminiVisionExtractor implements AiInvoiceExtractor {
       });
     }
     if (input.ocrText.trim()) {
-      parts.push({ text: `OCR Reference Text:\n${input.ocrText.slice(0, 15000)}` });
+      parts.push({ text: `Invoice Text:\n${input.ocrText.slice(0, 15000)}` });
     }
 
     const warnings: string[] = [];
@@ -182,7 +283,7 @@ export class GeminiVisionExtractor implements AiInvoiceExtractor {
         const parsed = JSON.parse(cleaned);
         const validated = validateAiExtractionPayload(parsed);
         if (validated.ok) {
-          validated.data.items = resolveDittoMarks(validated.data.items);
+          validated.data.items = resolveDittoMarks(normalizeAiLineItems(validated.data.items));
           return {
             provider: 'gemini-vision',
             configured: true,

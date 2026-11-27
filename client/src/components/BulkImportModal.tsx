@@ -434,6 +434,8 @@ interface Props {
   onClose: () => void;
   onImportDone: () => void;
   onOpenSupplierInvoiceConverter?: () => void;
+  initialSupplierRows?: string[][] | null;
+  initialSourceLabel?: string;
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
@@ -491,7 +493,7 @@ export function downloadExcelTemplate(): void {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function BulkImportModal({ categories, existingItems = [], shopName, branchId, suppliers, onClose, onImportDone, onOpenSupplierInvoiceConverter }: Props) {
+export function BulkImportModal({ categories, existingItems = [], shopName, branchId, suppliers, onClose, onImportDone, onOpenSupplierInvoiceConverter, initialSupplierRows, initialSourceLabel }: Props) {
   const [step, setStep] = useState<WizardStep>('choose');
   const [importSource, setImportSource] = useState<string>('Uploaded File');
   const [activeTab, setActiveTab] = useState<'upload' | 'paste' | 'manual'>('upload');
@@ -1325,6 +1327,14 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
     setFilter('all');
     setStep('review');
   };
+
+  const initialLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!initialLoadedRef.current && initialSupplierRows && initialSupplierRows.length > 0) {
+      initialLoadedRef.current = true;
+      ingestSupplierData(initialSupplierRows, initialSourceLabel || 'Supplier Invoice');
+    }
+  }, [initialSupplierRows, initialSourceLabel]);
 
   const processFile = useCallback((file: File) => {
     const isExcel = file.name.match(/\.(xlsx|xls)$/i);

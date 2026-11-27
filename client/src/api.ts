@@ -3159,6 +3159,7 @@ export const fetchReturnReports = (params: {
 export interface ExtractedSupplierInvoiceItem {
   id: string;
   name: string;
+  size?: string;
   uom: string;
   sellingPrice: string;
   costPrice: string;

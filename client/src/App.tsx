@@ -2379,6 +2379,7 @@ export function App() {
   // Master Data: Item Form Modal (Add & Edit)
   const [showItemModal, setShowItemModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [bulkImportInitialRows, setBulkImportInitialRows] = useState<string[][] | null>(null);
   const [showSupplierInvoiceConverter, setShowSupplierInvoiceConverter] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [deletingItem, setDeletingItem] = useState<Item | null>(null);
@@ -19901,9 +19902,15 @@ export function App() {
             branchId={activeBranch?.id || (selectedBranchScope !== 'all' ? selectedBranchScope : undefined)}
             shopName={shop?.name}
             suppliers={parties.filter((p) => p.type === 'supplier')}
-            onClose={() => setShowBulkImportModal(false)}
+            initialSupplierRows={bulkImportInitialRows}
+            initialSourceLabel="Supplier Invoice"
+            onClose={() => {
+              setShowBulkImportModal(false);
+              setBulkImportInitialRows(null);
+            }}
             onOpenSupplierInvoiceConverter={() => {
               setShowBulkImportModal(false);
+              setBulkImportInitialRows(null);
               setShowSupplierInvoiceConverter(true);
             }}
             onImportDone={() => {
@@ -19921,8 +19928,9 @@ export function App() {
             suppliers={parties.filter((p) => p.type === 'supplier')}
             existingItems={items}
             onClose={() => setShowSupplierInvoiceConverter(false)}
-            onOpenBulkImport={() => {
+            onOpenBulkImport={(rows) => {
               setShowSupplierInvoiceConverter(false);
+              setBulkImportInitialRows(rows && rows.length > 0 ? rows : null);
               setShowBulkImportModal(true);
             }}
           />
