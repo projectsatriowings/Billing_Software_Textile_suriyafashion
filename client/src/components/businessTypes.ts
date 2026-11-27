@@ -73,7 +73,7 @@ export const BUSINESS_TYPES_META: BusinessTypeMeta[] = [
   {
     id: 'wholesale',
     title: 'Wholesale',
-    icon: '📦',
+    icon: '',
     badgeColor: '#f59e0b',
     shortDesc: 'Handle bulk orders, suppliers and pricing.',
     details: 'Full A4 GST tax invoices, customer credit limits, PO numbers, vehicle numbers and route lists.',

@@ -23,6 +23,7 @@ export interface BulkImportRow {
   productNature?: 'BRANDED' | 'SHOP_PRODUCT' | null;
   productType?: 'retail' | 'wholesale' | 'Retail' | 'Wholesale' | string | null;
   size?: string | null;
+  colour?: string | null;
   purchaseDate?: string | null;
   material?: string | null;
   designPattern?: string | null;
@@ -177,6 +178,7 @@ function validateRow(raw: Record<string, unknown>, rowIndex: number): { errors: 
   const rawProductType = toStr(raw.productType);
   const productType = rawProductType && rawProductType.toLowerCase() === 'wholesale' ? 'wholesale' : 'retail';
   const size = toStr(raw.size);
+  const colour = toStr(raw.colour ?? (raw as any).color);
   const material = toStr(raw.material);
   const designPattern = toStr(raw.designPattern ?? raw.design_pattern);
   const description = toStr(raw.description);
@@ -204,6 +206,7 @@ function validateRow(raw: Record<string, unknown>, rowIndex: number): { errors: 
       productNature,
       productType,
       size,
+      colour: colour || null,
       material,
       designPattern,
       description,
@@ -241,7 +244,7 @@ export function registerItemsBulk(r: Router) {
    *   importBatchId?: string,
    *   rows: BulkImportRow[]
    * }
-   * Returns: { importId, totalRows, created, restocked, skipped, results: RowResult[] }
+   * Returns: { importId, totalRows, created, restocked, skipped: results.filter((r) => r.status === 'skipped').length, results: RowResult[] }
    *
    * Each row is processed inside a single shared transaction.
    * New products receive unique SKUs & internal barcodes if not provided.
@@ -321,149 +324,9 @@ export function registerItemsBulk(r: Router) {
       }
     }
 
-    // ── Step 2: Separate restocks from new products ─────────────────────────
-    const restockRows: ValidatedRow[] = [];
-    const newProductRows: ValidatedRow[] = [];
-
-    for (const r of validRows) {
-      if (r.isRestock && r.matchedItemId) {
-        restockRows.push(r);
-      } else {
-        newProductRows.push(r);
-      }
-    }
-
-    // Verify all restock matched items belong to this tenant
-    const matchedItemIds = [...new Set(restockRows.map((r) => r.matchedItemId!))];
-    const existingMatchedItems = new Map<string, { id: string; name: string; sku: string | null; barcode: string | null; barcode_type?: string | null; hsn: string | null }>();
-    if (matchedItemIds.length > 0) {
-      const placeholders = matchedItemIds.map(() => '?').join(', ');
-      const rows = await ctx.db.query<{ id: string; name: string; sku: string | null; barcode: string | null; barcode_type?: string | null; hsn: string | null }>(
-        `SELECT id, name, sku, barcode, barcode_type, hsn FROM items WHERE tenant_id = ? AND id IN (${placeholders})`,
-        [tenantId, ...matchedItemIds],
-      );
-      for (const item of rows) {
-        existingMatchedItems.set(item.id, item);
-      }
-    }
-
-    const validRestocks: ValidatedRow[] = [];
-    for (const row of restockRows) {
-      if (!existingMatchedItems.has(row.matchedItemId!)) {
-        results.push({
-          rowIndex: row._rowIndex,
-          status: 'skipped',
-          name: row.name,
-          reason: `Matched product ID ${row.matchedItemId} was not found in your catalog`,
-        });
-      } else {
-        validRestocks.push(row);
-      }
-    }
-
-    // ── Step 3: Duplicate checks for NEW products (Intra-batch & Against DB) ─
-    const barcodesInPayload = new Map<string, number>(); // barcode -> first rowIndex
-    const skusInPayload = new Map<string, number>();      // lower(sku) -> first rowIndex
-
-    for (const row of newProductRows) {
-      let isDup = false;
-      if (row.barcode) {
-        const first = barcodesInPayload.get(row.barcode);
-        if (first !== undefined) {
-          results.push({
-            rowIndex: row._rowIndex,
-            status: 'skipped',
-            name: row.name,
-            reason: `Duplicate barcode "${row.barcode}" — already present in row ${first} of this import`,
-          });
-          isDup = true;
-        } else {
-          barcodesInPayload.set(row.barcode, row._rowIndex);
-        }
-      }
-      if (row.sku && !isDup) {
-        const key = row.sku.toLowerCase();
-        const first = skusInPayload.get(key);
-        if (first !== undefined) {
-          results.push({
-            rowIndex: row._rowIndex,
-            status: 'skipped',
-            name: row.name,
-            reason: `Duplicate SKU "${row.sku}" — already present in row ${first} of this import`,
-          });
-          isDup = true;
-        } else {
-          skusInPayload.set(key, row._rowIndex);
-        }
-      }
-    }
-
-    const newRowsAfterIntraDedup = newProductRows.filter(
-      (r) =>
-        (!r.barcode || barcodesInPayload.get(r.barcode) === r._rowIndex) &&
-        (!r.sku || skusInPayload.get(r.sku.toLowerCase()) === r._rowIndex),
-    );
-
-    // Check duplicate barcodes & SKUs against database
-    const barcodesToCheck = newRowsAfterIntraDedup.map((r) => r.barcode).filter(Boolean) as string[];
-    const existingBarcodes = new Map<string, string>();
-    if (barcodesToCheck.length > 0) {
-      const placeholders = barcodesToCheck.map(() => '?').join(', ');
-      const existing = await ctx.db.query<{ barcode: string; name: string }>(
-        `SELECT barcode, name FROM items WHERE tenant_id = ? AND branch_id = ? AND barcode IN (${placeholders}) AND barcode IS NOT NULL
-         UNION
-         SELECT pb.barcode, i.name FROM product_barcodes pb JOIN items i ON i.id = pb.product_id WHERE pb.tenant_id = ? AND pb.branch_id = ? AND pb.barcode IN (${placeholders})`,
-        [tenantId, branchId, ...barcodesToCheck, tenantId, branchId, ...barcodesToCheck],
-      );
-      for (const e of existing) existingBarcodes.set(e.barcode, e.name);
-    }
-
-    const skusToCheck = newRowsAfterIntraDedup.map((r) => r.sku).filter(Boolean) as string[];
-    const existingSkus = new Map<string, string>();
-    if (skusToCheck.length > 0) {
-      const placeholders = skusToCheck.map(() => '?').join(', ');
-      const existing = await ctx.db.query<{ sku: string; name: string }>(
-        `SELECT sku, name FROM items WHERE tenant_id = ? AND branch_id = ? AND lower(sku) IN (${placeholders}) AND sku IS NOT NULL`,
-        [tenantId, branchId, ...skusToCheck.map((s) => s.toLowerCase())],
-      );
-      for (const e of existing) existingSkus.set(e.sku.toLowerCase(), e.name);
-    }
-
-    const validNewRows: ValidatedRow[] = [];
-    for (const row of newRowsAfterIntraDedup) {
-      if (row.barcode && existingBarcodes.has(row.barcode)) {
-        const existingName = existingBarcodes.get(row.barcode);
-        results.push({
-          rowIndex: row._rowIndex,
-          status: 'skipped',
-          name: row.name,
-          reason: `Barcode "${row.barcode}" already exists — used by existing product "${existingName}"`,
-        });
-      } else if (row.sku && existingSkus.has(row.sku.toLowerCase())) {
-        const existingName = existingSkus.get(row.sku.toLowerCase());
-        results.push({
-          rowIndex: row._rowIndex,
-          status: 'skipped',
-          name: row.name,
-          reason: `SKU "${row.sku}" already exists in this branch — used by existing product "${existingName}"`,
-        });
-      } else {
-        validNewRows.push(row);
-      }
-    }
-
-    if (validRestocks.length === 0 && validNewRows.length === 0) {
-      // Nothing to insert — return results immediately
-      const created = results.filter((r) => r.status === 'created').length;
-      const restocked = results.filter((r) => r.status === 'restocked').length;
-      const skipped = results.filter((r) => r.status === 'skipped').length;
-      return { importId, totalRows: b.rows.length, created, restocked, skipped, results };
-    }
-
-    // ── Step 4: Validate categories & reject deleted / missing ones ─────────
-    const categoryIds = [...new Set(validNewRows.map((r) => r.categoryId).filter(Boolean) as string[])];
-    const categoryNames = [...new Set(validNewRows.map((r) => r.category).filter(Boolean) as string[])];
-
+    // ── Step 2: Category Resolution & Subcategory Auto-Mapping ──────────────
+    const categoryIds = [...new Set(validRows.map((r) => r.categoryId).filter(Boolean))] as string[];
+    const categoryNames = [...new Set(validRows.map((r) => r.category).filter(Boolean))] as string[];
     const catById = new Map<string, { id: string; name: string; active: boolean }>();
     const catByName = new Map<string, { id: string; name: string; active: boolean }>();
 
@@ -491,47 +354,20 @@ export function registerItemsBulk(r: Router) {
       }
     }
 
-    const rowsReadyForInsert: ValidatedRow[] = [];
-    for (const row of validNewRows) {
+    const rowsReady: ValidatedRow[] = [];
+    for (const row of validRows) {
       if (row.categoryId) {
         const resolved = catById.get(row.categoryId);
-        if (!resolved) {
-          results.push({
-            rowIndex: row._rowIndex,
-            status: 'skipped',
-            name: row.name,
-            reason: 'Category is invalid or does not exist. Please select an active category.',
-          });
-          continue;
+        if (resolved && resolved.active) {
+          row.categoryId = resolved.id;
+          row.category = resolved.name;
         }
-        if (!resolved.active) {
-          results.push({
-            rowIndex: row._rowIndex,
-            status: 'skipped',
-            name: row.name,
-            reason: `Category "${resolved.name}" has been deleted or deactivated. Please select a valid active category.`,
-          });
-          continue;
-        }
-        row.categoryId = resolved.id;
-        row.category = resolved.name;
-        rowsReadyForInsert.push(row);
       } else if (row.category) {
         const resolved = catByName.get(row.category.toLowerCase());
-        if (resolved) {
-          if (!resolved.active) {
-            results.push({
-              rowIndex: row._rowIndex,
-              status: 'skipped',
-              name: row.name,
-              reason: `Category "${resolved.name}" has been deleted or deactivated. Please select a valid active category.`,
-            });
-            continue;
-          }
+        if (resolved && resolved.active) {
           row.categoryId = resolved.id;
           row.category = resolved.name;
         } else {
-          // Auto-create missing category by name
           const catName = row.category.trim();
           const newCatId = newId('cat');
           try {
@@ -559,62 +395,50 @@ export function registerItemsBulk(r: Router) {
             // ignore
           }
         }
-        // Resolve subcategory if present
-        if (row.subcategoryId) {
-          const sub = await ctx.db.one<{ id: string; name: string }>(
-            'SELECT id, name FROM categories WHERE tenant_id = ? AND id = ?',
-            [tenantId, row.subcategoryId],
-          );
-          if (sub) {
-            row.subcategory = sub.name;
-          }
-        } else if (row.subcategory && row.subcategory.trim()) {
-          const subName = row.subcategory.trim();
-          let sub = await ctx.db.one<{ id: string; name: string }>(
-            'SELECT id, name FROM categories WHERE tenant_id = ? AND parent_id = ? AND lower(name) = lower(?)',
-            [tenantId, row.categoryId || '', subName],
-          );
-          if (!sub) {
-            sub = await ctx.db.one<{ id: string; name: string }>(
-              'SELECT id, name FROM categories WHERE tenant_id = ? AND lower(name) = lower(?)',
-              [tenantId, subName],
-            );
-          }
-          if (sub) {
-            row.subcategoryId = sub.id;
-            row.subcategory = sub.name;
-          } else {
-            const newSubId = newId('cat');
-            try {
-              await ctx.db.exec(
-                'INSERT INTO categories (id, tenant_id, branch_id, parent_id, name, active) VALUES (?, ?, ?, ?, ?, true)',
-                [newSubId, tenantId, branchId, row.categoryId || null, subName],
-              );
-              row.subcategoryId = newSubId;
-              row.subcategory = subName;
-            } catch {
-              // ignore
-            }
-          }
-        }
-        rowsReadyForInsert.push(row);
-      } else {
-        // No category provided
-        if (row.subcategory && row.subcategory.trim()) {
-          const sub = await ctx.db.one<{ id: string; name: string }>(
-            'SELECT id, name FROM categories WHERE tenant_id = ? AND lower(name) = lower(?)',
-            [tenantId, row.subcategory.trim()],
-          );
-          if (sub) {
-            row.subcategoryId = sub.id;
-            row.subcategory = sub.name;
-          }
-        }
-        rowsReadyForInsert.push(row);
       }
+      rowsReady.push(row);
     }
 
-    // ── Step 5: Get warehouse location ────────────────────────────────────────
+    // ── Step 3: Intra-batch Barcode & Variant Duplicate Checks ────────────────
+    const barcodesInPayload = new Map<string, number>();
+    const variantsInPayload = new Map<string, number>(); // normName:normSize -> rowIndex
+    const deduplicatedRows: ValidatedRow[] = [];
+
+    for (const row of rowsReady) {
+      const normName = row.name.trim().toLowerCase();
+      const normSize = (row.size || '').trim().toLowerCase() || 'free size';
+      const varKey = `${normName}:${normSize}`;
+
+      if (variantsInPayload.has(varKey)) {
+        const first = variantsInPayload.get(varKey)!;
+        results.push({
+          rowIndex: row._rowIndex,
+          status: 'skipped',
+          name: row.name,
+          reason: `Duplicate variant "${row.size || 'Free Size'}" for product "${row.name}" — already present in row ${first}`,
+        });
+        continue;
+      }
+      variantsInPayload.set(varKey, row._rowIndex);
+
+      if (row.barcode) {
+        const bc = row.barcode.trim();
+        if (barcodesInPayload.has(bc)) {
+          const first = barcodesInPayload.get(bc)!;
+          results.push({
+            rowIndex: row._rowIndex,
+            status: 'skipped',
+            name: row.name,
+            reason: `Duplicate barcode "${bc}" — already present in row ${first}`,
+          });
+          continue;
+        }
+        barcodesInPayload.set(bc, row._rowIndex);
+      }
+      deduplicatedRows.push(row);
+    }
+
+    // ── Step 4: Get warehouse location & setup collision checkers ─────────────
     let firstLocation = 'MAIN';
     const shop = await ctx.db.one<{ locations: unknown }>('SELECT locations FROM tenants WHERE id = ?', [tenantId]);
     if (shop?.locations) {
@@ -624,503 +448,409 @@ export function registerItemsBulk(r: Router) {
       }
     }
 
-    // Fetch existing SKUs for auto-SKU generator collision avoidance (within current branch)
     const allBranchSkus = new Set(
       (await ctx.db.query<{ sku: string }>('SELECT lower(sku) as sku FROM items WHERE tenant_id = ? AND branch_id = ? AND sku IS NOT NULL', [tenantId, branchId]))
         .map((r) => r.sku)
     );
     const seenImportSkus = new Set<string>();
 
-    // Fetch existing Barcodes for auto-barcode generator collision avoidance (within current branch)
     const allBranchBarcodes = new Set(
       (await ctx.db.query<{ barcode: string }>(
         `SELECT barcode FROM items WHERE tenant_id = ? AND branch_id = ? AND barcode IS NOT NULL AND (barcode LIKE '20%' OR length(barcode) = 13)
          UNION
-         SELECT barcode FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND (barcode_type = 'INTERNAL' OR (barcode LIKE '20%' OR length(barcode) = 13))`,
-        [tenantId, branchId, tenantId, branchId],
+         SELECT barcode FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND (barcode_type = 'INTERNAL' OR (barcode LIKE '20%' OR length(barcode) = 13))
+         UNION
+         SELECT barcode FROM variants WHERE tenant_id = ? AND barcode IS NOT NULL AND (barcode LIKE '20%' OR length(barcode) = 13)`,
+        [tenantId, branchId, tenantId, branchId, tenantId],
       )).map((r) => r.barcode)
     );
     const seenImportBarcodes = new Set<string>();
 
-    // ── Step 6: Atomic transaction for all restocks and new products ──────────
+    // ── Step 5: Atomic transaction for Parent Products & Variant Matrix ───────
     let created = 0;
     let restocked = 0;
-    let skipped = results.filter((r) => r.status === 'skipped').length;
     let barcodesSaved = 0;
     let purchaseId: string | null = null;
     let purchaseNumber: string | null = null;
+    let purchaseSubtotal = 0;
+    let purchaseTaxable = 0;
+    let purchaseTax = 0;
+    let purchaseCgst = 0;
+    let purchaseSgst = 0;
+    let purchaseTotal = 0;
+    let purchaseLinesCount = 0;
 
     await ctx.db.tx(async (q) => {
-      // 1. Create missing categories if not already existing or deleted
-      for (const row of rowsReadyForInsert) {
-        if (row.category && !catByName.has(row.category.toLowerCase())) {
-          const existingCat = await q.one<{ id: string; name: string; active: boolean }>(
-            'SELECT id, name, active FROM categories WHERE tenant_id = ? AND branch_id = ? AND lower(name) = lower(?)',
-            [tenantId, branchId, row.category],
-          );
-          if (existingCat) {
-            catByName.set(row.category.toLowerCase(), { id: existingCat.id, name: existingCat.name, active: true });
-          } else {
-            const catId = newId('cat');
-            await q.exec(
-              'INSERT INTO categories (id, tenant_id, branch_id, name, active) VALUES (?, ?, ?, ?, true)',
-              [catId, tenantId, branchId, row.category],
-            );
-            catByName.set(row.category.toLowerCase(), { id: catId, name: row.category, active: true });
-          }
-        }
-      }
-
-      // ── Step 6.1: Initialize Purchase record for inward stock & restock shipments ──
-      const todayStr = new Date().toISOString().slice(0, 10);
-
-      const hasIncomingStock = validRestocks.some((r) => (r.openingQtyMilli ?? 0) > 0) ||
-        rowsReadyForInsert.some((r) => (r.openingQtyMilli ?? 0) > 0);
-
-      if (hasIncomingStock) {
+      // Create purchase header if supplier selected
+      if (supplier) {
         purchaseId = newId('pur');
-        const seriesRow = await q.one<{ assignedNo?: number; assigned_no?: number }>(
-          `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
-           VALUES (?, ?, 'PUR', 2)
-           ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
-           RETURNING (next_no - 1) AS assigned_no`,
-          [tenantId, branchId],
-        );
-        const seqNo = Number(seriesRow?.assignedNo ?? seriesRow?.assigned_no ?? 1);
-        purchaseNumber = `PUR-${1000 + seqNo}`;
-
+        const countRow = await q.one<{ count: string }>('SELECT count(*)::text as count FROM purchases WHERE tenant_id = ?', [tenantId]);
+        const nextNum = (parseInt(countRow?.count || '0', 10) + 1).toString().padStart(4, '0');
+        purchaseNumber = `PO-IMP-${nextNum}`;
+        const todayStr = new Date().toISOString().slice(0, 10);
         await q.exec(
           `INSERT INTO purchases (
-            id, tenant_id, branch_id, supplier_id, purchase_number, bill_no, supplier_invoice_number,
-            supplier_invoice_date, purchase_date, bdate, status,
-            subtotal_minor, discount_minor, taxable_minor, tax_minor,
-            cgst_minor, sgst_minor, igst_minor, itc_minor,
-            other_charges_minor, other_charges_gst_minor, other_charges_gst_bp,
-            round_off_minor, total_minor, paid_minor, balance_minor,
-            note, created_by, idempotency_key, created_at
-          ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, 'posted',
-            0, 0, 0, 0,
-            0, 0, 0, 0,
-            0, 0, 0,
-            0, 0, 0, 0,
-            ?, ?, ?, now()
-          )`,
-          [
-            purchaseId, tenantId, branchId, supplierId, purchaseNumber, importId, importId,
-            todayStr, todayStr, todayStr,
-            supplier ? `Bulk import from ${supplier.name} (${importId})` : `Bulk import initial stock (${importId})`, ctx.user!.id, importId,
-          ],
+            id, tenant_id, branch_id, purchase_number, supplier_id,
+            supplier_invoice_number, bdate, purchase_date, status,
+            subtotal_minor, taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor,
+            total_minor, paid_minor, balance_minor, note, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', 0, 0, 0, 0, 0, 0, 0, 0, 0, 'Generated from Bulk Product Import', ?)`,
+          [purchaseId, tenantId, branchId, purchaseNumber, supplier.id, importId, todayStr, todayStr, ctx.user!.id],
         );
       }
 
-      let purchaseSubtotal = 0;
-      let purchaseTaxable = 0;
-      let purchaseTax = 0;
-      let purchaseCgst = 0;
-      let purchaseSgst = 0;
-      let purchaseTotal = 0;
-      let purchaseLinesCount = 0;
+      // In-memory cache for Parent Products within this transaction:
+      // key: normalized parent product name -> { id, sku, isNew }
+      const resolvedParents = new Map<string, { id: string; name: string; sku: string; isNew: boolean }>();
+      const affectedParentIds = new Set<string>();
 
-      // 2. Process Restocks
-      for (const row of validRestocks) {
-        const itemId = row.matchedItemId!;
-        await q.exec('SAVEPOINT sp_bulk_restock');
+      for (const row of deduplicatedRows) {
+        await q.exec('SAVEPOINT sp_bulk_variant_row');
         try {
-          // If incoming stock > 0, record inventory stock-in movement and purchase line
-          if ((row.openingQtyMilli ?? 0) > 0) {
-            const qtyMilli = row.openingQtyMilli!;
-            const costMinor = row.costMinor ?? 0;
-            const taxRateBp = row.taxRateBp ?? 500;
-            const lineSubtotal = Math.round((costMinor * qtyMilli) / 1000);
-            let lineTaxable = lineSubtotal;
-            let lineTax = 0;
-            if (taxRateBp > 0) {
-              lineTaxable = lineSubtotal;
-              lineTax = Math.round((lineTaxable * taxRateBp) / 10000);
-            }
-            const lineTotal = lineTaxable + lineTax;
-            const lineCgst = Math.round(lineTax / 2);
-            const lineSgst = lineTax - lineCgst;
+          const normParentName = row.name.trim().toLowerCase();
+          const normSize = (row.size || '').trim() || 'Free Size';
 
-            let lineId: string | null = null;
-            if (purchaseId) {
-              lineId = newId('prl');
+          // 1. Resolve or Create Parent Product in `items` table
+          let parentInfo = resolvedParents.get(normParentName);
+          if (!parentInfo) {
+            // Check if matching parent product already exists in database:
+            let existingParent = await q.one<{ id: string; name: string; sku: string | null }>(
+              'SELECT id, name, sku FROM items WHERE tenant_id = ? AND lower(trim(name)) = ? LIMIT 1',
+              [tenantId, normParentName],
+            );
+
+            // If not found by name, check if barcode matches an existing variant or item
+            if (!existingParent && row.barcode) {
+              const byBc = await q.one<{ product_id: string }>(
+                'SELECT product_id FROM variants WHERE tenant_id = ? AND barcode = ? LIMIT 1',
+                [tenantId, row.barcode.trim()],
+              );
+              if (byBc) {
+                existingParent = await q.one<{ id: string; name: string; sku: string | null }>(
+                  'SELECT id, name, sku FROM items WHERE tenant_id = ? AND id = ? LIMIT 1',
+                  [tenantId, byBc.product_id],
+                );
+              }
+            }
+
+            if (existingParent) {
+              const parentId = existingParent.id;
+              // Ensure parent product is marked as variant type and update common metadata if provided
               await q.exec(
-                `INSERT INTO purchase_lines (
-                  id, tenant_id, branch_id, purchase_id, item_id, name, hsn, unit,
-                  qty_milli, billed_qty_milli, received_qty_milli,
-                  cost_minor, discount_minor, tax_rate_bp,
-                  taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor, total_minor
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?)`,
+                `UPDATE items
+                 SET item_type = 'variant',
+                     category_id = COALESCE(?, category_id),
+                     subcategory_id = COALESCE(?, subcategory_id),
+                     product_type = COALESCE(NULLIF(?, ''), product_type),
+                     material = COALESCE(NULLIF(?, ''), material),
+                     design_pattern = COALESCE(NULLIF(?, ''), design_pattern),
+                     description = COALESCE(NULLIF(?, ''), description),
+                     image_url = COALESCE(NULLIF(?, ''), image_url),
+                     preferred_supplier_id = COALESCE(preferred_supplier_id, ?),
+                     updated_at = now()
+                 WHERE id = ? AND tenant_id = ?`,
                 [
-                  lineId, tenantId, branchId, purchaseId, itemId, row.name, row.hsn || null, row.unit || 'pcs',
-                  qtyMilli, qtyMilli, qtyMilli,
-                  costMinor, taxRateBp,
-                  lineTaxable, lineTax, lineCgst, lineSgst, lineTotal,
+                  row.categoryId || null,
+                  row.subcategoryId || null,
+                  row.productType || null,
+                  row.material || null,
+                  row.designPattern || null,
+                  row.description || null,
+                  row.imageUrl || null,
+                  supplierId || null,
+                  parentId,
+                  tenantId,
                 ],
               );
-              purchaseSubtotal += lineSubtotal;
-              purchaseTaxable += lineTaxable;
-              purchaseTax += lineTax;
-              purchaseCgst += lineCgst;
-              purchaseSgst += lineSgst;
-              purchaseTotal += lineTotal;
-              purchaseLinesCount++;
+              parentInfo = { id: parentId, name: existingParent.name, sku: existingParent.sku || '', isNew: false };
+            } else {
+              // Create NEW Parent Product in `items` table
+              const parentId = newId('item');
+              let parentSku = row.sku && row.sku.trim() ? row.sku.trim() : generateUniqueShortSku(row.name, allBranchSkus, seenImportSkus);
+              allBranchSkus.add(parentSku.toLowerCase());
+              seenImportSkus.add(parentSku);
+
+              await q.exec(
+                `INSERT INTO items (
+                  id, tenant_id, branch_id, name, sku, category_id, subcategory_id,
+                  product_type, material, design_pattern, description, item_type,
+                  price_minor, cost_minor, mrp_minor, offer_percentage, tax_rate_bp,
+                  tax_inclusive, track_stock, reorder_milli, preferred_supplier_id,
+                  active, image_url, purchase_date, imported_date, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'variant', ?, ?, ?, ?, ?, false, true, ?, ?, true, ?, ?, now(), now(), now())`,
+                [
+                  parentId,
+                  tenantId,
+                  branchId,
+                  row.name.trim(),
+                  parentSku,
+                  row.categoryId || null,
+                  row.subcategoryId || null,
+                  row.productType || 'Retail',
+                  row.material || null,
+                  row.designPattern || null,
+                  row.description || null,
+                  row.priceMinor,
+                  row.costMinor ?? 0,
+                  row.mrpMinor ?? row.priceMinor,
+                  row.offerPercentage ?? 0,
+                  row.taxRateBp ?? 0,
+                  row.reorderMilli ?? 0,
+                  supplierId || null,
+                  row.imageUrl || null,
+                  row.purchaseDate || new Date().toISOString().slice(0, 10),
+                ],
+              );
+              parentInfo = { id: parentId, name: row.name.trim(), sku: parentSku, isNew: true };
             }
-
-            await q.exec(
-              `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'purchase', 'purchase', ?, ?, ?, 'Bulk import restock shipment', ?, ?)`,
-              [newId('sm'), tenantId, branchId, itemId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
-            );
+            resolvedParents.set(normParentName, parentInfo);
           }
 
-          const matchedItemInfo = existingMatchedItems.get(itemId);
+          const parentId = parentInfo.id;
+          affectedParentIds.add(parentId);
 
-          // Synchronize SKU: use provided SKU, or retain existing, or generate short SKU if missing
-          let finalRestockSku = row.sku && row.sku.trim() ? row.sku.trim() : (matchedItemInfo?.sku || null);
-          if (!finalRestockSku) {
-            finalRestockSku = generateUniqueShortSku(row.name, allBranchSkus, seenImportSkus);
-          }
-          if (finalRestockSku) {
-            allBranchSkus.add(finalRestockSku.toLowerCase());
-            seenImportSkus.add(finalRestockSku);
-          }
-
-          const finalRestockHsn = row.hsn && row.hsn.trim() ? row.hsn.trim() : (matchedItemInfo?.hsn || null);
-          const finalRestockCategory = row.category && row.category.trim() ? row.category.trim() : null;
-          const finalRestockImageUrl = row.imageUrl && row.imageUrl.trim() ? row.imageUrl.trim() : null;
-
-          // Always persist product metadata and preserve existing preferred supplier
-          await q.exec(
-            `UPDATE items
-             SET sku = COALESCE(NULLIF(?, ''), sku),
-                 hsn = COALESCE(NULLIF(?, ''), hsn),
-                 category = COALESCE(NULLIF(?, ''), category),
-                 category_id = COALESCE(?, category_id),
-                 subcategory_id = COALESCE(?, subcategory_id),
-                 product_type = COALESCE(NULLIF(?, ''), product_type),
-                 size = COALESCE(NULLIF(?, ''), size),
-                 material = COALESCE(NULLIF(?, ''), material),
-                 design_pattern = COALESCE(NULLIF(?, ''), design_pattern),
-                 description = COALESCE(NULLIF(?, ''), description),
-                 mrp_minor = COALESCE(?, mrp_minor),
-                 offer_percentage = COALESCE(?, offer_percentage),
-                 image_url = COALESCE(NULLIF(?, ''), image_url),
-                 preferred_supplier_id = COALESCE(preferred_supplier_id, ?),
-                 reorder_milli = COALESCE(?, reorder_milli),
-                 purchase_date = COALESCE(?, (CASE WHEN (?::bigint) > 0 THEN now()::text ELSE purchase_date END)),
-                  restocked_date = (CASE WHEN (?::bigint) > 0 THEN now() ELSE restocked_date END),
-                 updated_at = now()
-             WHERE id = ? AND tenant_id = ?`,
-            [
-              finalRestockSku, finalRestockHsn, finalRestockCategory,
-              row.categoryId || null, row.subcategoryId || null, row.productType || null,
-              row.size || null, row.material || null, row.designPattern || null, row.description || null,
-              row.mrpMinor ?? null, row.offerPercentage ?? null,
-              finalRestockImageUrl, supplierId, row.reorderMilli ?? null,
-              row.openingQtyMilli ?? 0, itemId, tenantId,
-            ],
+          // 2. Check if Variant exists under this Parent Product in `variants` table
+          const existingVariant = await q.one<{
+            id: string;
+            sku: string | null;
+            barcode: string | null;
+            stock_milli: string | number;
+            cost_minor: number;
+            price_minor: number;
+            mrp_minor: number | null;
+          }>(
+            `SELECT id, sku, barcode, stock_milli, cost_minor, price_minor, mrp_minor
+             FROM variants
+             WHERE tenant_id = ? AND product_id = ? AND lower(trim(COALESCE(size, ''))) = lower(trim(?))
+             LIMIT 1`,
+            [tenantId, parentId, normSize],
           );
 
-          // If price updates requested, update product pricing
-          if (row.updatePrices) {
-            await q.exec(
-              `UPDATE items
-               SET price_minor = ?, cost_minor = ?, mrp_minor = COALESCE(?, mrp_minor), offer_percentage = COALESCE(?, offer_percentage), tax_rate_bp = ?, tax_inclusive = false, updated_at = now()
-               WHERE id = ? AND tenant_id = ?`,
-              [row.priceMinor, row.costMinor ?? 0, row.mrpMinor ?? null, row.offerPercentage ?? null, row.taxRateBp ?? 500, itemId, tenantId],
-            );
-          }
+          const qtyMilli = row.openingQtyMilli ?? 0;
+          const costMinor = row.costMinor ?? 0;
+          const taxRateBp = row.taxRateBp ?? 0;
 
-          // matchedItemInfo already fetched above
-          const oldPrimaryBarcode = matchedItemInfo?.barcode ? matchedItemInfo.barcode.trim() : null;
-          const oldPrimaryBarcodeType = matchedItemInfo?.barcode_type || 'INTERNAL';
-          const newBarcodeTrim = row.barcode ? row.barcode.trim() : null;
+          if (existingVariant) {
+            // ── Case A: Restock existing variant ──────────────────────────────
+            const variantId = existingVariant.id;
+            let finalVariantBarcode = existingVariant.barcode || (row.barcode ? row.barcode.trim() : null);
 
-          // If row specifies a barcode or explicitly cleared, update primary barcode on items table
-          if (newBarcodeTrim !== oldPrimaryBarcode) {
-            if (newBarcodeTrim) {
-              const conflictItem = await q.one<{ id: string; name: string }>(
-                'SELECT id, name FROM items WHERE tenant_id = ? AND branch_id = ? AND barcode = ? AND id <> ?',
-                [tenantId, branchId, newBarcodeTrim, itemId],
-              );
-              if (!conflictItem) {
-                const bType = row.barcodeType || (newBarcodeTrim.startsWith('20') && newBarcodeTrim.length === 13 ? 'INTERNAL' : 'MANUFACTURER');
-                await q.exec(
-                  'UPDATE items SET barcode = ?, barcode_type = ?, updated_at = now() WHERE id = ? AND tenant_id = ?',
-                  [newBarcodeTrim, bType, itemId, tenantId],
-                );
-              }
-            } else if (row.barcode === null || row.barcode === '') {
+            if (row.updatePrices) {
               await q.exec(
-                'UPDATE items SET barcode = NULL, updated_at = now() WHERE id = ? AND tenant_id = ?',
-                [itemId, tenantId],
+                `UPDATE variants
+                 SET cost_minor = ?, price_minor = ?, mrp_minor = COALESCE(?, mrp_minor),
+                     offer_percentage = COALESCE(?, offer_percentage),
+                     purchase_date = COALESCE(?, (CASE WHEN (?::bigint) > 0 THEN now()::text ELSE purchase_date END)),
+                     stock_milli = stock_milli + ?,
+                     barcode = COALESCE(barcode, ?),
+                     active = true,
+                     updated_at = now()
+                 WHERE id = ? AND tenant_id = ?`,
+                [
+                  row.priceMinor,
+                  costMinor,
+                  row.mrpMinor ?? null,
+                  row.offerPercentage ?? null,
+                  row.purchaseDate || null,
+                  qtyMilli,
+                  qtyMilli,
+                  finalVariantBarcode,
+                  variantId,
+                  tenantId,
+                ],
               );
-            }
-
-            // If the old barcode was in product_barcodes, remove unless retained in additionalBarcodes
-            if (oldPrimaryBarcode && oldPrimaryBarcode !== newBarcodeTrim) {
-              const keepInAdditional = (row.additionalBarcodes || []).some(
-                (ab) => ab.barcode && ab.barcode.trim() === oldPrimaryBarcode,
-              );
-              if (!keepInAdditional) {
-                await q.exec(
-                  'DELETE FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND product_id = ? AND barcode = ?',
-                  [tenantId, branchId, itemId, oldPrimaryBarcode],
-                );
-              }
-            }
-          }
-
-          // Register new barcode in product_barcodes table
-          if (newBarcodeTrim) {
-            const existingBc = await q.one<{ id: string; productId?: string; product_id?: string; barcodeType?: string; barcode_type?: string }>(
-              'SELECT id, product_id, barcode_type FROM product_barcodes WHERE tenant_id = ? AND (branch_id = ? OR branch_id IS NULL) AND barcode = ?',
-              [tenantId, branchId, newBarcodeTrim],
-            );
-            const defaultType = newBarcodeTrim.startsWith('20') && newBarcodeTrim.length === 13 ? 'INTERNAL' : 'MANUFACTURER';
-            if (!existingBc) {
-              const bType = row.barcodeType || defaultType;
-              await q.exec(
-                `INSERT INTO product_barcodes (id, tenant_id, branch_id, product_id, barcode, barcode_type)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [newId('bc'), tenantId, branchId, itemId, newBarcodeTrim, bType],
-              );
-              await q.exec(
-                'UPDATE items SET barcode_type = ? WHERE id = ? AND tenant_id = ?',
-                [bType, itemId, tenantId],
-              );
-              barcodesSaved++;
             } else {
-              const exProductId = existingBc.productId || existingBc.product_id;
-              const exBarcodeType = existingBc.barcodeType || existingBc.barcode_type || defaultType;
-              if (exProductId !== itemId) {
-                const bType = row.barcodeType || exBarcodeType;
+              await q.exec(
+                `UPDATE variants
+                 SET purchase_date = COALESCE(?, (CASE WHEN (?::bigint) > 0 THEN now()::text ELSE purchase_date END)),
+                     stock_milli = stock_milli + ?,
+                     barcode = COALESCE(barcode, ?),
+                     active = true,
+                     updated_at = now()
+                 WHERE id = ? AND tenant_id = ?`,
+                [row.purchaseDate || null, qtyMilli, qtyMilli, finalVariantBarcode, variantId, tenantId],
+              );
+            }
+
+            // Record stock move & purchase line
+            if (qtyMilli > 0) {
+              let lineId: string | null = null;
+              if (purchaseId) {
+                lineId = newId('prl');
+                const lineSubtotal = Math.round((costMinor * qtyMilli) / 1000);
+                let lineTaxable = lineSubtotal;
+                let lineTax = 0;
+                if (taxRateBp > 0) {
+                  lineTaxable = lineSubtotal;
+                  lineTax = Math.round((lineTaxable * taxRateBp) / 10000);
+                }
+                const lineTotal = lineTaxable + lineTax;
+                const lineCgst = Math.round(lineTax / 2);
+                const lineSgst = lineTax - lineCgst;
+
                 await q.exec(
-                  'UPDATE product_barcodes SET product_id = ?, barcode_type = ? WHERE id = ?',
-                  [itemId, bType, existingBc.id],
+                  `INSERT INTO purchase_lines (
+                    id, tenant_id, branch_id, purchase_id, item_id, variant_id, name, hsn, unit,
+                    qty_milli, billed_qty_milli, received_qty_milli,
+                    cost_minor, discount_minor, tax_rate_bp,
+                    taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor, total_minor
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?)`,
+                  [
+                    lineId, tenantId, branchId, purchaseId, parentId, variantId,
+                    `${row.name} (${normSize})`, row.hsn || null, row.unit || 'pcs',
+                    qtyMilli, qtyMilli, qtyMilli, costMinor, taxRateBp,
+                    lineTaxable, lineTax, lineCgst, lineSgst, lineTotal,
+                  ],
                 );
-                await q.exec(
-                  'UPDATE items SET barcode_type = ? WHERE id = ? AND tenant_id = ?',
-                  [bType, itemId, tenantId],
-                );
+                purchaseSubtotal += lineSubtotal;
+                purchaseTaxable += lineTaxable;
+                purchaseTax += lineTax;
+                purchaseCgst += lineCgst;
+                purchaseSgst += lineSgst;
+                purchaseTotal += lineTotal;
+                purchaseLinesCount++;
+              }
+
+              await q.exec(
+                `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, variant_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'purchase', 'purchase', ?, ?, ?, 'Bulk import restock shipment', ?, ?)`,
+                [newId('sm'), tenantId, branchId, parentId, variantId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
+              );
+            }
+
+            await q.exec('RELEASE SAVEPOINT sp_bulk_variant_row');
+            results.push({ rowIndex: row._rowIndex, status: 'restocked', name: `${row.name} (${normSize})`, itemId: parentId });
+            restocked++;
+          } else {
+            // ── Case B: Create new variant under Parent Product ───────────────
+            const variantId = newId('var');
+            const cleanBase = (parentInfo.sku || row.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 5)).toUpperCase();
+            const cleanSize = normSize.toUpperCase().replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || 'FS';
+            const variantSku = `${cleanBase}-${cleanSize}`;
+
+            let finalBarcode = row.barcode ? row.barcode.trim() : '';
+            let barcodeType: 'INTERNAL' | 'MANUFACTURER' = 'INTERNAL';
+            if (!finalBarcode) {
+              finalBarcode = generateUniqueInternalBarcode(allBranchBarcodes, seenImportBarcodes);
+              seenImportBarcodes.add(finalBarcode);
+            } else {
+              barcodeType = row.barcodeType || (finalBarcode.startsWith('20') && finalBarcode.length === 13 ? 'INTERNAL' : 'MANUFACTURER');
+              seenImportBarcodes.add(finalBarcode);
+            }
+
+            await q.exec(
+              `INSERT INTO variants (
+                id, tenant_id, product_id, size, colour, pattern, sku, barcode,
+                price_minor, cost_minor, mrp_minor, offer_percentage, stock_milli,
+                reorder_level_milli, purchase_date, uom, active, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, now(), now())`,
+              [
+                variantId,
+                tenantId,
+                parentId,
+                normSize,
+                null,
+                row.designPattern || null,
+                variantSku,
+                finalBarcode,
+                row.priceMinor,
+                costMinor,
+                row.mrpMinor ?? row.priceMinor,
+                row.offerPercentage ?? 0,
+                qtyMilli,
+                row.reorderMilli ?? 0,
+                row.purchaseDate || new Date().toISOString().slice(0, 10),
+                row.unit || 'pcs',
+              ],
+            );
+
+            // Register barcode in product_barcodes
+            if (finalBarcode) {
+              const existingPb = await q.one<{ id: string }>('SELECT id FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND barcode = ?', [tenantId, branchId, finalBarcode]);
+              if (existingPb) {
+                await q.exec('UPDATE product_barcodes SET product_id = ?, barcode_type = ? WHERE id = ?', [parentId, barcodeType, existingPb.id]);
               } else {
-                // Existing barcode already belongs to this product.
-                // PRESERVE the existing barcode_type! Do NOT convert existing IBC into MBC during restocking!
-                const preservedType = (newBarcodeTrim === oldPrimaryBarcode)
-                  ? exBarcodeType
-                  : (row.barcodeType || exBarcodeType);
                 await q.exec(
-                  'UPDATE product_barcodes SET barcode_type = ? WHERE id = ?',
-                  [preservedType, existingBc.id],
-                );
-                await q.exec(
-                  'UPDATE items SET barcode_type = ? WHERE id = ? AND tenant_id = ?',
-                  [preservedType, itemId, tenantId],
+                  'INSERT INTO product_barcodes (id, tenant_id, branch_id, product_id, barcode, barcode_type) VALUES (?, ?, ?, ?, ?, ?)',
+                  [newId('bc'), tenantId, branchId, parentId, finalBarcode, barcodeType],
                 );
               }
+              barcodesSaved++;
             }
-          }
 
-          if (row.additionalBarcodes && row.additionalBarcodes.length > 0) {
-            for (const ab of row.additionalBarcodes) {
-              const abTrim = ab.barcode.trim();
-              if (abTrim && abTrim !== row.barcode?.trim()) {
-                const existingAb = await q.one<{ id: string; productId: string }>(
-                  'SELECT id, product_id FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND barcode = ?',
-                  [tenantId, branchId, abTrim],
-                );
-                if (!existingAb) {
-                  const abType = ab.barcodeType || (abTrim.startsWith('20') && abTrim.length === 13 ? 'INTERNAL' : 'MANUFACTURER');
-                  await q.exec(
-                    `INSERT INTO product_barcodes (id, tenant_id, branch_id, product_id, barcode, barcode_type)
-                     VALUES (?, ?, ?, ?, ?, ?)`,
-                    [newId('bc'), tenantId, branchId, itemId, abTrim, abType],
-                  );
-                  barcodesSaved++;
+            // Record opening stock move & purchase line
+            if (qtyMilli > 0) {
+              let lineId: string | null = null;
+              if (purchaseId) {
+                lineId = newId('prl');
+                const lineSubtotal = Math.round((costMinor * qtyMilli) / 1000);
+                let lineTaxable = lineSubtotal;
+                let lineTax = 0;
+                if (taxRateBp > 0) {
+                  lineTaxable = lineSubtotal;
+                  lineTax = Math.round((lineTaxable * taxRateBp) / 10000);
                 }
-              }
-            }
-          }
+                const lineTotal = lineTaxable + lineTax;
+                const lineCgst = Math.round(lineTax / 2);
+                const lineSgst = lineTax - lineCgst;
 
-          results.push({ rowIndex: row._rowIndex, status: 'restocked', name: row.name, itemId });
-          restocked++;
+                await q.exec(
+                  `INSERT INTO purchase_lines (
+                    id, tenant_id, branch_id, purchase_id, item_id, variant_id, name, hsn, unit,
+                    qty_milli, billed_qty_milli, received_qty_milli,
+                    cost_minor, discount_minor, tax_rate_bp,
+                    taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor, total_minor
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?)`,
+                  [
+                    lineId, tenantId, branchId, purchaseId, parentId, variantId,
+                    `${row.name} (${normSize})`, row.hsn || null, row.unit || 'pcs',
+                    qtyMilli, qtyMilli, qtyMilli, costMinor, taxRateBp,
+                    lineTaxable, lineTax, lineCgst, lineSgst, lineTotal,
+                  ],
+                );
+                purchaseSubtotal += lineSubtotal;
+                purchaseTaxable += lineTaxable;
+                purchaseTax += lineTax;
+                purchaseCgst += lineCgst;
+                purchaseSgst += lineSgst;
+                purchaseTotal += lineTotal;
+                purchaseLinesCount++;
+              }
+
+              await q.exec(
+                `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, variant_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'opening', 'purchase', ?, ?, ?, 'Bulk import opening stock', ?, ?)`,
+                [newId('sm'), tenantId, branchId, parentId, variantId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
+              );
+            }
+
+            await q.exec('RELEASE SAVEPOINT sp_bulk_variant_row');
+            results.push({ rowIndex: row._rowIndex, status: 'created', name: `${row.name} (${normSize})`, itemId: parentId });
+            created++;
+          }
         } catch (err: any) {
-          await q.exec('ROLLBACK TO SAVEPOINT sp_bulk_restock');
-          console.error('RESTOCK TX ERROR:', err);
+          await q.exec('ROLLBACK TO SAVEPOINT sp_bulk_variant_row');
+          console.error(`[bulk-import] Row ${row._rowIndex} failed:`, err?.message || err);
           results.push({
             rowIndex: row._rowIndex,
             status: 'skipped',
             name: row.name,
-            reason: `Restock failed: ${err.message || 'database error'}`,
+            reason: err?.code === '23505' ? 'Barcode or variant collision' : (err?.message || 'Insertion failed'),
           });
-          skipped++;
         }
       }
 
-      // 3. Process New Products
-      for (const row of rowsReadyForInsert) {
-        const id = newId('i');
-        // Ensure compact short SKU
-        const finalSku = row.sku ? row.sku.trim() : generateUniqueShortSku(row.name, allBranchSkus, seenImportSkus);
-        allBranchSkus.add(finalSku.toLowerCase());
-
-        // Ensure Barcode (manufacturer if given, or generate internal EAN-13)
-        let finalBarcode = row.barcode ? row.barcode.trim() : null;
-        let barcodeType: 'INTERNAL' | 'MANUFACTURER' = row.barcodeType || 'MANUFACTURER';
-        if (!finalBarcode) {
-          finalBarcode = generateUniqueInternalBarcode(allBranchBarcodes, seenImportBarcodes);
-          seenImportBarcodes.add(finalBarcode);
-          barcodeType = 'INTERNAL';
-        } else if (!row.barcodeType) {
-          barcodeType = finalBarcode.startsWith('20') && finalBarcode.length === 13 ? 'INTERNAL' : 'MANUFACTURER';
-          seenImportBarcodes.add(finalBarcode);
-        } else {
-          seenImportBarcodes.add(finalBarcode);
-        }
-
-        await q.exec('SAVEPOINT sp_bulk_row');
-        try {
-          const hasOpeningStock = (row.openingQtyMilli ?? 0) > 0;
-          const initialActive = hasOpeningStock;
-          const initialDeactivationReason = hasOpeningStock ? null : 'out_of_stock';
-
-          // Insert item with preferred supplier
-          await q.exec(
-            `INSERT INTO items (
-              id, tenant_id, branch_id, name, sku, barcode, barcode_type, hsn, unit, category,
-              category_id, subcategory_id, product_type, size, material, design_pattern, description,
-              price_minor, cost_minor, mrp_minor, offer_percentage, tax_rate_bp, tax_inclusive, track_stock,
-              reorder_milli, preferred_supplier_id, favorite, custom, active, deactivation_reason, image_url,
-              imported_date, restocked_date, parent_product_id, purchase_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false, true, ?, ?, false, '{}'::jsonb, ?, ?, ?, now(), ?, ?, ?)`,
-            [
-              id, tenantId, branchId, row.name, finalSku, finalBarcode, finalBarcode ? barcodeType : 'INTERNAL', row.hsn || null,
-              row.unit || 'pcs', row.category || null,
-              row.categoryId || null, row.subcategoryId || null, row.productType || 'Retail',
-              row.size || null, row.material || null, row.designPattern || null, row.description || null,
-              row.priceMinor, row.costMinor ?? 0, row.mrpMinor ?? null, row.offerPercentage ?? 0, row.taxRateBp ?? 0,
-              row.reorderMilli ?? 0,
-              supplierId, initialActive, initialDeactivationReason, row.imageUrl || null,
-              hasOpeningStock ? new Date().toISOString() : null, row.parentProductId || null,
-              row.purchaseDate || new Date().toISOString().slice(0, 10),
-            ],
-          );
-
-          // Insert into product_barcodes table (if barcode mapping fails, rolls back item creation)
-          if (finalBarcode) {
-            const existingPb = await q.one<{ id: string }>(
-              'SELECT id FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND barcode = ?',
-              [tenantId, branchId, finalBarcode],
-            );
-            if (existingPb) {
-              await q.exec(
-                'UPDATE product_barcodes SET product_id = ?, barcode_type = ? WHERE id = ?',
-                [id, barcodeType, existingPb.id],
-              );
-            } else {
-              await q.exec(
-                `INSERT INTO product_barcodes (id, tenant_id, branch_id, product_id, barcode, barcode_type)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [newId('bc'), tenantId, branchId, id, finalBarcode, barcodeType],
-              );
-            }
-            barcodesSaved++;
-          }
-
-          if (row.additionalBarcodes && row.additionalBarcodes.length > 0) {
-            for (const ab of row.additionalBarcodes) {
-              const abTrim = ab.barcode.trim();
-              if (abTrim && abTrim !== finalBarcode) {
-                const abType = ab.barcodeType || (abTrim.startsWith('20') && abTrim.length === 13 ? 'INTERNAL' : 'MANUFACTURER');
-                const existingAb = await q.one<{ id: string }>(
-                  'SELECT id FROM product_barcodes WHERE tenant_id = ? AND branch_id = ? AND barcode = ?',
-                  [tenantId, branchId, abTrim],
-                );
-                if (!existingAb) {
-                  await q.exec(
-                    `INSERT INTO product_barcodes (id, tenant_id, branch_id, product_id, barcode, barcode_type)
-                     VALUES (?, ?, ?, ?, ?, ?)`,
-                    [newId('bc'), tenantId, branchId, id, abTrim, abType],
-                  );
-                  barcodesSaved++;
-                }
-                seenImportBarcodes.add(abTrim);
-              }
-            }
-          }
-
-          // Record opening stock if provided and record purchase line
-          if ((row.openingQtyMilli ?? 0) > 0) {
-            const qtyMilli = row.openingQtyMilli!;
-            const costMinor = row.costMinor ?? 0;
-            const taxRateBp = row.taxRateBp ?? 500;
-            const lineSubtotal = Math.round((costMinor * qtyMilli) / 1000);
-            let lineTaxable = lineSubtotal;
-            let lineTax = 0;
-            if (taxRateBp > 0) {
-              lineTaxable = lineSubtotal;
-              lineTax = Math.round((lineTaxable * taxRateBp) / 10000);
-            }
-            const lineTotal = lineTaxable + lineTax;
-            const lineCgst = Math.round(lineTax / 2);
-            const lineSgst = lineTax - lineCgst;
-
-            let lineId: string | null = null;
-            if (purchaseId) {
-              lineId = newId('prl');
-              await q.exec(
-                `INSERT INTO purchase_lines (
-                  id, tenant_id, branch_id, purchase_id, item_id, name, hsn, unit,
-                  qty_milli, billed_qty_milli, received_qty_milli,
-                  cost_minor, discount_minor, tax_rate_bp,
-                  taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor, total_minor
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?)`,
-                [
-                  lineId, tenantId, branchId, purchaseId, id, row.name, row.hsn || null, row.unit || 'pcs',
-                  qtyMilli, qtyMilli, qtyMilli,
-                  costMinor, taxRateBp,
-                  lineTaxable, lineTax, lineCgst, lineSgst, lineTotal,
-                ],
-              );
-              purchaseSubtotal += lineSubtotal;
-              purchaseTaxable += lineTaxable;
-              purchaseTax += lineTax;
-              purchaseCgst += lineCgst;
-              purchaseSgst += lineSgst;
-              purchaseTotal += lineTotal;
-              purchaseLinesCount++;
-            }
-
-            await q.exec(
-              `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'opening', 'purchase', ?, ?, ?, 'Bulk import opening stock', ?, ?)`,
-              [newId('sm'), tenantId, branchId, id, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
-            );
-          }
-
-          await q.exec('RELEASE SAVEPOINT sp_bulk_row');
-          results.push({ rowIndex: row._rowIndex, status: 'created', name: row.name, itemId: id });
-          created++;
-        } catch (err: any) {
-          await q.exec('ROLLBACK TO SAVEPOINT sp_bulk_row');
-          console.error(`[bulk-import] Insertion failed for row ${row._rowIndex} (${row.name}):`, err?.message || err);
-          results.push({
-            rowIndex: row._rowIndex,
-            status: 'skipped',
-            name: row.name,
-            reason: err?.code === '23505'
-              ? 'Product code or barcode conflict occurred during insertion'
-              : (err?.message || 'Insertion failed'),
-          });
-          skipped++;
-        }
+      // Synchronize parent items active status
+      for (const parentId of affectedParentIds) {
+        await q.exec(
+          `UPDATE items
+           SET active = true, updated_at = now()
+           WHERE id = ? AND tenant_id = ?`,
+          [parentId, tenantId],
+        );
       }
 
-      // Finalize purchase totals if lines were recorded
+      // Finalize purchase header if created
       if (purchaseId) {
         if (purchaseLinesCount > 0) {
           await q.exec(
@@ -1137,15 +867,7 @@ export function registerItemsBulk(r: Router) {
         }
       }
 
-      // Synchronize product active status for all affected products
-      const allAffectedItemIds = results
-        .filter((r) => r.itemId && (r.status === 'created' || r.status === 'restocked'))
-        .map((r) => r.itemId) as string[];
-      if (allAffectedItemIds.length > 0) {
-        await syncItemStockStatus(q, tenantId, allAffectedItemIds, branchId);
-      }
-
-      // 4. Record in imports table
+      // Record in imports audit
       const totalSkipped = b.rows.length - (created + restocked);
       await q.exec(
         `INSERT INTO imports (id, tenant_id, kind, total_rows, accepted, rejected, status, created_by)
@@ -1153,28 +875,21 @@ export function registerItemsBulk(r: Router) {
         [importId, tenantId, b.rows.length, created + restocked, totalSkipped, ctx.user!.id],
       );
 
-      // 5. Audit log
+      // Audit log
       await audit(q, ctx, {
         action: 'item.bulk_import',
         entity: 'item',
         entityId: importId,
         detail: {
-          importId,
-          purchaseId,
-          purchaseNumber,
-          supplierId,
-          supplierName: supplier?.name || null,
           totalRows: b.rows.length,
-          created,
-          restocked,
-          skipped: totalSkipped,
-          barcodesSaved,
+          createdVariants: created,
+          restockedVariants: restocked,
+          skippedVariants: totalSkipped,
+          purchaseId,
+          supplierId,
         },
       });
     });
-
-    skipped = results.filter((r) => r.status === 'skipped').length;
-    results.sort((a, b) => a.rowIndex - b.rowIndex);
 
     return {
       importId,
@@ -1185,7 +900,7 @@ export function registerItemsBulk(r: Router) {
       totalRows: b.rows.length,
       created,
       restocked,
-      skipped,
+      skipped: results.filter((r) => r.status === 'skipped').length,
       barcodesSaved,
       results,
     };

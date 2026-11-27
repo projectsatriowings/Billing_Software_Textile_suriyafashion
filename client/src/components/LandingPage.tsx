@@ -244,8 +244,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     className="hero-btn-secondary"
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
                     <span>Login to Account</span>
                   </button>
@@ -296,7 +296,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <span>POS Billing</span>
                   </div>
                   <div className="mockup-nav-item">
-                    <span>📦</span>
+                    <span></span>
                     <span>Inventory</span>
                   </div>
                   <div className="mockup-nav-item">
@@ -323,8 +323,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <div className="mockup-top-search-row">
                     <div className="mockup-search-fake">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <circle cx="11" cy="11" r="8"/>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
                       </svg>
                       <span>Search barcode or item...</span>
                     </div>
@@ -373,7 +373,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <div className="mockup-metric-card">
                       <div className="metric-header">
                         <span>Items Scanned</span>
-                        <span style={{ color: '#10b981', fontSize: '0.8rem' }}>📦</span>
+                        <span style={{ color: '#10b981', fontSize: '0.8rem' }}></span>
                       </div>
                       <div className="metric-val">840</div>
                       <div className="metric-badge">0 barcode errors</div>
@@ -398,10 +398,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                             </linearGradient>
                           </defs>
                           {/* Grid Lines */}
-                          <line x1="25" y1="18" x2="275" y2="18" stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3"/>
-                          <line x1="25" y1="42" x2="275" y2="42" stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3"/>
-                          <line x1="25" y1="68" x2="275" y2="68" stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3"/>
-                          <line x1="25" y1="92" x2="275" y2="92" stroke="#e2e8f0" strokeWidth="1"/>
+                          <line x1="25" y1="18" x2="275" y2="18" stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                          <line x1="25" y1="42" x2="275" y2="42" stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                          <line x1="25" y1="68" x2="275" y2="68" stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                          <line x1="25" y1="92" x2="275" y2="92" stroke="#e2e8f0" strokeWidth="1" />
 
                           {/* Y-Axis Labels */}
                           <text x="5" y="22" fill="#94a3b8" fontSize="6" fontFamily="sans-serif">60k</text>
@@ -423,10 +423,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                             strokeLinecap="round"
                           />
                           {/* Data points */}
-                          <circle cx="80" cy="70" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2"/>
-                          <circle cx="130" cy="55" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2"/>
-                          <circle cx="190" cy="48" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2"/>
-                          <circle cx="250" cy="28" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2"/>
+                          <circle cx="80" cy="70" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2" />
+                          <circle cx="130" cy="55" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2" />
+                          <circle cx="190" cy="48" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2" />
+                          <circle cx="250" cy="28" r="3" fill="#ffffff" stroke="#6D4AFF" strokeWidth="2" />
                         </svg>
                         <div style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: '25px', fontSize: '0.55rem', color: '#94a3b8', marginTop: '2px' }}>
                           <span>9 AM</span><span>11 AM</span><span>1 PM</span><span>3 PM</span><span>5 PM</span><span>7 PM</span><span>9 PM</span>
@@ -618,7 +618,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           <div className="feature-card">
-            <div className="feat-icon-bubble">📦</div>
+            <div className="feat-icon-bubble"></div>
             <h4 className="feat-title">Smart Batch & Expiry Tracking</h4>
             <p className="feat-desc">FEFO (First-Expiry-First-Out) inventory dispatching with automated alerts for near-expiry dairy, packaged food, beverages, and FMCG items.</p>
           </div>

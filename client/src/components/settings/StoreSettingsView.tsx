@@ -30,7 +30,7 @@ const BUSINESS_TYPE_LABELS: Record<string, { label: string; icon: string; desc: 
   retail: { label: 'Retail / Kirana / Supermarket', icon: '🛒', desc: 'Barcode scanning, standard inventory, fast POS checkout' },
   pharmacy: { label: 'Pharmacy & Healthcare', icon: '💊', desc: 'Batch tracking, expiry dates, HSN schedule validation' },
   restaurant: { label: 'Restaurant / Cafe / Bakery', icon: '🍽️', desc: 'Table tickets, kitchen orders, flexible stock handling' },
-  wholesale: { label: 'Wholesale & Distribution', icon: '📦', desc: 'Bulk pricing, cartons/boxes, B2B tax invoices' },
+  wholesale: { label: 'Wholesale & Distribution', icon: '', desc: 'Bulk pricing, cartons/boxes, B2B tax invoices' },
   service: { label: 'Professional & Technical Services', icon: '💼', desc: 'Hourly/milestone billing, SAC codes, service contracts' },
   general: { label: 'General Business', icon: '🏢', desc: 'Standard retail & service invoicing' },
 };
@@ -365,7 +365,7 @@ export function StoreSettingsView({
         {[
           { id: 'profile', icon: '🏢', label: 'Store Profile' },
           { id: 'billing', icon: '📜', label: 'Business & Billing Rules' },
-          { id: 'inventory', icon: '📦', label: 'Inventory & Purchase' },
+          { id: 'inventory', icon: '', label: 'Inventory & Purchase' },
           { id: 'invoice_profiles', icon: '🧾', label: 'Invoice Profiles (Wholesale & Retail)' },
           { id: 'payments', icon: '💳', label: 'Payments & Integrations' },
           { id: 'sms', icon: '💬', label: 'SMS & Free Trial' },
@@ -831,7 +831,7 @@ export function StoreSettingsView({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <div className="card settings-section" style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
             <div className="card-title" style={{ marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
-              <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e1b4b' }}>📦 Inventory Control & Stock Policies</span>
+              <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e1b4b' }}> Inventory Control & Stock Policies</span>
               <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '2px' }}>
                 Server-side safeguards governing stock decrements, replenishment, and reorder levels.
               </div>
@@ -960,7 +960,7 @@ export function StoreSettingsView({
                   boxShadow: activeProfileTab === 'wholesale' ? '0 2px 6px rgba(109,74,255,0.25)' : 'none',
                 }}
               >
-                📦 Wholesale B2B Profile (A4)
+                Wholesale B2B Profile (A4)
               </button>
               <button
                 type="button"
@@ -996,7 +996,7 @@ export function StoreSettingsView({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', paddingBottom: '0.85rem', borderBottom: '1px solid #f1f5f9' }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>📦</span> Wholesale B2B Tax Invoice Profile
+                    <span></span> Wholesale B2B Tax Invoice Profile
                     <span style={{ fontSize: '0.72rem', background: '#ede9fe', color: '#6d4aff', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
                       Traditional Indian A4 Layout
                     </span>
@@ -2103,7 +2103,7 @@ export function StoreSettingsView({
         />
       )}
 
-{/* SECTION 5: WHATSAPP & NOTIFICATIONS */}
+      {/* SECTION 5: WHATSAPP & NOTIFICATIONS */}
       {activeSection === 'whatsapp' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           <div className="card settings-section" style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '1.5rem' }}>
