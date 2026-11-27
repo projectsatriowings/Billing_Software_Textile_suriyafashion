@@ -2170,7 +2170,7 @@ export const MIGRATIONS: Migration[] = [
     ],
   },
   {
-    version: 80,
+    version: 87,
     statements: [
       `CREATE TABLE IF NOT EXISTS damaged_stock (
         id TEXT PRIMARY KEY,
