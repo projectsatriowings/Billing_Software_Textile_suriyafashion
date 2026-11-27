@@ -405,7 +405,7 @@ export function registerExchanges(r: Router) {
                 itemDetails?.unit || 'pcs',
                 itemDetails?.size || null,
                 itemDetails?.material || null,
-                itemDetails?.preferred_supplier_id || null,
+                itemDetails?.preferredSupplierId ?? itemDetails?.preferred_supplier_id ?? null,
                 cl.reason || 'Customer Exchange (Damaged)',
                 cl.remarks || null,
                 `Customer Return via Exchange ${exchangeId}`,

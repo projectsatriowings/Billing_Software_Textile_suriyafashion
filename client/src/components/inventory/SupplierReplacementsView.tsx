@@ -208,58 +208,73 @@ export const SupplierReplacementsView: React.FC<SupplierReplacementsViewProps> =
                 </td>
               </tr>
             ) : (
-              replacements.map((rep) => (
-                <tr key={rep.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 700, color: '#0f172a' }}>{rep.replacement_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{rep.received_date}</div>
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 600, color: '#2563eb' }}>{rep.return_number || '—'}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{rep.supplier_name || 'Vendor'}</div>
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 600, color: '#0f172a' }}>
-                      {rep.replacement_item_name || rep.original_item_name}
-                    </div>
-                    {rep.replacement_item_id !== rep.original_item_id && (
-                      <div style={{ fontSize: '0.75rem', color: '#d97706' }}>
-                        (Substituted for: {rep.original_item_name})
+              replacements.map((rep) => {
+                const repNum = rep.replacementNumber || rep.replacement_number;
+                const recDate = rep.receivedDate || rep.received_date;
+                const retNum = rep.returnNumber || rep.return_number;
+                const suppName = rep.supplierName || rep.supplier_name;
+                const itemName = rep.replacementItemName || rep.replacement_item_name || rep.originalItemName || rep.original_item_name;
+                const origItemName = rep.originalItemName || rep.original_item_name;
+                const isSubstituted = (rep.replacementItemId || rep.replacement_item_id) !== (rep.originalItemId || rep.original_item_id);
+                const roll = rep.rollNo || rep.roll_no;
+                const batch = rep.batchNo || rep.batch_no;
+                const qtyUnits = (((rep.qtyMilli ?? rep.qty_milli ?? 0) / 1000)).toFixed(2);
+                const challan = rep.challanNo || rep.challan_no;
+                const receiver = rep.receiverName || rep.receiver_name;
+
+                return (
+                  <tr key={rep.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
+                      <div style={{ fontWeight: 700, color: '#0f172a' }}>{repNum}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{recDate}</div>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
+                      <div style={{ fontWeight: 600, color: '#2563eb' }}>{retNum || '—'}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{suppName || 'Vendor'}</div>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
+                      <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                        {itemName}
                       </div>
-                    )}
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.2rem' }}>
-                      {rep.roll_no && <span>Roll: {rep.roll_no}</span>}
-                      {rep.batch_no && <span>Batch: {rep.batch_no}</span>}
-                      {rep.size && <span>Size: {rep.size}</span>}
-                      {rep.colour && <span>Color: {rep.colour}</span>}
-                    </div>
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <strong style={{ color: rep.condition === 'GOOD' ? '#059669' : '#dc2626' }}>
-                      {(rep.qty_milli / 1000).toFixed(2)} {rep.unit}
-                    </strong>
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    {getConditionBadge(rep.condition)}
-                    {rep.condition === 'GOOD' ? (
-                      <div style={{ fontSize: '0.75rem', color: '#059669', marginTop: '0.25rem' }}>
-                        ✓ Added to saleable stock & POS
+                      {isSubstituted && origItemName && (
+                        <div style={{ fontSize: '0.75rem', color: '#d97706' }}>
+                          (Substituted for: {origItemName})
+                        </div>
+                      )}
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.2rem' }}>
+                        {roll && <span>Roll: {roll}</span>}
+                        {batch && <span>Batch: {batch}</span>}
+                        {rep.size && <span>Size: {rep.size}</span>}
+                        {rep.colour && <span>Color: {rep.colour}</span>}
                       </div>
-                    ) : (
-                      <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '0.25rem' }}>
-                        ✗ Kept in defective stock
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 500, color: '#334155' }}>{rep.challan_no || '—'}</div>
-                    {rep.notes && <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{rep.notes}</div>}
-                  </td>
-                  <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top', color: '#64748b' }}>
-                    {rep.receiver_name || 'Staff'}
-                  </td>
-                </tr>
-              ))
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
+                      <strong style={{ color: rep.condition === 'GOOD' ? '#059669' : '#dc2626' }}>
+                        {qtyUnits} {rep.unit}
+                      </strong>
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
+                      {getConditionBadge(rep.condition)}
+                      {rep.condition === 'GOOD' ? (
+                        <div style={{ fontSize: '0.75rem', color: '#059669', marginTop: '0.25rem' }}>
+                          ✓ Added to saleable stock & POS
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '0.25rem' }}>
+                          ✗ Kept in defective stock
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
+                      <div style={{ fontWeight: 500, color: '#334155' }}>{challan || '—'}</div>
+                      {rep.notes && <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{rep.notes}</div>}
+                    </td>
+                    <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top', color: '#64748b' }}>
+                      {receiver || 'Staff'}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

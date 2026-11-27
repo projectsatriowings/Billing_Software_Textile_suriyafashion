@@ -714,7 +714,7 @@ export function registerCreditNotes(r: Router) {
                 itemDetails?.unit || cl.unit || 'pcs',
                 itemDetails?.size || null,
                 itemDetails?.material || null,
-                itemDetails?.preferred_supplier_id || null,
+                itemDetails?.preferredSupplierId ?? itemDetails?.preferred_supplier_id ?? null,
                 cl.reason || 'Customer Return (Damaged)',
                 cl.remarks || null,
                 `Customer Return from Credit Note ${cnNumber} (Orig Invoice: ${origInv.number})`,

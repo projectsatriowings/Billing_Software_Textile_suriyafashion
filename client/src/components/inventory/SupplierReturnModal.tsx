@@ -22,17 +22,19 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
   showToast,
 }) => {
   const [supplierId, setSupplierId] = useState<string>(
-    preselectedDamagedItem?.supplier_id || ''
+    preselectedDamagedItem?.supplierId || preselectedDamagedItem?.supplier_id || ''
   );
   const [returnType, setReturnType] = useState<'REPLACEMENT' | 'REFUND' | 'CREDIT_NOTE' | 'SCRAP'>('REPLACEMENT');
   const [selectedDamageId, setSelectedDamageId] = useState<string>(
     preselectedDamagedItem?.id || ''
   );
   const [qty, setQty] = useState<string>(
-    preselectedDamagedItem ? String(preselectedDamagedItem.qty_milli / 1000) : '1'
+    preselectedDamagedItem
+      ? String(((preselectedDamagedItem.qtyMilli ?? preselectedDamagedItem.qty_milli ?? 1000) / 1000))
+      : '1'
   );
   const [returnReason, setReturnReason] = useState<string>(
-    preselectedDamagedItem?.damage_reason || 'Defective textile goods'
+    preselectedDamagedItem?.damageReason || preselectedDamagedItem?.damage_reason || 'Defective textile goods'
   );
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -50,10 +52,11 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
     setSelectedDamageId(id);
     const found = eligibleItems.find((i) => i.id === id);
     if (found) {
-      setQty(String(found.qty_milli / 1000));
-      setReturnReason(found.damage_reason);
-      if (found.supplier_id && !supplierId) {
-        setSupplierId(found.supplier_id);
+      setQty(String(((found.qtyMilli ?? found.qty_milli ?? 1000) / 1000)));
+      setReturnReason(found.damageReason || found.damage_reason || '');
+      const suppId = found.supplierId || found.supplier_id;
+      if (suppId && !supplierId) {
+        setSupplierId(suppId);
       }
     }
   };
@@ -75,9 +78,15 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
       return;
     }
 
-    const maxEligible = selectedDmg.qty_milli / 1000;
+    const maxEligible = ((selectedDmg.qtyMilli ?? selectedDmg.qty_milli ?? 0) / 1000);
     if (returnQtyUnits > maxEligible) {
       showToast(`Return quantity (${returnQtyUnits}) cannot exceed recorded damaged quantity (${maxEligible}).`);
+      return;
+    }
+
+    const targetItemId = selectedDmg.itemId || selectedDmg.item_id;
+    if (!targetItemId) {
+      showToast('Could not identify the item ID for this return.');
       return;
     }
 
@@ -85,22 +94,22 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
       setSubmitting(true);
       await createSupplierReturn({
         supplierId,
-        purchaseId: selectedDmg.purchase_id,
+        purchaseId: selectedDmg.purchaseId || selectedDmg.purchase_id,
         returnType,
         notes: notes || undefined,
         lines: [
           {
             damagedStockId: selectedDmg.id,
-            itemId: selectedDmg.item_id,
+            itemId: targetItemId,
             qty: returnQtyUnits,
             unit: selectedDmg.unit || 'pcs',
-            rollNo: selectedDmg.roll_no,
-            batchNo: selectedDmg.batch_no,
+            rollNo: selectedDmg.rollNo || selectedDmg.roll_no,
+            batchNo: selectedDmg.batchNo || selectedDmg.batch_no,
             size: selectedDmg.size,
             colour: selectedDmg.colour,
             design: selectedDmg.design,
-            fabricType: selectedDmg.fabric_type,
-            returnReason: returnReason || selectedDmg.damage_reason,
+            fabricType: selectedDmg.fabricType || selectedDmg.fabric_type,
+            returnReason: returnReason || selectedDmg.damageReason || selectedDmg.damage_reason || 'Defective textile goods',
             notes: notes || undefined,
           },
         ],
@@ -216,11 +225,17 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
               }}
             >
               <option value="">-- Choose from recorded damaged stock --</option>
-              {eligibleItems.map((ds) => (
-                <option key={ds.id} value={ds.id}>
-                  [{ds.damage_number}] {ds.item_name} — {(ds.qty_milli / 1000).toFixed(1)} {ds.unit} ({ds.damage_reason})
-                </option>
-              ))}
+              {eligibleItems.map((ds) => {
+                const dmgNum = ds.damageNumber || ds.damage_number || ds.id;
+                const name = ds.itemName || ds.item_name || 'Item';
+                const qUnits = (((ds.qtyMilli ?? ds.qty_milli ?? 0) / 1000)).toFixed(1);
+                const reason = ds.damageReason || ds.damage_reason || '';
+                return (
+                  <option key={ds.id} value={ds.id}>
+                    [{dmgNum}] {name} — {qUnits} {ds.unit} {reason ? `(${reason})` : ''}
+                  </option>
+                );
+              })}
             </select>
             {selectedDmg && (
               <div
@@ -234,11 +249,11 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
                   color: '#4b5563',
                 }}
               >
-                <div><strong>Product:</strong> {selectedDmg.item_name}</div>
-                <div><strong>Recorded Defect:</strong> {selectedDmg.damage_reason}</div>
-                {selectedDmg.roll_no && <div><strong>Roll No:</strong> {selectedDmg.roll_no}</div>}
+                <div><strong>Product:</strong> {selectedDmg.itemName || selectedDmg.item_name}</div>
+                <div><strong>Recorded Defect:</strong> {selectedDmg.damageReason || selectedDmg.damage_reason}</div>
+                {(selectedDmg.rollNo || selectedDmg.roll_no) && <div><strong>Roll No:</strong> {selectedDmg.rollNo || selectedDmg.roll_no}</div>}
                 {selectedDmg.size && <div><strong>Size / Shade:</strong> {selectedDmg.size} / {selectedDmg.colour || 'N/A'}</div>}
-                <div><strong>Eligible Damaged Qty:</strong> {(selectedDmg.qty_milli / 1000).toFixed(2)} {selectedDmg.unit}</div>
+                <div><strong>Eligible Damaged Qty:</strong> {(((selectedDmg.qtyMilli ?? selectedDmg.qty_milli ?? 0) / 1000)).toFixed(2)} {selectedDmg.unit}</div>
               </div>
             )}
           </div>

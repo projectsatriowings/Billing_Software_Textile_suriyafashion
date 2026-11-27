@@ -58,8 +58,9 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
   }, [loadData]);
 
   const handleDispatch = async (ret: SupplierReturn) => {
+    const retNum = ret.returnNumber || ret.return_number;
     const dispatchRef = window.prompt(
-      `Enter Dispatch / Waybill / Transport Challan Reference for ${ret.return_number}:`,
+      `Enter Dispatch / Waybill / Transport Challan Reference for ${retNum}:`,
       'CHALLAN-DISPATCH-01'
     );
     if (!dispatchRef) return;
@@ -69,7 +70,7 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
         dispatchRef,
         dispatchDate: new Date().toISOString().slice(0, 10),
       });
-      showToast(`Supplier return ${ret.return_number} marked as dispatched to supplier.`);
+      showToast(`Supplier return ${retNum} marked as dispatched to supplier.`);
       loadData();
       onInventoryUpdated();
     } catch (err: any) {
@@ -78,15 +79,16 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
   };
 
   const handleReject = async (ret: SupplierReturn) => {
+    const retNum = ret.returnNumber || ret.return_number;
     const reason = window.prompt(
-      `Enter rejection reason for ${ret.return_number}:`,
+      `Enter rejection reason for ${retNum}:`,
       'Supplier refused return claim'
     );
     if (!reason) return;
 
     try {
       await rejectSupplierReturn(ret.id, reason);
-      showToast(`Supplier return ${ret.return_number} marked as rejected.`);
+      showToast(`Supplier return ${retNum} marked as rejected.`);
       loadData();
       onInventoryUpdated();
     } catch (err: any) {
@@ -229,7 +231,13 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
         ) : (
           returns.map((ret) => {
             const isExpanded = expandedId === ret.id;
-            const hasPendingLines = ret.lines.some((l) => l.pending_qty_milli > 0);
+            const hasPendingLines = ret.lines.some((l) => (l.pendingQtyMilli ?? l.pending_qty_milli ?? 0) > 0);
+            const retNum = ret.returnNumber || ret.return_number;
+            const retDate = ret.returnDate || ret.return_date;
+            const suppName = ret.supplierName || ret.supplier_name;
+            const totItems = ret.totalItems ?? ret.total_items ?? ret.lines.length;
+            const totQty = (((ret.totalQtyMilli ?? ret.total_qty_milli ?? 0) / 1000)).toFixed(1);
+            const dispRef = ret.dispatchRef || ret.dispatch_ref;
 
             return (
               <div
@@ -257,25 +265,25 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
                   <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>
-                        {ret.return_number}
+                        {retNum}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Date: {ret.return_date}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Date: {retDate}</div>
                     </div>
 
                     <div>
                       <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>
-                        {ret.supplier_name || 'Vendor'}
+                        {suppName || 'Vendor'}
                       </div>
                       <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                        {ret.total_items} item(s) • {(ret.total_qty_milli / 1000).toFixed(1)} units
+                        {totItems} item(s) • {totQty} units
                       </div>
                     </div>
 
                     <div>{getStatusBadge(ret.status)}</div>
 
-                    {ret.dispatch_ref && (
+                    {dispRef && (
                       <div style={{ fontSize: '0.8rem', color: '#0369a1', backgroundColor: '#f0f9ff', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>
-                        Challan: {ret.dispatch_ref}
+                        Challan: {dispRef}
                       </div>
                     )}
                   </div>
@@ -373,25 +381,25 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
                         {ret.lines.map((l) => (
                           <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '0.5rem' }}>
-                              <div style={{ fontWeight: 600 }}>{l.item_name}</div>
+                              <div style={{ fontWeight: 600 }}>{l.itemName || l.item_name}</div>
                               {l.sku && <div style={{ fontSize: '0.75rem', color: '#64748b' }}>SKU: {l.sku}</div>}
                             </td>
                             <td style={{ padding: '0.5rem' }}>
                               <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                                {l.roll_no && <span style={{ backgroundColor: '#e2e8f0', padding: '0.1rem 0.3rem', borderRadius: '3px' }}>Roll: {l.roll_no}</span>}
+                                {(l.rollNo || l.roll_no) && <span style={{ backgroundColor: '#e2e8f0', padding: '0.1rem 0.3rem', borderRadius: '3px' }}>Roll: {l.rollNo || l.roll_no}</span>}
                                 {l.size && <span>Size: {l.size}</span>}
                                 {l.colour && <span>Shade: {l.colour}</span>}
                               </div>
                             </td>
-                            <td style={{ padding: '0.5rem', color: '#475569' }}>{l.return_reason}</td>
+                            <td style={{ padding: '0.5rem', color: '#475569' }}>{l.returnReason || l.return_reason}</td>
                             <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: 600 }}>
-                              {(l.qty_milli / 1000).toFixed(1)} {l.unit}
+                              {(((l.qtyMilli ?? l.qty_milli ?? 0) / 1000)).toFixed(1)} {l.unit}
                             </td>
                             <td style={{ padding: '0.5rem', textAlign: 'right', color: '#059669', fontWeight: 600 }}>
-                              {(l.replaced_qty_milli / 1000).toFixed(1)} {l.unit}
+                              {(((l.replacedQtyMilli ?? l.replaced_qty_milli ?? 0) / 1000)).toFixed(1)} {l.unit}
                             </td>
-                            <td style={{ padding: '0.5rem', textAlign: 'right', color: l.pending_qty_milli > 0 ? '#d97706' : '#64748b', fontWeight: 700 }}>
-                              {(l.pending_qty_milli / 1000).toFixed(1)} {l.unit}
+                            <td style={{ padding: '0.5rem', textAlign: 'right', color: (l.pendingQtyMilli ?? l.pending_qty_milli ?? 0) > 0 ? '#d97706' : '#64748b', fontWeight: 700 }}>
+                              {(((l.pendingQtyMilli ?? l.pending_qty_milli ?? 0) / 1000)).toFixed(1)} {l.unit}
                             </td>
                           </tr>
                         ))}

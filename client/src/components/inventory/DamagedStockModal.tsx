@@ -260,7 +260,17 @@ export const DamagedStockModal: React.FC<DamagedStockModalProps> = ({
             />
             <select
               value={selectedItemId}
-              onChange={(e) => setSelectedItemId(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedItemId(id);
+                const itm = items.find((i) => i.id === id);
+                if (itm) {
+                  const suppId = (itm as any).preferredSupplierId || (itm as any).preferred_supplier_id;
+                  if (suppId) setSupplierId(suppId);
+                  if ((itm as any).size) setSize((itm as any).size);
+                  if ((itm as any).material) setFabricType((itm as any).material);
+                }
+              }}
               required
               style={{
                 width: '100%',

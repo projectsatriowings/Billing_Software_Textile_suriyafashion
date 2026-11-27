@@ -57,7 +57,9 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
   }, [loadData]);
 
   const handleScrap = async (item: DamagedStockItem) => {
-    if (!window.confirm(`Are you sure you want to write off / scrap ${item.damage_number} (${item.item_name})?`)) {
+    const dmgNum = item.damageNumber || item.damage_number;
+    const name = item.itemName || item.item_name;
+    if (!window.confirm(`Are you sure you want to write off / scrap ${dmgNum} (${name})?`)) {
       return;
     }
     const reason = window.prompt('Enter scrap / disposal reason:', 'Total fabric tear / non-recoverable defect');
@@ -65,7 +67,7 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
 
     try {
       await scrapDamagedStock(item.id, reason);
-      showToast(`Damaged item ${item.damage_number} written off.`);
+      showToast(`Damaged item ${dmgNum} written off.`);
       loadData();
       onInventoryUpdated();
     } catch (err: any) {
@@ -146,23 +148,23 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '10px', border: '1px solid #fee2e2', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: '0.8rem', color: '#991b1b', fontWeight: 600 }}>Damaged Stock</div>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#ef4444', margin: '0.25rem 0' }}>
-            {((stats?.damaged_qty_milli || 0) / 1000).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
+            {(((stats?.damagedQtyMilli ?? stats?.damaged_qty_milli ?? 0) / 1000)).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{stats?.damaged_count || 0} incidents</div>
+          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{stats?.damagedCount ?? stats?.damaged_count ?? 0} incidents</div>
         </div>
 
         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '10px', border: '1px solid #fef3c7', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: '0.8rem', color: '#92400e', fontWeight: 600 }}>Defective Stock</div>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f59e0b', margin: '0.25rem 0' }}>
-            {((stats?.defective_qty_milli || 0) / 1000).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
+            {(((stats?.defectiveQtyMilli ?? stats?.defective_qty_milli ?? 0) / 1000)).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{stats?.defective_count || 0} incidents</div>
+          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{stats?.defectiveCount ?? stats?.defective_count ?? 0} incidents</div>
         </div>
 
         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '10px', border: '1px solid #e0e7ff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: '0.8rem', color: '#3730a3', fontWeight: 600 }}>Return Pending</div>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#4f46e5', margin: '0.25rem 0' }}>
-            {((stats?.return_pending_qty_milli || 0) / 1000).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
+            {(((stats?.returnPendingQtyMilli ?? stats?.return_pending_qty_milli ?? 0) / 1000)).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Ready for dispatch</div>
         </div>
@@ -170,7 +172,7 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '10px', border: '1px solid #ffedd5', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: '0.8rem', color: '#9a3412', fontWeight: 600 }}>Sent to Supplier</div>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#ea580c', margin: '0.25rem 0' }}>
-            {((stats?.sent_to_supplier_qty_milli || 0) / 1000).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
+            {(((stats?.sentToSupplierQtyMilli ?? stats?.sent_to_supplier_qty_milli ?? 0) / 1000)).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Awaiting replacement/credit</div>
         </div>
@@ -178,7 +180,7 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '10px', border: '1px solid #d1fae5', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: '0.8rem', color: '#065f46', fontWeight: 600 }}>Resolved / Replaced</div>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#10b981', margin: '0.25rem 0' }}>
-            {((stats?.resolved_qty_milli || 0) / 1000).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
+            {(((stats?.resolvedQtyMilli ?? stats?.resolved_qty_milli ?? 0) / 1000)).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Completed workflows</div>
         </div>
@@ -186,7 +188,7 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '10px', border: '1px solid #e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: '0.8rem', color: '#4b5563', fontWeight: 600 }}>Written Off / Scrap</div>
           <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#6b7280', margin: '0.25rem 0' }}>
-            {((stats?.scrapped_qty_milli || 0) / 1000).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
+            {(((stats?.scrappedQtyMilli ?? stats?.scrapped_qty_milli ?? 0) / 1000)).toFixed(1)} <span style={{ fontSize: '0.85rem' }}>units</span>
           </div>
           <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Loss recognized</div>
         </div>
@@ -319,32 +321,32 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
               damagedItems.map((item) => (
                 <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.damage_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.damage_date}</div>
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.damageNumber || item.damage_number}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.damageDate || item.damage_date}</div>
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.item_name}</div>
+                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.itemName || item.item_name}</div>
                     <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.2rem' }}>
                       {item.sku && <span>SKU: {item.sku}</span>}
-                      {item.roll_no && <span style={{ backgroundColor: '#f1f5f9', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Roll: {item.roll_no}</span>}
-                      {item.batch_no && <span style={{ backgroundColor: '#f1f5f9', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Batch: {item.batch_no}</span>}
+                      {(item.rollNo || item.roll_no) && <span style={{ backgroundColor: '#f1f5f9', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Roll: {item.rollNo || item.roll_no}</span>}
+                      {(item.batchNo || item.batch_no) && <span style={{ backgroundColor: '#f1f5f9', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>Batch: {item.batchNo || item.batch_no}</span>}
                       {item.size && <span>Size: {item.size}</span>}
                       {item.colour && <span>Color: {item.colour}</span>}
                     </div>
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                     <strong style={{ color: '#dc2626' }}>
-                      {(item.qty_milli / 1000).toFixed(2)} {item.unit}
+                      {(((item.qtyMilli ?? item.qty_milli ?? 0) / 1000)).toFixed(2)} {item.unit}
                     </strong>
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ fontWeight: 500, color: '#334155' }}>{item.damage_reason}</div>
+                    <div style={{ fontWeight: 500, color: '#334155' }}>{item.damageReason || item.damage_reason}</div>
                     {item.notes && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>{item.notes}</div>}
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ color: '#334155' }}>{item.supplier_name || '—'}</div>
-                    {item.original_purchase_number && (
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Pur: {item.original_purchase_number}</div>
+                    <div style={{ color: '#334155' }}>{item.supplierName || item.supplier_name || '—'}</div>
+                    {(item.originalPurchaseNumber || item.original_purchase_number) && (
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Pur: {item.originalPurchaseNumber || item.original_purchase_number}</div>
                     )}
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>

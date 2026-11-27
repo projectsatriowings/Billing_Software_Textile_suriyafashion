@@ -291,16 +291,17 @@ export function registerDamagedStock(r: Router): void {
         [`[Scrapped on ${new Date().toLocaleDateString()}]: ${reason}`, id, tenantId],
       );
 
+      const dmgNum = existing.damageNumber ?? existing.damage_number;
       await audit(q, {
         tenantId,
         userId: ctx.user!.id,
         action: 'stock.scrapped',
         targetType: 'damaged_stock',
         targetId: id,
-        details: { damageNumber: existing.damage_number, reason },
+        details: { damageNumber: dmgNum, reason },
       });
 
-      return { success: true, message: `Damaged stock ${existing.damage_number} successfully written off.` };
+      return { success: true, message: `Damaged stock ${dmgNum} successfully written off.` };
     });
   });
 
@@ -376,9 +377,10 @@ export function registerDamagedStock(r: Router): void {
 
     const linesByReturn = new Map<string, any[]>();
     for (const line of allLines) {
-      const arr = linesByReturn.get(line.return_id) || [];
+      const retId = line.returnId ?? line.return_id;
+      const arr = linesByReturn.get(retId) || [];
       arr.push(line);
-      linesByReturn.set(line.return_id, arr);
+      linesByReturn.set(retId, arr);
     }
 
     const result = returns.map((r: any) => ({
@@ -394,10 +396,10 @@ export function registerDamagedStock(r: Router): void {
     const tenantId = ctx.user!.tenantId;
     const b = ctx.body ?? {};
 
-    const supplierId = V.str(b.supplierId, 'Supplier ID');
-    const purchaseId = V.optStr(b.purchaseId, 'Purchase ID', 64);
-    const returnDate = V.optStr(b.returnDate, 'Return Date', 20) || new Date().toISOString().slice(0, 10);
-    const returnType = ['REPLACEMENT', 'REFUND', 'CREDIT_NOTE', 'SCRAP'].includes(b.returnType) ? b.returnType : 'REPLACEMENT';
+    const supplierId = V.str(b.supplierId || b.supplier_id, 'Supplier ID');
+    const purchaseId = V.optStr(b.purchaseId || b.purchase_id, 'Purchase ID', 64);
+    const returnDate = V.optStr(b.returnDate || b.return_date, 'Return Date', 20) || new Date().toISOString().slice(0, 10);
+    const returnType = ['REPLACEMENT', 'REFUND', 'CREDIT_NOTE', 'SCRAP'].includes(b.returnType || b.return_type) ? (b.returnType || b.return_type) : 'REPLACEMENT';
     const notes = V.optStr(b.notes, 'Notes', 500);
     const lines = Array.isArray(b.lines) ? b.lines : [];
 
@@ -421,13 +423,13 @@ export function registerDamagedStock(r: Router): void {
 
       // 3. Process lines
       for (const l of lines) {
-        const itemId = V.str(l.itemId, 'Item ID in line');
-        const damagedStockId = V.optStr(l.damagedStockId, 'Damaged Stock ID', 64);
-        const returnReason = V.str(l.returnReason || l.damageReason || 'Damaged goods return', 'Return reason', 150);
+        const itemId = V.str(l.itemId || l.item_id, 'Item ID in line');
+        const damagedStockId = V.optStr(l.damagedStockId || l.damaged_stock_id, 'Damaged Stock ID', 64);
+        const returnReason = V.str(l.returnReason || l.return_reason || l.damageReason || l.damage_reason || 'Damaged goods return', 'Return reason', 150);
 
         let qtyMilli: number;
-        if (l.qtyMilli !== undefined) {
-          qtyMilli = V.int(l.qtyMilli, 'Return quantity (milli-units)', { min: 1 });
+        if (l.qtyMilli !== undefined || l.qty_milli !== undefined) {
+          qtyMilli = V.int(l.qtyMilli ?? l.qty_milli, 'Return quantity (milli-units)', { min: 1 });
         } else {
           const units = Number(l.qty ?? 1);
           if (isNaN(units) || units <= 0) throw bad('Line quantity must be positive.');
@@ -681,15 +683,15 @@ export function registerDamagedStock(r: Router): void {
       );
       if (!line) throw notFound('Return line');
 
-      const pendingQtyMilli = Number(line.pending_qty_milli ?? 0);
+      const pendingQtyMilli = Number(line.pendingQtyMilli ?? line.pending_qty_milli ?? 0);
       if (pendingQtyMilli <= 0) {
         throw bad('This return line has already been fully replaced.');
       }
 
       // 2. Validate quantity
       let qtyMilli: number;
-      if (b.qtyMilli !== undefined) {
-        qtyMilli = V.int(b.qtyMilli, 'Received quantity (milli-units)', { min: 1 });
+      if (b.qtyMilli !== undefined || b.qty_milli !== undefined) {
+        qtyMilli = V.int(b.qtyMilli ?? b.qty_milli, 'Received quantity (milli-units)', { min: 1 });
       } else {
         const units = Number(b.qty ?? 1);
         if (isNaN(units) || units <= 0) throw bad('Received quantity must be positive.');
@@ -702,8 +704,10 @@ export function registerDamagedStock(r: Router): void {
         );
       }
 
-      const branchId = line.branch_id || (await resolveBranchScope(ctx)).branchId || 'MAIN';
-      const replacementItemId = b.replacementItemId ? V.str(b.replacementItemId, 'Replacement Item ID') : line.item_id;
+      const branchId = line.branchId || line.branch_id || (await resolveBranchScope(ctx)).branchId || 'MAIN';
+      const replacementItemId = (b.replacementItemId || b.replacement_item_id)
+        ? V.str(b.replacementItemId || b.replacement_item_id, 'Replacement Item ID')
+        : (line.itemId || line.item_id);
 
       // 3. Verify replacement item exists
       const repItem = await q.one<any>(
@@ -716,6 +720,11 @@ export function registerDamagedStock(r: Router): void {
       const replacementNumber = await getNextSeriesNumber(q, tenantId, branchId, 'SRP', 'SRP', 1000);
       const replacementId = newId('srp');
       const now = new Date().toISOString();
+
+      const origItemId = line.itemId || line.item_id;
+      const supplierId = line.supplierId || line.supplier_id;
+      const retNum = line.returnNumber || line.return_number;
+      const damagedStockId = line.damagedStockId || line.damaged_stock_id;
 
       // 5. Insert into supplier_replacements
       await q.exec(
@@ -732,7 +741,7 @@ export function registerDamagedStock(r: Router): void {
         )`,
         [
           replacementId, tenantId, branchId, replacementNumber, returnId, returnLineId,
-          line.supplier_id, challanNo || null, receivedDate, line.item_id, replacementItemId,
+          supplierId, challanNo || null, receivedDate, origItemId, replacementItemId,
           qtyMilli, b.unit || line.unit || repItem.unit || 'pcs', condition, batchNo || null, rollNo || null,
           size || null, colour || null, design || null, fabricType || null,
           notes || null, ctx.user!.id, now,
@@ -741,7 +750,7 @@ export function registerDamagedStock(r: Router): void {
 
       // 6. Update supplier_return_lines replaced and pending quantities
       const newPendingMilli = pendingQtyMilli - qtyMilli;
-      const newReplacedMilli = Number(line.replaced_qty_milli ?? 0) + qtyMilli;
+      const newReplacedMilli = Number(line.replacedQtyMilli ?? line.replaced_qty_milli ?? 0) + qtyMilli;
 
       await q.exec(
         `UPDATE supplier_return_lines 
@@ -766,8 +775,8 @@ export function registerDamagedStock(r: Router): void {
           )`,
           [
             moveId, tenantId, branchId, replacementItemId, qtyMilli,
-            replacementId, Number(line.unit_cost_minor ?? repItem.cost_minor ?? 0),
-            `Replacement ${replacementNumber} for Return ${line.return_number} (Challan: ${challanNo || 'N/A'})`,
+            replacementId, Number(line.unitCostMinor ?? line.unit_cost_minor ?? repItem.costMinor ?? repItem.cost_minor ?? 0),
+            `Replacement ${replacementNumber} for Return ${retNum} (Challan: ${challanNo || 'N/A'})`,
             ctx.user!.id, now,
           ],
         );
@@ -796,9 +805,9 @@ export function registerDamagedStock(r: Router): void {
           [
             secDmgId, tenantId, branchId, secDmgNum, replacementItemId, repItem.name,
             repItem.category || null, repItem.sku || null, repItem.barcode || null, qtyMilli, b.unit || 'pcs', rollNo || null, batchNo || null,
-            size || null, colour || null, design || null, fabricType || null, line.supplier_id,
+            size || null, colour || null, design || null, fabricType || null, supplierId,
             receivedDate, `Condition: ${condition} on replacement arrival`,
-            `Received in Replacement ${replacementNumber} for Return ${line.return_number}. Challan: ${challanNo || 'N/A'}`,
+            `Received in Replacement ${replacementNumber} for Return ${retNum}. Challan: ${challanNo || 'N/A'}`,
             ctx.user!.id, now, now,
           ],
         );
@@ -809,7 +818,7 @@ export function registerDamagedStock(r: Router): void {
         'SELECT pending_qty_milli FROM supplier_return_lines WHERE return_id = ? AND tenant_id = ?',
         [returnId, tenantId],
       );
-      const totalRemainingMilli = remainingLines.reduce((acc, row) => acc + Number(row.pending_qty_milli ?? 0), 0);
+      const totalRemainingMilli = remainingLines.reduce((acc, row) => acc + Number(row.pendingQtyMilli ?? row.pending_qty_milli ?? 0), 0);
 
       const nextReturnStatus = totalRemainingMilli === 0 ? 'FULLY_REPLACED' : 'PARTIALLY_REPLACED';
       await q.exec(
@@ -818,11 +827,11 @@ export function registerDamagedStock(r: Router): void {
       );
 
       // 9. Update original damaged stock status if applicable
-      if (line.damaged_stock_id) {
+      if (damagedStockId) {
         const nextDmgStatus = totalRemainingMilli === 0 ? 'RESOLVED' : 'REPLACEMENT_PENDING';
         await q.exec(
           `UPDATE damaged_stock SET status = ?, updated_at = now() WHERE id = ? AND tenant_id = ?`,
-          [nextDmgStatus, line.damaged_stock_id, tenantId],
+          [nextDmgStatus, damagedStockId, tenantId],
         );
       }
 

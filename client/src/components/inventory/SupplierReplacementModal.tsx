@@ -33,7 +33,7 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
   const [submitting, setSubmitting] = useState<boolean>(false);
 
   const selectedLine = lines.find((l) => l.id === selectedLineId) || lines[0];
-  const pendingUnits = selectedLine ? selectedLine.pending_qty_milli / 1000 : 0;
+  const pendingUnits = selectedLine ? (selectedLine.pendingQtyMilli ?? selectedLine.pending_qty_milli ?? 0) / 1000 : 0;
   const [qty, setQty] = useState<string>(pendingUnits > 0 ? String(pendingUnits) : '1');
 
   if (!isOpen) return null;
@@ -42,8 +42,8 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
     setSelectedLineId(lineId);
     const line = lines.find((l) => l.id === lineId);
     if (line) {
-      setReplacementItemId(line.item_id);
-      setQty(String(line.pending_qty_milli / 1000));
+      setReplacementItemId(line.itemId || line.item_id || '');
+      setQty(String(((line.pendingQtyMilli ?? line.pending_qty_milli ?? 0) / 1000)));
     }
   };
 
@@ -65,12 +65,18 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
       return;
     }
 
+    const repItemId = replacementItemId || selectedLine.itemId || selectedLine.item_id;
+    if (!repItemId) {
+      showToast('Please select or specify a replacement item.');
+      return;
+    }
+
     try {
       setSubmitting(true);
       await createSupplierReplacement({
         returnId: supplierReturn.id,
         returnLineId: selectedLine.id,
-        replacementItemId: replacementItemId || selectedLine.item_id,
+        replacementItemId: repItemId,
         qty: receivedQtyUnits,
         unit: selectedLine.unit || 'pcs',
         condition,
@@ -219,11 +225,11 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
             >
               <div>
                 <span style={{ color: '#64748b', display: 'block' }}>Original Product</span>
-                <strong style={{ color: '#0f172a' }}>{selectedLine.item_name}</strong>
+                <strong style={{ color: '#0f172a' }}>{selectedLine.itemName || selectedLine.item_name}</strong>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block' }}>Returned Quantity</span>
-                <strong style={{ color: '#0f172a' }}>{(selectedLine.qty_milli / 1000).toFixed(1)} {selectedLine.unit}</strong>
+                <strong style={{ color: '#0f172a' }}>{(((selectedLine.qtyMilli ?? selectedLine.qty_milli ?? 0) / 1000)).toFixed(1)} {selectedLine.unit}</strong>
               </div>
               <div>
                 <span style={{ color: '#64748b', display: 'block' }}>Pending Replacement</span>
