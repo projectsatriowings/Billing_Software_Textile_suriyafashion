@@ -248,6 +248,9 @@ export function registerInvoices(r: Router) {
         totalMinor: Number(l.totalMinor),
         unit: l.unit,
         hsn: l.hsn,
+        variantId: l.variantId ?? l.variant_id ?? null,
+        lineType: l.lineType ?? l.line_type ?? 'item',
+        decimalQty: l.decimalQty != null || l.decimal_qty != null ? Number(l.decimalQty ?? l.decimal_qty) : null,
       })),
       payments: payments.map((p: any) => ({
         id: p.id,
@@ -402,18 +405,38 @@ export function registerInvoices(r: Router) {
     const isIntra = b.intra !== undefined
       ? Boolean(b.intra)
       : (customerStateCode ? customerStateCode === shopState : true);
+    const isGstEnabled = Boolean(shop.gst_enabled ?? shop.gstEnabled ?? false);
 
     const formattedLines = linesInput.map((l: any, i: number) => {
       const name = V.str(l.name, `Item ${i + 1} name`, { required: true, max: 120 });
       const qtyMilli = V.int(l.qtyMilli, `Item ${i + 1} quantity`, { min: 1, required: true });
       const priceMinor = V.int(l.priceMinor, `Item ${i + 1} price`, { min: 0, required: true });
       const discountMinor = V.int(l.discountMinor ?? 0, `Item ${i + 1} discount`, { min: 0 });
-      const taxRateBp = V.int(l.taxRateBp ?? 0, `Item ${i + 1} tax rate`, { min: 0, max: 10000 });
+      const lineType = V.optStr(l.lineType ?? l.line_type, 'Line type', 30) || 'item';
+      const variantId = V.optStr(l.variantId ?? l.variant_id, 'Variant ID', 60);
+      const decimalQty = l.decimalQty != null ? Number(l.decimalQty) : (qtyMilli / 1000);
+
+      let taxRateBp = 0;
+      let hsn = V.optStr(l.hsn, 'HSN', 20);
+
+      if (!isGstEnabled) {
+        taxRateBp = 0;
+      } else if (l.taxRateBpOverride != null || l.overrideTaxRateBp != null) {
+        taxRateBp = V.int(l.taxRateBpOverride ?? l.overrideTaxRateBp, `Item ${i + 1} tax rate`, { min: 0, max: 10000 });
+      } else if (lineType === 'cutting_charge' || lineType === 'tailoring') {
+        taxRateBp = 500; // 5% SAC 9988
+        if (!hsn) hsn = '9988';
+      } else {
+        // Slab-based GST: 5% up to Rs. 2,500/piece, 18% above, resolved on the billed price after discount
+        const effectiveBilledPricePerPiece = (qtyMilli > 0) ? Math.round(((priceMinor * qtyMilli / 1000) - discountMinor) / (qtyMilli / 1000)) : priceMinor;
+        taxRateBp = effectiveBilledPricePerPiece <= 250000 ? 500 : 1800;
+        if (!hsn) hsn = '6204';
+      }
+
       const inclusive = false;
       const itemId = V.optStr(l.itemId, 'Item ID', 50);
       const unit = V.optStr(l.unit, 'Unit', 20);
-      const hsn = V.optStr(l.hsn, 'HSN', 20);
-      return { name, qtyMilli, priceMinor, discountMinor, taxRateBp, inclusive, itemId, unit, hsn };
+      return { name, qtyMilli, priceMinor, discountMinor, taxRateBp, inclusive, itemId, unit, hsn, variantId, lineType, decimalQty };
     });
 
     const calculated = calcBill(
@@ -819,8 +842,9 @@ export function registerInvoices(r: Router) {
           `INSERT INTO invoice_lines (
             id, tenant_id, branch_id, invoice_id, pos, item_id, name, hsn, unit,
             qty_milli, price_minor, discount_minor, tax_rate_bp, inclusive,
-            taxable_minor, cgst_minor, sgst_minor, igst_minor, total_minor
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            taxable_minor, cgst_minor, sgst_minor, igst_minor, total_minor,
+            variant_id, line_type, decimal_qty
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             lineId,
             tenantId,
@@ -841,8 +865,19 @@ export function registerInvoices(r: Router) {
             calcL.sgstMinor,
             calcL.igstMinor,
             calcL.totalMinor,
+            item.variantId || null,
+            item.lineType || 'item',
+            item.decimalQty != null ? item.decimalQty : (item.qtyMilli / 1000),
           ],
         );
+
+        // Deduct variant stock if variantId is set
+        if (item.variantId) {
+          await q.exec(
+            `UPDATE variants SET stock_milli = stock_milli - ?, updated_at = now() WHERE id = ? AND tenant_id = ?`,
+            [item.qtyMilli, item.variantId, tenantId],
+          );
+        }
 
         // Deduct inventory at the sale's branch location (verifying item exists to prevent foreign key errors)
         if (item.itemId) {
