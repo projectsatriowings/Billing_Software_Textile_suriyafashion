@@ -873,7 +873,7 @@ export const TodayDashboardView: React.FC<TodayDashboardViewProps> = ({
 
   if (!data) return null;
 
-  const { cards, hourly, payments, topSellers, stockAttention, shiftDrawer, countersToday, nowKolkata, wholesale: rawWholesale } = data;
+  const { cards, hourly, payments, topSellers, stockAttention, shiftDrawer, countersToday, nowKolkata, wholesale: rawWholesale, temporarySalesPending = [] } = data;
   const wholesale = rawWholesale || {
     totalSalesMinor: 0,
     grossSalesMinor: 0,
@@ -1595,155 +1595,117 @@ export const TodayDashboardView: React.FC<TodayDashboardViewProps> = ({
 
       {/* 4. BOTTOM SECTION (Top Sellers, Stock Alerts, Cash Drawer) */}
       <section className={`today-bottom-grid ${isSuperAdmin ? 'has-single-card' : ''}`}>
-        {/* CARDS 1 & 2: TOP SELLERS & STOCK ATTENTION (Hidden for Super Admin, Visible for Store Manager & other roles) */}
+        {/* CARD: PRODUCTS SOLD WITHOUT INVENTORY IMPORT (Replaces Stock Needing Attention, Top Sellers removed per user request) */}
         {!isSuperAdmin && (
-          <>
-            {/* CARD 1: TOP SELLERS TODAY */}
-            <div className="today-section-card bento-card-3d bento-card-top-sellers">
-              <div className="section-card-header">
-                <div className="section-title-group">
-                  <div className="section-title-icon-box sellers-icon-box">
-                    <SparklesIcon size={16} />
-                  </div>
-                  <div>
-                    <h3 className="section-title">Top Sellers Today</h3>
-                    <span className="section-subtitle">Ranked by revenue & volume</span>
-                  </div>
+          <div className="today-section-card bento-card-3d bento-card-temporary-sales">
+            <div className="section-card-header">
+              <div className="section-title-group">
+                <div className="section-title-icon-box" style={{ background: '#fef3c7', color: '#d97706' }}>
+                  <PackageIcon size={16} />
                 </div>
-                <button
-                  type="button"
-                  className="section-link-pill-btn"
-                  onClick={onNavigateToSalesAnalysis}
-                >
-                  <span>Sales Analysis</span>
-                  <span className="pill-arrow">→</span>
-                </button>
+                <div>
+                  <h3 className="section-title">Products Sold Without Inventory Import</h3>
+                  <span className="section-subtitle">Temporary POS sales awaiting supplier invoice reconciliation</span>
+                </div>
               </div>
+              <button
+                type="button"
+                className="section-link-pill-btn"
+                onClick={onNavigateToInventory}
+              >
+                <span>Inventory Hub</span>
+                <span className="pill-arrow">→</span>
+              </button>
+            </div>
 
-              <div className="sellers-list" key={`sellers-${chartAnimKey}`}>
-                {topSellers.length > 0 ? (
-                  topSellers.map((item, idx) => (
-                    <div key={item.itemId} className="seller-row bento-item-tile">
-                      <div className={`seller-rank-badge rank-${idx + 1}`}>
-                        #{idx + 1}
-                      </div>
-                      <div className="seller-info">
-                        <div className="seller-name-row">
-                          <span className="seller-name" title={item.name}>{item.name}</span>
-                          <span className="seller-qty-chip">
-                            {item.quantity} {item.unit}
+            <div className="temporary-sales-list" key={`temp-sales-${chartAnimKey}`}>
+              {temporarySalesPending.length > 0 ? (
+                temporarySalesPending.map((item, idx) => {
+                  const isPartial = item.reconciliationStatus === 'partially_reconciled';
+                  const statusLabel = isPartial ? 'Partially Reconciled' : 'Pending Import';
+                  const badgeColor = isPartial ? '#0284c7' : '#d97706';
+                  const badgeBg = isPartial ? '#e0f2fe' : '#fef3c7';
+                  const badgeBorder = isPartial ? '#bae6fd' : '#fde68a';
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="bento-item-tile temp-sale-row"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.75rem 0.9rem',
+                        marginBottom: '0.5rem',
+                        borderRadius: '12px',
+                        background: '#ffffff',
+                        border: '1px solid rgba(226, 232, 240, 0.85)',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                        gap: '10px',
+                        animationDelay: `${idx * 0.05}s`,
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {item.productName}
+                          </span>
+                          <span
+                            style={{
+                              background: '#f1f5f9',
+                              color: '#334155',
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              fontSize: '0.72rem',
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                            }}
+                            title="Supplier Invoice Number"
+                          >
+                            Inv: {item.supplierInvoiceNumber}
                           </span>
                         </div>
-                        <div className="seller-bar-track">
-                          <div
-                            className="seller-bar-fill animated-modern-bar"
-                            style={{
-                              width: `${item.barPct}%`,
-                              animationDelay: `${idx * 0.08}s`,
-                            }}
-                          >
-                            <span className="bar-shimmer-highlight"></span>
-                          </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#64748b' }}>
+                          <span>Bill: {item.invoiceNumber || 'POS'}</span>
+                          {item.saleDate && <span>· {item.saleDate}</span>}
+                          {isPartial && (
+                            <span style={{ color: '#0284c7' }}>
+                              · {item.reconciledQuantity} of {item.soldQuantity} reconciled
+                            </span>
+                          )}
                         </div>
                       </div>
 
-                      <div className="seller-amount-col mono">
-                        <span className="seller-amount-val">{formatRupees(item.salesMinor)}</span>
-                        <span className="seller-share-label">{item.barPct}%</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
+                        <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a' }}>
+                          {item.soldQuantity} {item.soldQuantity === 1 ? 'pc' : 'pcs'} sold
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            color: badgeColor,
+                            background: badgeBg,
+                            border: `1px solid ${badgeBorder}`,
+                            padding: '2px 7px',
+                            borderRadius: '20px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {statusLabel}
+                        </span>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="empty-sub-card">
-                    <ShoppingCartIcon size={20} className="empty-sub-icon" />
-                    <span>No product sales yet today</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* CARD 2: STOCK NEEDING ATTENTION */}
-            <div className="today-section-card bento-card-3d bento-card-stock-attention">
-              <div className="section-card-header">
-                <div className="section-title-group">
-                  <div className="section-title-icon-box stock-icon-box">
-                    <AlertTriangleIcon size={16} />
-                  </div>
-                  <div>
-                    <h3 className="section-title">Stock Needing Attention</h3>
-                    <span className="section-subtitle">Fast sellers running low today</span>
-                  </div>
+                  );
+                })
+              ) : (
+                <div className="empty-sub-card">
+                  <CheckCircleIcon size={20} style={{ color: '#10b981', marginRight: '8px' }} />
+                  <span>No products pending supplier invoice import.</span>
                 </div>
-                <button
-                  type="button"
-                  className="section-link-pill-btn"
-                  onClick={onNavigateToInventory}
-                >
-                  <span>Inventory Hub</span>
-                  <span className="pill-arrow">→</span>
-                </button>
-              </div>
-
-              <div className="stock-alerts-list" key={`stock-${chartAnimKey}`}>
-                {stockAttention.length > 0 ? (
-                  stockAttention.map((item, idx) => {
-                    const stockQty = typeof item.stockQty === 'number' && !isNaN(item.stockQty) ? item.stockQty : 0;
-                    const badgeText =
-                      item.badgeText && !item.badgeText.includes('NaN')
-                        ? item.badgeText
-                        : stockQty <= 0
-                          ? 'Out of stock'
-                          : item.reorderLevel && !isNaN(item.reorderLevel) && item.reorderLevel > 0
-                            ? `Below reorder (${item.reorderLevel})`
-                            : 'Reorder level not configured';
-
-                    const badgeType =
-                      item.badgeType ||
-                      (stockQty <= 0
-                        ? 'danger'
-                        : item.reorderLevel && !isNaN(item.reorderLevel) && item.reorderLevel > 0
-                          ? 'warning'
-                          : 'neutral');
-
-                    const initials = (item.name || 'P').slice(0, 2).toUpperCase();
-
-                    return (
-                      <div
-                        key={item.itemId}
-                        className={`stock-alert-row bento-item-tile stock-status-${badgeType}`}
-                        style={{ animationDelay: `${idx * 0.07}s` }}
-                      >
-                        <div className="stock-item-avatar">
-                          {initials}
-                        </div>
-
-                        <div className="stock-info">
-                          <span className="stock-name" title={item.name}>{item.name}</span>
-                          <span className="stock-left-qty">
-                            <span className={`status-beacon-dot beacon-${badgeType}`}></span>
-                            {stockQty <= 0 ? '0' : stockQty} {item.unit || 'pcs'} left
-                            {item.soldTodayQty > 0 && ` · ${item.soldTodayQty} sold today`}
-                          </span>
-                        </div>
-
-                        <div className="stock-badge-col">
-                          <span className={`stock-badge modern-pill-badge ${badgeType}`}>
-                            <span className="badge-pulse-indicator"></span>
-                            {badgeText}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="empty-sub-card">
-                    <CheckCircleIcon size={20} style={{ color: "#10b981", marginRight: "8px" }} />
-                    <span>All active inventory levels are healthy</span>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-          </>
+          </div>
         )}
 
         {/* CARD 3: COUNTERS TODAY */}
