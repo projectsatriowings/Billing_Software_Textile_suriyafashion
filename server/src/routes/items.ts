@@ -1408,25 +1408,28 @@ export function registerItems(r: Router) {
       } else {
         // Manually activating the product -> ensure product has available stock if stock tracking is enabled
         if (trackStock) {
+          const branchFilterSql = branchId
+            ? `AND (
+                 sm.branch_id = ?
+                 OR (sm.branch_id IS NULL AND (
+                   UPPER(sm.location) = UPPER(?)
+                   OR UPPER(sm.location) = UPPER(?)
+                 ))
+               )`
+            : '';
+          const branchFilterParams: unknown[] = branchId
+            ? [branchId, branchId, targetBranch?.code || branchId]
+            : [];
           const itemStockRow = await ctx.db.one<{ stock_milli: string | number }>(
             `SELECT COALESCE((
                SELECT SUM(sm.qty_milli)
                FROM stock_moves sm
                WHERE sm.item_id = ?
                  AND sm.tenant_id = ?
-                 AND (
-                   (? IS NOT NULL AND (
-                     sm.branch_id = ?
-                     OR (sm.branch_id IS NULL AND (
-                       UPPER(sm.location) = UPPER(?)
-                       OR UPPER(sm.location) = UPPER(?)
-                     ))
-                   ))
-                   OR (? IS NULL)
-                 )
+                 ${branchFilterSql}
                  AND (sm.location IS NULL OR UPPER(sm.location) NOT IN ('DAMAGED', 'DEFECTIVE'))
              ), 0)::bigint AS stock_milli`,
-            [item.id, tenantId, branchId, branchId, branchId, targetBranch?.code || branchId, branchId],
+            [item.id, tenantId, ...branchFilterParams],
           );
           const stockMilli = Number(itemStockRow?.stock_milli || 0);
           if (stockMilli <= 0) {
