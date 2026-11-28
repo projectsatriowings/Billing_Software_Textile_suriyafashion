@@ -915,7 +915,30 @@ export async function generateRetailInvoicePdf(bill: PrintableBill): Promise<Buf
   const gtStr = `Rs. ${money(t.totalMinor)}`;
   const gtW = fontBold.widthOfTextAtSize(gtStr, 11);
   page.drawText(gtStr, { x: rx + receiptW - gtW - 10, y: ry, size: 11, font: fontBold, color: BLACK });
-  ry -= 18;
+  ry -= 15;
+
+  // Payments / Tender breakdown
+  if (bill.payments && bill.payments.length > 0) {
+    const payStr = bill.payments.map((p) => `${cleanAscii(p.method).toUpperCase()}: Rs. ${money(p.amountMinor)}`).join(' | ');
+    const payW = fontRegular.widthOfTextAtSize(payStr, 7.5);
+    page.drawText(fitText(payStr, fontRegular, 7.5, receiptW - 20), { x: rx + 10, y: ry, size: 7.5, font: fontRegular, color: DARK_GRAY });
+    ry -= 11;
+  }
+
+  if (bill.tender && bill.tender.changeReturnedMinor > 0) {
+    const chgStr = `Change Returned: Rs. ${money(bill.tender.changeReturnedMinor)}`;
+    page.drawText(chgStr, { x: rx + 10, y: ry, size: 7.5, font: fontBold, color: BLACK });
+    ry -= 11;
+  }
+
+  if (t.balanceMinor > 0) {
+    const balStr = `Balance Due: Rs. ${money(t.balanceMinor)}`;
+    page.drawText(balStr, { x: rx + 10, y: ry, size: 8, font: fontBold, color: BLACK });
+    ry -= 13;
+  } else {
+    page.drawText('Status: PAID', { x: rx + 10, y: ry, size: 8, font: fontBold, color: BLACK });
+    ry -= 13;
+  }
 
   // Footer Thanks
   const thanksStr = 'Thank you for shopping with us!';

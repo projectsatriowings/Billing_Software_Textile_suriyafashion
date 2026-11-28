@@ -2,19 +2,26 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   api,
   setToken,
-  extractSupplierInvoice,
   reparseSupplierInvoice,
   fetchSupplierInvoiceMappings,
   saveSupplierInvoiceMapping,
-  deleteSupplierInvoiceMapping,
   exportSupplierInvoiceExcel,
+  getInvoiceCapabilities,
+  uploadInvoiceDocument,
+  extractInvoiceJob,
+  importInvoiceJobToInventory,
   type ExtractedSupplierInvoiceItem,
   type SupplierInvoiceMetadata,
   type SupplierInvoiceMapping,
+  type IntelligentInvoiceItem,
+  type IntelligentInvoiceSummary,
+  type IntelligentReconciliationReport,
+  type InvoiceProcessingCapabilities,
   type Party,
   type Item,
 } from '../../api';
 import { parseImportNumeric } from '../../../../shared/bulkImport.ts';
+import { InvoicePreviewPane } from './InvoicePreviewPane';
 
 interface Props {
   suppliers?: Party[];
@@ -48,7 +55,17 @@ export function SupplierInvoiceConverterModal({
     totalAmount: null,
     rawText: '',
   });
-  const [products, setProducts] = useState<ExtractedSupplierInvoiceItem[]>([]);
+  const [products, setProducts] = useState<IntelligentInvoiceItem[]>([]);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [capabilities, setCapabilities] = useState<InvoiceProcessingCapabilities | null>(null);
+  const [reconciliation, setReconciliation] = useState<IntelligentReconciliationReport | null>(null);
+  const [analysisSummary, setAnalysisSummary] = useState<IntelligentInvoiceSummary | null>(null);
+  const [selectedRowIdx, setSelectedRowIdx] = useState<number | null>(null);
+  const [showPreviewPane, setShowPreviewPane] = useState<boolean>(true);
+  const [pricingMode, setPricingMode] = useState<'markup' | 'margin'>('markup');
+  const [pricingPct, setPricingPct] = useState<string>('25');
+  const [isImportingDirect, setIsImportingDirect] = useState(false);
+  const [directImportSuccess, setDirectImportSuccess] = useState<string | null>(null);
   const [detectedColumns, setDetectedColumns] = useState<string[]>([]);
   const [columnMap, setColumnMap] = useState<Record<string, string | undefined>>({});
   const [dataLinesPreview, setDataLinesPreview] = useState<string[]>([]);
@@ -72,13 +89,18 @@ export function SupplierInvoiceConverterModal({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load existing supplier mappings
+  // Load existing supplier mappings & processing capabilities
   useEffect(() => {
     fetchSupplierInvoiceMappings()
       .then((res) => {
         if (res.ok && Array.isArray(res.mappings)) {
           setSavedMappings(res.mappings);
         }
+      })
+      .catch(() => { });
+    getInvoiceCapabilities()
+      .then((res) => {
+        if (res.ok) setCapabilities(res.capabilities);
       })
       .catch(() => { });
   }, []);
@@ -113,7 +135,7 @@ export function SupplierInvoiceConverterModal({
 
     setFile(selectedFile);
 
-    if (selectedFile.type.startsWith('image/')) {
+    if (selectedFile.type.startsWith('image/') || selectedFile.type.includes('pdf') || ext.endsWith('.pdf')) {
       const url = URL.createObjectURL(selectedFile);
       setFilePreviewUrl(url);
     } else {
@@ -129,7 +151,7 @@ export function SupplierInvoiceConverterModal({
     }
   };
 
-  // Convert file to base64 and start extraction
+  // Convert file to base64 and start intelligent extraction pipeline
   const handleStartExtraction = async () => {
     if (!file) {
       setErrorMsg('Please select an invoice file to upload');
@@ -137,19 +159,9 @@ export function SupplierInvoiceConverterModal({
     }
 
     setErrorMsg('');
+    setDirectImportSuccess(null);
     setStep('extracting');
-
-    const progressMessages = [
-      'Uploading and processing invoice image...',
-      'Extracting product details and descriptions...',
-      'Reading quantities, prices and tax information...',
-      'Converting extracted data into Excel format...',
-    ];
-    let msgIdx = 0;
-    const interval = setInterval(() => {
-      msgIdx = (msgIdx + 1) % progressMessages.length;
-      setExtractingProgress(progressMessages[msgIdx]);
-    }, 1800);
+    setExtractingProgress('Uploading document and validating format...');
 
     try {
       const reader = new FileReader();
@@ -160,36 +172,63 @@ export function SupplierInvoiceConverterModal({
       });
 
       const fileData = await base64Promise;
+      const mimeType = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
-      const res = await extractSupplierInvoice({
+      const uploadRes = await uploadInvoiceDocument({
         fileName: file.name,
         fileData,
-        mimeType: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+        mimeType,
         supplierId: selectedSupplierId || undefined,
       });
 
-      clearInterval(interval);
+      setJobId(uploadRes.jobId);
+      setCapabilities(uploadRes.capabilities);
+      setExtractingProgress(
+        uploadRes.capabilities.aiConfigured
+          ? 'Preprocessing image, running OCR & Gemini Vision understanding...'
+          : 'Preprocessing image, running local OCR & table extraction...'
+      );
+
+      const res = await extractInvoiceJob(uploadRes.jobId, {
+        supplierId: selectedSupplierId || undefined,
+        fileData,
+        fileName: file.name,
+        mimeType,
+      });
 
       if (!res.ok) {
         throw new Error('Invoice extraction failed');
       }
 
-      setMetadata(res.metadata);
-      setProducts(res.products);
-      setDetectedColumns(res.detectedColumns || []);
+      setCapabilities(res.capabilities);
+      setReconciliation(res.reconciliation);
+      setAnalysisSummary(res.summary);
+      setMetadata({
+        supplierName: res.header.supplierName || '',
+        supplierGstin: res.header.supplierGstin || '',
+        invoiceNumber: res.header.invoiceNumber || '',
+        invoiceDate: res.header.invoiceDate || '',
+        totalAmount: res.header.finalInvoiceAmount,
+        subtotalAmount: res.header.subtotal,
+        cgstAmount: res.header.cgst,
+        sgstAmount: res.header.sgst,
+        igstAmount: res.header.igst,
+        buyerAddress: res.header.billingAddress || undefined,
+        rawText: '',
+        discrepancyWarning: res.reconciliation.discrepancyMessages.join(' ') || undefined,
+      });
+      setProducts(res.items);
+      setDetectedColumns(res.headers || []);
       setColumnMap(res.columnMap || {});
-      setDataLinesPreview(res.dataLinesPreview || []);
-      setIsOcr(res.isOcr);
-      setPageCount(res.pageCount || 1);
+      setIsOcr(res.ocrProvider !== 'pdf-parse');
+      setPageCount(res.summary.totalPagesProcessed || 1);
 
-      // Default filename for generated Excel
-      const cleanInv = (res.metadata.invoiceNumber || 'INVOICE').replace(/[^\w-]/g, '_');
+      const cleanInv = (res.header.invoiceNumber || 'INVOICE').replace(/[^\w-]/g, '_');
       const dateStr = new Date().toISOString().slice(0, 10);
       setDownloadFilename(`Supplier_Invoice_${cleanInv}_${dateStr}.xlsx`);
 
       setStep('review');
     } catch (err: any) {
-      clearInterval(interval);
       setErrorMsg(err.message || 'Failed to extract invoice data. Please try another invoice or check the scan clarity.');
       setStep('upload');
     }
@@ -297,6 +336,79 @@ export function SupplierInvoiceConverterModal({
       return acc;
     }, 0);
   }, [products]);
+
+  // Apply Markup % or Margin % selling price rule (explicit user action)
+  const handleApplyPricingRule = (onlyMissing: boolean) => {
+    const pct = parseFloat(pricingPct);
+    if (!Number.isFinite(pct) || pct <= 0) {
+      alert('Enter a valid positive percentage.');
+      return;
+    }
+    if (pricingMode === 'margin' && pct >= 100) {
+      alert('Profit margin percentage must be less than 100%.');
+      return;
+    }
+    setProducts((prev) =>
+      prev.map((p) => {
+        const cp = parseImportNumeric(p.costPrice);
+        if (cp === null || cp <= 0) return p;
+        if (onlyMissing && p.sellingPrice.trim()) return p;
+        const sp = pricingMode === 'markup' ? cp * (1 + pct / 100) : cp / (1 - pct / 100);
+        const flags = (p.flags || []).filter((f) => f !== 'Selling Price required');
+        return {
+          ...p,
+          sellingPrice: sp.toFixed(2),
+          flags,
+          reviewStatus: p.validationErrors?.length ? p.reviewStatus : 'verified',
+          userApproved: true,
+        };
+      })
+    );
+  };
+
+  const handleSelectMatch = (rowIndex: number, selectedItemId: string) => {
+    setProducts((prev) => {
+      const next = [...prev];
+      const row = { ...next[rowIndex] };
+      if (!selectedItemId) {
+        row.matchType = 'new_product';
+        row.matchedItemId = null;
+        row.matchedItemName = null;
+      } else {
+        const cand = row.matchCandidates?.find((c) => c.itemId === selectedItemId);
+        row.matchType = 'exact_match';
+        row.matchedItemId = selectedItemId;
+        row.matchedItemName = cand?.name || null;
+        if (!row.sellingPrice && cand && cand.sellingPriceMinor > 0) {
+          row.sellingPrice = (cand.sellingPriceMinor / 100).toFixed(2);
+        }
+      }
+      row.userApproved = true;
+      next[rowIndex] = row;
+      return next;
+    });
+  };
+
+  const handleDirectImport = async () => {
+    if (!jobId) {
+      alert('No active extraction job.');
+      return;
+    }
+    setIsImportingDirect(true);
+    setDirectImportSuccess(null);
+    setErrorMsg('');
+    try {
+      const res = await importInvoiceJobToInventory(jobId, {
+        items: products,
+        supplierId: selectedSupplierId || null,
+      });
+      setDirectImportSuccess(`Imported ${res.created} new product(s) and restocked ${res.restocked} existing product(s) into inventory.`);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Direct inventory import failed.');
+    } finally {
+      setIsImportingDirect(false);
+    }
+  };
 
   // Verified items count
   const verifiedCount = useMemo(() => {
@@ -414,7 +526,7 @@ export function SupplierInvoiceConverterModal({
         <div
           style={{
             padding: '1.15rem 1.75rem',
-            background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+            background: 'linear-gradient(135deg, var(--text-main) 0%, var(--deep-purple) 100%)',
             color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
@@ -429,11 +541,12 @@ export function SupplierInvoiceConverterModal({
                 width: '44px',
                 height: '44px',
                 borderRadius: '12px',
-                background: 'rgba(255, 255, 255, 0.12)',
+                background: 'rgba(255, 255, 255, 0.16)',
+                border: '1px solid rgba(255, 255, 255, 0.22)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#818cf8',
+                color: '#ffffff',
               }}
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -449,11 +562,11 @@ export function SupplierInvoiceConverterModal({
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#ffffff', letterSpacing: '-0.01em' }}>
                   Convert Supplier Invoice to Excel
                 </h2>
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, background: '#4338ca', color: '#c7d2fe', padding: '0.15rem 0.5rem', borderRadius: '6px', textTransform: 'uppercase' }}>
-                  Local Engine
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, background: 'rgba(255, 255, 255, 0.16)', border: '1px solid rgba(255, 255, 255, 0.25)', color: '#ffffff', padding: '0.15rem 0.5rem', borderRadius: '6px', textTransform: 'uppercase' }}>
+                  {capabilities?.aiConfigured ? 'Hybrid AI + OCR' : 'Local OCR + Parser'}
                 </span>
               </div>
-              <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: '#cbd5e1' }}>
+              <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: 'rgba(255, 255, 255, 0.85)' }}>
                 Extract product catalog items from PDF, JPG, and PNG supplier invoices into the standard 8-column product template.
               </p>
             </div>
@@ -461,12 +574,12 @@ export function SupplierInvoiceConverterModal({
 
           {/* Stepper Indicator */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(255, 255, 255, 0.08)', padding: '0.35rem 0.75rem', borderRadius: '10px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: step === 'upload' ? 700 : 500, color: step === 'upload' ? '#a5b4fc' : '#94a3b8' }}>1. Upload</span>
-              <span style={{ color: '#64748b' }}>→</span>
-              <span style={{ fontSize: '0.78rem', fontWeight: step === 'review' ? 700 : 500, color: step === 'review' ? '#a5b4fc' : '#94a3b8' }}>2. Review & Fix</span>
-              <span style={{ color: '#64748b' }}>→</span>
-              <span style={{ fontSize: '0.78rem', fontWeight: step === 'download' ? 700 : 500, color: step === 'download' ? '#a5b4fc' : '#94a3b8' }}>3. Download</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', background: 'rgba(255, 255, 255, 0.12)', border: '1px solid rgba(255, 255, 255, 0.18)', padding: '0.35rem 0.85rem', borderRadius: '10px' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: step === 'upload' ? 700 : 500, color: step === 'upload' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)', background: step === 'upload' ? 'rgba(255, 255, 255, 0.18)' : 'transparent', padding: step === 'upload' ? '0.15rem 0.5rem' : '0.15rem 0.2rem', borderRadius: '6px' }}>1. Upload</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>→</span>
+              <span style={{ fontSize: '0.78rem', fontWeight: step === 'review' ? 700 : 500, color: step === 'review' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)', background: step === 'review' ? 'rgba(255, 255, 255, 0.18)' : 'transparent', padding: step === 'review' ? '0.15rem 0.5rem' : '0.15rem 0.2rem', borderRadius: '6px' }}>2. Review & Fix</span>
+              <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>→</span>
+              <span style={{ fontSize: '0.78rem', fontWeight: step === 'download' ? 700 : 500, color: step === 'download' ? '#ffffff' : 'rgba(255, 255, 255, 0.78)', background: step === 'download' ? 'rgba(255, 255, 255, 0.18)' : 'transparent', padding: step === 'download' ? '0.15rem 0.5rem' : '0.15rem 0.2rem', borderRadius: '6px' }}>3. Download</span>
             </div>
 
             <button
@@ -492,7 +605,7 @@ export function SupplierInvoiceConverterModal({
         </div>
 
         {/* MODAL BODY */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', background: 'var(--bg-main)' }}>
           {errorMsg && (
             <div style={{ padding: '0.75rem 1.5rem', background: '#fef2f2', borderBottom: '1px solid #fee2e2', color: '#b91c1c', fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
@@ -513,8 +626,8 @@ export function SupplierInvoiceConverterModal({
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
                   style={{
-                    border: `2px dashed ${isDragging ? '#6366f1' : file ? '#10b981' : '#cbd5e1'}`,
-                    background: isDragging ? '#eef2ff' : file ? '#f0fdf4' : '#ffffff',
+                    border: `2px dashed ${isDragging ? 'var(--primary)' : file ? '#10b981' : 'var(--border)'}`,
+                    background: isDragging ? 'var(--primary-light)' : file ? '#f0fdf4' : 'var(--bg-card)',
                     borderRadius: '16px',
                     padding: '2.5rem 1.5rem',
                     textAlign: 'center',
@@ -540,8 +653,8 @@ export function SupplierInvoiceConverterModal({
                       width: '64px',
                       height: '64px',
                       borderRadius: '16px',
-                      background: file ? '#dcfce7' : '#eef2ff',
-                      color: file ? '#16a34a' : '#4f46e5',
+                      background: file ? '#dcfce7' : 'var(--primary-light)',
+                      color: file ? '#16a34a' : 'var(--primary)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -573,7 +686,7 @@ export function SupplierInvoiceConverterModal({
                       : 'Drag and drop your scanned invoice or digital PDF file, or browse from computer'}
                   </p>
 
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: '#4f46e5', color: '#ffffff', padding: '0.6rem 1.25rem', borderRadius: '10px', fontWeight: 600, fontSize: '0.88rem' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'var(--primary)', color: '#ffffff', padding: '0.6rem 1.25rem', borderRadius: '10px', fontWeight: 600, fontSize: '0.88rem' }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                     <span>{file ? 'Choose Another File' : 'Browse Files'}</span>
                   </div>
@@ -601,8 +714,8 @@ export function SupplierInvoiceConverterModal({
               {/* Right Column: Supplier Selection & Guidelines */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <div style={{ background: '#ffffff', borderRadius: '16px', padding: '1.25rem', border: '1px solid #e2e8f0' }}>
-                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.85rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.85rem', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                     <span>Supplier Party (Optional)</span>
                   </h4>
                   <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 0.85rem' }}>
@@ -632,8 +745,8 @@ export function SupplierInvoiceConverterModal({
                 </div>
 
                 {/* 8-Column Format Guarantee Card */}
-                <div style={{ background: '#f8fafc', borderRadius: '16px', padding: '1.25rem', border: '1px solid #e2e8f0' }}>
-                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.65rem', color: '#1e293b' }}>
+                <div style={{ background: 'var(--bg-main)', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border-light)' }}>
+                  <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 0.65rem', color: 'var(--text-main)' }}>
                     Exact 8-Column Product Template
                   </h4>
                   <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 0.85rem' }}>
@@ -660,7 +773,7 @@ export function SupplierInvoiceConverterModal({
                   onClick={handleStartExtraction}
                   style={{
                     padding: '0.9rem 1.5rem',
-                    background: file ? 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)' : '#cbd5e1',
+                    background: file ? 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)' : '#cbd5e1',
                     color: '#ffffff',
                     border: 'none',
                     borderRadius: '12px',
@@ -671,7 +784,7 @@ export function SupplierInvoiceConverterModal({
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    boxShadow: file ? '0 4px 12px rgba(99, 102, 241, 0.35)' : 'none',
+                    boxShadow: file ? '0 4px 12px var(--primary-glow)' : 'none',
                     transition: 'all 0.2s ease',
                   }}
                 >
@@ -692,21 +805,21 @@ export function SupplierInvoiceConverterModal({
                   width: '80px',
                   height: '80px',
                   borderRadius: '24px',
-                  background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+                  background: 'linear-gradient(135deg, var(--primary-light) 0%, var(--accent-purple-light) 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginBottom: '1.5rem',
                 }}
               >
-                <div style={{ width: '40px', height: '40px', border: '4px solid #4f46e5', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                <div style={{ width: '40px', height: '40px', border: '4px solid var(--primary)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
               </div>
               <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
 
-              <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 0.5rem', color: '#1e1b4b' }}>
+              <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 0.5rem', color: 'var(--text-main)' }}>
                 Analyzing Supplier Invoice
               </h3>
-              <p style={{ fontSize: '0.92rem', color: '#6366f1', fontWeight: 600, margin: '0 0 1rem' }}>
+              <p style={{ fontSize: '0.92rem', color: 'var(--primary)', fontWeight: 600, margin: '0 0 1rem' }}>
                 {extractingProgress}
               </p>
               <p style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '460px', textAlign: 'center', margin: 0 }}>
@@ -757,7 +870,7 @@ export function SupplierInvoiceConverterModal({
                     <span style={{ color: '#cbd5e1' }}>|</span>
                     <div>
                       <span style={{ fontSize: '0.7rem', color: '#64748b', display: 'block' }}>Items Total</span>
-                      <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#4f46e5' }}>
+                      <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--primary)' }}>
                         ₹{totalExtractedCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -774,7 +887,27 @@ export function SupplierInvoiceConverterModal({
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowPreviewPane((v) => !v)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.45rem 0.75rem',
+                      borderRadius: '8px',
+                      background: showPreviewPane ? 'var(--primary-light)' : '#f1f5f9',
+                      border: showPreviewPane ? '1px solid var(--border-light)' : '1px solid #cbd5e1',
+                      color: showPreviewPane ? 'var(--primary)' : '#334155',
+                      fontWeight: 600,
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span>{showPreviewPane ? 'Hide Preview' : 'Show Invoice'}</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setShowMappingDrawer(!showMappingDrawer)}
@@ -784,9 +917,9 @@ export function SupplierInvoiceConverterModal({
                       gap: '0.45rem',
                       padding: '0.45rem 0.85rem',
                       borderRadius: '8px',
-                      background: showMappingDrawer ? '#e0e7ff' : '#f1f5f9',
-                      border: '1px solid #cbd5e1',
-                      color: showMappingDrawer ? '#4338ca' : '#334155',
+                      background: showMappingDrawer ? 'var(--primary-light)' : '#f1f5f9',
+                      border: showMappingDrawer ? '1px solid var(--border-light)' : '1px solid #cbd5e1',
+                      color: showMappingDrawer ? 'var(--primary)' : '#334155',
                       fontWeight: 600,
                       fontSize: '0.82rem',
                       cursor: 'pointer',
@@ -815,6 +948,28 @@ export function SupplierInvoiceConverterModal({
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     <span>Add Row</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDirectImport}
+                    disabled={isImportingDirect || products.length === 0 || !jobId}
+                    title="Directly import verified & approved rows into inventory"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      padding: '0.45rem 0.95rem',
+                      borderRadius: '8px',
+                      background: products.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
+                      color: '#ffffff',
+                      border: 'none',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      cursor: isImportingDirect || products.length === 0 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <span>{isImportingDirect ? 'Importing...' : 'Direct Import'}</span>
                   </button>
 
                   <button
@@ -931,7 +1086,7 @@ export function SupplierInvoiceConverterModal({
                       <button
                         type="button"
                         onClick={handleSaveMapping}
-                        style={{ padding: '0.35rem 0.75rem', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
+                        style={{ padding: '0.35rem 0.75rem', background: 'var(--primary)', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
                       >
                         {mappingSaveSuccess ? '✓ Saved for Supplier!' : 'Save Mapping for Supplier'}
                       </button>
@@ -978,26 +1133,72 @@ export function SupplierInvoiceConverterModal({
                 </div>
               )}
 
-              {/* Informational Sub-header */}
-              <div style={{ padding: '0.5rem 1.5rem', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: '#475569' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <span><strong>{products.length}</strong> items extracted</span>
+              {directImportSuccess && (
+                <div style={{ padding: '0.65rem 1.5rem', background: '#ecfdf5', borderBottom: '1px solid #a7f3d0', color: '#047857', fontSize: '0.84rem', fontWeight: 600 }}>
+                  ✓ {directImportSuccess}
+                </div>
+              )}
+
+              {/* Invoice Analysis Dashboard & Selling Price Intelligence */}
+              <div style={{ padding: '0.55rem 1.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.78rem', color: '#475569' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+                  <span>Pages: <strong>{pageCount}</strong></span>
+                  <span>·</span>
+                  <span>Rows: <strong>{products.length}</strong></span>
                   <span>·</span>
                   <span style={{ color: '#16a34a', fontWeight: 600 }}>{verifiedCount} verified</span>
-                  {products.length - verifiedCount > 0 && (
+                  <span>·</span>
+                  <span style={{ color: '#ea580c', fontWeight: 600 }}>{products.length - verifiedCount} need review</span>
+                  {analysisSummary && (
                     <>
                       <span>·</span>
-                      <span style={{ color: '#ea580c', fontWeight: 600 }}>{products.length - verifiedCount} missing selling price (new catalog items)</span>
+                      <span>Completeness: <strong>{analysisSummary.extractionCompletenessPct}%</strong></span>
                     </>
                   )}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                  Click any cell to edit. Amber fields require manual price review.
+
+                {/* Selling Price Intelligence Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>SP Rule:</span>
+                  <select
+                    value={pricingMode}
+                    onChange={(e) => setPricingMode(e.target.value as 'markup' | 'margin')}
+                    style={{ padding: '0.25rem 0.45rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.76rem' }}
+                  >
+                    <option value="markup">Markup %</option>
+                    <option value="margin">Margin %</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    max="999"
+                    value={pricingPct}
+                    onChange={(e) => setPricingPct(e.target.value)}
+                    style={{ width: '58px', padding: '0.25rem 0.4rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.76rem', textAlign: 'right' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPricingRule(true)}
+                    style={{ padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-light)', background: 'var(--primary-light)', color: 'var(--primary)', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}
+                  >
+                    Apply to Missing SP
+                  </button>
                 </div>
               </div>
 
-              {/* Editable Product Table (Exact 8-Column Template) */}
-              <div style={{ flex: 1, overflow: 'auto', background: '#ffffff' }}>
+              {/* Split Pane: Original Invoice Preview + Editable Product Table */}
+              <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: showPreviewPane ? '360px minmax(0, 1fr)' : 'minmax(0, 1fr)' }}>
+                {showPreviewPane && (
+                  <InvoicePreviewPane
+                    file={file}
+                    previewUrl={filePreviewUrl}
+                    pageCount={pageCount}
+                    highlightedBbox={selectedRowIdx !== null ? products[selectedRowIdx]?.sourceBbox : null}
+                    highlightedRowOrder={selectedRowIdx !== null ? selectedRowIdx + 1 : null}
+                  />
+                )}
+
+                <div style={{ flex: 1, overflow: 'auto', background: '#ffffff' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', textAlign: 'left', position: 'sticky', top: 0, zIndex: 10 }}>
@@ -1010,13 +1211,14 @@ export function SupplierInvoiceConverterModal({
                       <th style={{ padding: '0.65rem 0.75rem', width: '95px' }}>GST Rate</th>
                       <th style={{ padding: '0.65rem 0.75rem', width: '115px' }}>Incl. GST</th>
                       <th style={{ padding: '0.65rem 0.75rem', width: '100px' }}>Opening Stock</th>
+                      <th style={{ padding: '0.65rem 0.75rem', minWidth: '150px' }}>Status & Match</th>
                       <th style={{ padding: '0.65rem 0.75rem', width: '45px', textAlign: 'center' }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {products.length === 0 ? (
                       <tr>
-                        <td colSpan={10} style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
+                        <td colSpan={11} style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '52px', height: '52px', borderRadius: '50%', background: '#fef2f2', color: '#ef4444', marginBottom: '0.85rem' }}>
                             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                           </div>
@@ -1035,13 +1237,13 @@ export function SupplierInvoiceConverterModal({
                               gap: '0.45rem',
                               padding: '0.55rem 1.15rem',
                               borderRadius: '8px',
-                              background: '#4f46e5',
+                              background: 'var(--primary)',
                               color: '#ffffff',
                               border: 'none',
                               fontWeight: 600,
                               fontSize: '0.85rem',
                               cursor: 'pointer',
-                              boxShadow: '0 2px 4px rgba(79, 70, 229, 0.2)',
+                              boxShadow: '0 2px 4px var(--primary-glow)',
                             }}
                           >
                             + Add Product Row Manually
@@ -1054,7 +1256,14 @@ export function SupplierInvoiceConverterModal({
                         const isCpMissing = !p.costPrice || !p.costPrice.trim();
 
                         return (
-                          <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                          <tr
+                            key={p.id}
+                            onClick={() => setSelectedRowIdx(idx)}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              background: selectedRowIdx === idx ? 'var(--primary-light)' : idx % 2 === 0 ? '#ffffff' : '#fafafa',
+                            }}
+                          >
                             <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.78rem' }}>
                               {idx + 1}
                             </td>
@@ -1211,6 +1420,50 @@ export function SupplierInvoiceConverterModal({
                               />
                             </td>
 
+                            {/* Status & Catalog Match */}
+                            <td style={{ padding: '0.4rem 0.5rem', fontSize: '0.74rem' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    padding: '0.15rem 0.45rem',
+                                    borderRadius: '4px',
+                                    fontWeight: 700,
+                                    fontSize: '0.7rem',
+                                    width: 'fit-content',
+                                    background:
+                                      p.reviewStatus === 'verified'
+                                        ? '#dcfce7'
+                                        : p.reviewStatus === 'calculation_mismatch' || p.reviewStatus === 'missing_information'
+                                        ? '#fee2e2'
+                                        : '#fef3c7',
+                                    color:
+                                      p.reviewStatus === 'verified'
+                                        ? '#15803d'
+                                        : p.reviewStatus === 'calculation_mismatch' || p.reviewStatus === 'missing_information'
+                                        ? '#b91c1c'
+                                        : '#b45309',
+                                  }}
+                                >
+                                  {(p.reviewStatus || 'needs_review').replace(/_/g, ' ')}
+                                </span>
+                                {p.matchCandidates && p.matchCandidates.length > 0 && (
+                                  <select
+                                    value={p.matchedItemId || ''}
+                                    onChange={(e) => handleSelectMatch(idx, e.target.value)}
+                                    style={{ fontSize: '0.72rem', padding: '0.2rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                                  >
+                                    <option value="">+ New Catalog Item</option>
+                                    {p.matchCandidates.map((c) => (
+                                      <option key={c.itemId} value={c.itemId}>
+                                        {c.name} ({Math.round(c.similarityScore * 100)}%)
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            </td>
+
                             {/* Actions: Delete */}
                             <td style={{ padding: '0.4rem 0.5rem', textAlign: 'center' }}>
                               <button
@@ -1235,6 +1488,7 @@ export function SupplierInvoiceConverterModal({
                     )}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           )}
@@ -1243,7 +1497,7 @@ export function SupplierInvoiceConverterModal({
               STAGE 4: DOWNLOAD & INTEGRATION
              ════════════════════════════════════════════════════════════════════ */}
           {step === 'download' && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 1.5rem', background: '#f8fafc' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 1.5rem', background: 'var(--bg-main)' }}>
               <div
                 style={{
                   width: '76px',
@@ -1260,7 +1514,7 @@ export function SupplierInvoiceConverterModal({
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
               </div>
 
-              <h3 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 0.5rem', color: '#1e1b4b' }}>
+              <h3 style={{ fontSize: '1.45rem', fontWeight: 800, margin: '0 0 0.5rem', color: 'var(--text-main)' }}>
                 Excel File Ready!
               </h3>
               <p style={{ fontSize: '0.9rem', color: '#475569', margin: '0 0 1.5rem', textAlign: 'center', maxWidth: '480px' }}>
@@ -1324,7 +1578,7 @@ export function SupplierInvoiceConverterModal({
                     }}
                     style={{
                       padding: '0.75rem 1.6rem',
-                      background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                      background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
                       border: 'none',
                       borderRadius: '10px',
                       fontWeight: 700,
@@ -1334,7 +1588,7 @@ export function SupplierInvoiceConverterModal({
                       alignItems: 'center',
                       gap: '0.5rem',
                       cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                      boxShadow: '0 4px 14px var(--primary-glow)',
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -1391,7 +1645,7 @@ export function SupplierInvoiceConverterModal({
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#1e1b4b' }}>
+              <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)' }}>
                 Sign In to Continue
               </h4>
               <button
@@ -1453,7 +1707,7 @@ export function SupplierInvoiceConverterModal({
                 <button
                   type="submit"
                   disabled={inlineLoginLoading}
-                  style={{ padding: '0.5rem 1.25rem', background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)', border: 'none', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', cursor: inlineLoginLoading ? 'wait' : 'pointer' }}
+                  style={{ padding: '0.5rem 1.25rem', background: 'linear-gradient(135deg, var(--primary) 0%, var(--deep-purple) 100%)', border: 'none', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', cursor: inlineLoginLoading ? 'wait' : 'pointer' }}
                 >
                   {inlineLoginLoading ? 'Signing In...' : 'Sign In & Download'}
                 </button>

@@ -14,9 +14,52 @@ export function registerCreditNotes(r: Router) {
   r.get('/api/invoices/search-for-return', requireUser, async (ctx) => {
     const tenantId = ctx.user!.tenantId;
     const qStr = String(ctx.query.q || '').trim();
+    const mode = String(ctx.query.mode || '').trim().toLowerCase();
     if (!qStr) return { invoices: [] };
 
-    const searchPattern = `%${qStr.toLowerCase()}%`;
+    let whereClause = '';
+    const params: unknown[] = [tenantId];
+
+    if (mode === 'invoice') {
+      // Search STRICTLY by invoice/bill number. Do NOT match customer name/phone when cashier requested bill number.
+      const rawDigits = qStr.replace(/\D/g, '');
+      whereClause = `
+        AND (
+          lower(i.number) = lower(?)
+          OR lower(i.number) LIKE lower(?)
+          ${rawDigits.length >= 2 ? "OR i.number LIKE ?" : ''}
+        )
+      `;
+      params.push(qStr, `%${qStr}%`);
+      if (rawDigits.length >= 2) {
+        params.push(`%-${rawDigits}`);
+      }
+    } else if (mode === 'phone') {
+      // Search STRICTLY by customer phone
+      const rawDigits = qStr.replace(/\D/g, '');
+      const cleanPhone = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+      whereClause = `
+        AND (
+          i.customer_phone LIKE ?
+          OR i.customer_phone LIKE ?
+        )
+      `;
+      params.push(`%${cleanPhone}%`, `%${qStr}%`);
+    } else {
+      // Barcode / general search: exact number, share_token, customer phone, or name
+      const searchPattern = `%${qStr.toLowerCase()}%`;
+      whereClause = `
+        AND (
+          lower(i.number) = lower(?)
+          OR lower(i.number) LIKE ?
+          OR i.share_token = ?
+          OR i.customer_phone LIKE ?
+          OR lower(COALESCE(i.customer_name, '')) LIKE ?
+        )
+      `;
+      params.push(qStr, searchPattern, qStr, `%${qStr}%`, searchPattern);
+    }
+
     const invoices = await ctx.db.query(
       `SELECT i.id, i.number, i.bdate, i.total_minor, i.paid_minor, i.balance_minor,
               i.customer_name, i.customer_phone, i.status, i.kind, i.created_at,
@@ -28,14 +71,10 @@ export function registerCreditNotes(r: Router) {
        WHERE i.tenant_id = ?
          AND i.kind = 'sale'
          AND i.status = 'posted'
-         AND (
-           lower(i.number) LIKE ?
-           OR i.customer_phone LIKE ?
-           OR lower(COALESCE(i.customer_name, '')) LIKE ?
-         )
+         ${whereClause}
        ORDER BY i.created_at DESC
        LIMIT 15`,
-      [tenantId, searchPattern, `%${qStr}%`, searchPattern],
+      params,
     );
 
     return { invoices };
@@ -394,9 +433,10 @@ export function registerCreditNotes(r: Router) {
           }
 
           // Condition & Restock handling
-          const rawCondition = String(item.condition || (item.restock === false ? 'damaged' : 'resellable')).toLowerCase().trim();
+          const isReasonDamaged = finalReason.toLowerCase().includes('damaged') || finalReason.toLowerCase().includes('defect');
+          const rawCondition = String(item.condition || (item.restock === false || isReasonDamaged ? 'damaged' : 'resellable')).toLowerCase().trim();
           const condition: 'resellable' | 'damaged' | 'defective' =
-            rawCondition === 'defective' ? 'defective' : rawCondition === 'damaged' ? 'damaged' : 'resellable';
+            rawCondition === 'defective' ? 'defective' : (rawCondition === 'damaged' || isReasonDamaged || item.restock === false) ? 'damaged' : 'resellable';
           const restock = condition === 'resellable';
           const remarks = V.optStr(item.remarks || item.customReason, 'Remarks', 250);
 
@@ -638,29 +678,91 @@ export function registerCreditNotes(r: Router) {
           ],
         );
 
-        // Stock moves:
-        // - Resellable: Added to available inventory ('MAIN' / branch)
-        // - Damaged: Placed into 'DAMAGED' inventory
-        // - Defective: Placed into 'DEFECTIVE' inventory
-        // Available stock query filters out DAMAGED and DEFECTIVE so non-resellable is never counted as available
+        // Stock moves & Damaged Stock handling:
+        // - Resellable: Inward to sellable stock (location = 'MAIN')
+        // - Damaged / Defective: Does NOT enter sellable stock; automatically records into damaged_stock table!
         if (cl.itemId) {
-          const moveLocation = cl.condition === 'damaged' ? 'DAMAGED' : cl.condition === 'defective' ? 'DEFECTIVE' : (origInv.location || 'MAIN');
-          await q.exec(
-            `INSERT INTO stock_moves (
-              id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, user_id, reason, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'return', 'credit_note', ?, ?, ?, NOW())`,
-            [
-              newId('sm'),
-              tenantId,
-              cnBranchId,
-              cl.itemId,
-              moveLocation,
-              cl.returnQtyMilli,
-              cnId,
-              ctx.user!.id,
-              `${cl.reason}${cl.remarks ? ' - ' + cl.remarks : ''} [${cl.condition || 'resellable'}]`,
-            ],
-          );
+          const isDamagedOrDefective = cl.condition === 'damaged' || cl.condition === 'defective' || !cl.restock;
+
+          if (!isDamagedOrDefective) {
+            // Resellable: Inward to sellable stock
+            const moveLocation = origInv.location || 'MAIN';
+            await q.exec(
+              `INSERT INTO stock_moves (
+                id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, user_id, reason, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, 'return', 'credit_note', ?, ?, ?, NOW())`,
+              [
+                newId('sm'),
+                tenantId,
+                cnBranchId,
+                cl.itemId,
+                moveLocation,
+                cl.returnQtyMilli,
+                cnId,
+                ctx.user!.id,
+                `${cl.reason}${cl.remarks ? ' - ' + cl.remarks : ''} [resellable]`,
+              ],
+            );
+          } else {
+            // Damaged / Defective customer return:
+            // 1. Generate sequential damage number DMG-XXXX
+            const seriesRow = await q.one<any>(
+              `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
+               VALUES (?, ?, 'DMG', 2)
+               ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
+               RETURNING (next_no - 1) AS assigned_no`,
+              [tenantId, cnBranchId],
+            );
+            const dmgSeqNo = Number(seriesRow?.assignedNo ?? seriesRow?.assigned_no ?? 1);
+            const damageNumber = `DMG-${1000 + dmgSeqNo}`;
+            const damageId = newId('dmg');
+
+            const itemDetails = await q.one<any>(
+              `SELECT id, name, sku, barcode, category, unit, size, material, preferred_supplier_id 
+               FROM items WHERE id = ? AND tenant_id = ?`,
+              [cl.itemId, tenantId],
+            );
+
+            const classification = cl.condition === 'defective' ? 'DEFECTIVE' : 'DAMAGED';
+
+            await q.exec(
+              `INSERT INTO damaged_stock (
+                id, tenant_id, branch_id, damage_number, item_id, item_name,
+                category, sku, barcode, qty_milli, unit,
+                size, fabric_type, supplier_id,
+                damage_date, damage_reason, custom_reason, notes,
+                status, classification, reported_by, created_at, updated_at
+              ) VALUES (
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?,
+                CURRENT_DATE, ?, ?, ?,
+                ?, ?, ?, now(), now()
+              )`,
+              [
+                damageId,
+                tenantId,
+                cnBranchId,
+                damageNumber,
+                cl.itemId,
+                itemDetails?.name || cl.name || 'Textile Product',
+                itemDetails?.category || null,
+                itemDetails?.sku || null,
+                itemDetails?.barcode || null,
+                cl.returnQtyMilli,
+                itemDetails?.unit || cl.unit || 'pcs',
+                itemDetails?.size || null,
+                itemDetails?.material || null,
+                itemDetails?.preferredSupplierId ?? itemDetails?.preferred_supplier_id ?? null,
+                cl.reason || 'Customer Return (Damaged)',
+                cl.remarks || null,
+                `Customer Return from Credit Note ${assignedNumber} (Orig Invoice: ${origInv.number})`,
+                classification,
+                classification,
+                ctx.user!.id,
+              ],
+            );
+          }
         }
       }
 

@@ -39,12 +39,14 @@ import { registerExchanges } from './routes/exchanges.ts';
 import { registerDayClosing } from './routes/dayClosing.ts';
 import { registerReturnReports } from './routes/returnReports.ts';
 import { registerSupplierInvoices } from './routes/supplierInvoices.ts';
+import { registerInvoiceConverter } from './modules/invoice-converter/invoice.routes.ts';
 import { registerWholesaleCustomers } from './routes/wholesaleCustomers.ts';
 import { registerModuleManagement } from './routes/moduleManagement.ts';
 import { registerDeveloper } from './routes/developer.ts';
 import { registerVariants } from './routes/variants.ts';
 import { registerTailoring } from './routes/tailoring.ts';
 import { registerTextileReports } from './routes/textileReports.ts';
+import { registerDamagedStock } from './routes/damagedStock.ts';
 import { registerTemporarySales } from './routes/temporarySales.ts';
 
 /** Every module adds one `registerXxx(r)` line here. Nothing else in the server needs to change. */
@@ -59,6 +61,7 @@ export function buildRouter(tokens: { secret: string; ttlSeconds: number }): Rou
   registerCategories(r);
   registerParties(r);
   registerCreditNotes(r);
+  registerInvoiceConverter(r);
   registerInvoices(r);
   registerPurchases(r);
   registerReports(r);
@@ -91,6 +94,7 @@ export function buildRouter(tokens: { secret: string; ttlSeconds: number }): Rou
   registerVariants(r);
   registerTailoring(r);
   registerTextileReports(r);
+  registerDamagedStock(r);
   registerTemporarySales(r);
   registerDeveloper(r, tokens);
   registerModuleManagement(r, tokens);

@@ -653,7 +653,7 @@ export const buildWhatsAppMessage = (opts: {
   });
 
   if (!opts.includeLink || !url) {
-    msg = msg.replace(/\n(View \/ download|बिल देखें \/ डाउनलोड करें|பில்லைப் பார்க்க \/ பதிவிறக்க):\s*$/m, '').trim();
+    msg = msg.replace(/\n(View \/ download|Download Bill PDF|View \/ download PDF|बिल देखें \/ डाउनलोड करें|பில்லைப் பார்க்க \/ பதிவிறக்க|பில் PDF பதிவிறக்க|बिल PDF डाउनलोड):\s*$/m, '').trim();
   }
   return msg;
 };
@@ -1115,7 +1115,7 @@ export function App() {
   ].includes(activeTab);
 
   const [isInventoryOpen, setIsInventoryOpen] = useState<boolean>(() => isInventoryTabActive);
-  const [inventoryInitialTab, setInventoryInitialTab] = useState<'overview' | 'ledger' | 'counts' | 'replenish' | 'insights'>('overview');
+  const [inventoryInitialTab, setInventoryInitialTab] = useState<'overview' | 'ledger' | 'counts' | 'replenish' | 'insights' | 'damaged' | 'returns' | 'replacements'>('overview');
 
   // Auto-expand Inventory Hub when entering an inventory submodule from outside
   const prevInventoryTabActiveRef = useRef(isInventoryTabActive);
@@ -1503,6 +1503,7 @@ export function App() {
     let isMounted = true;
     const checkTopOverdue = async () => {
       try {
+        if (!getToken() || !user) return;
         const branch = selectedBranchScope || 'MAIN';
         const res = await fetchDayClosingCompliance({ branchId: branch });
         if (isMounted) {
@@ -2193,7 +2194,9 @@ export function App() {
   } | null>(null);
   const [successPhone, setSuccessPhone] = useState('');
   const [successLang, setSuccessLang] = useState<'en' | 'hi' | 'ta'>('en');
-  const [successSendState, setSuccessSendState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [successSendState, setSuccessSendState] = useState<'idle' | 'preparing' | 'ready' | 'opening' | 'awaiting_send' | 'cancelled' | 'failed' | 'sending' | 'sent'>('idle');
+  const [successPdfFilename, setSuccessPdfFilename] = useState('');
+  const [successShareNote, setSuccessShareNote] = useState('');
   const [successPhoneError, setSuccessPhoneError] = useState('');
   const [isSendingWhatsApp, setIsSendingWhatsApp] = useState(false);
   const [showWalkinWhatsapp, setShowWalkinWhatsapp] = useState(false);
@@ -6718,6 +6721,8 @@ export function App() {
         setSuccessPhone(checkoutPhone || '');
         setSuccessLang((shop?.whatsappDefaultLang as any) || 'en');
         setSuccessSendState('idle');
+        setSuccessPdfFilename('');
+        setSuccessShareNote('');
         setSuccessPhoneError('');
         setShowWalkinWhatsapp(false);
       }
@@ -6748,6 +6753,9 @@ export function App() {
   const handleStartNewBill = () => {
     setCheckoutSuccess(null);
     setShowWalkinWhatsapp(false);
+    setSuccessSendState('idle');
+    setSuccessPdfFilename('');
+    setSuccessShareNote('');
     setCart([]);
     setSelectedPartyId('');
     setCustomerSearch('');
@@ -7178,9 +7186,29 @@ export function App() {
       setSuccessPhoneError('Enter a valid 10-digit mobile number');
       return;
     }
+    setSuccessPhoneError('');
 
     setIsSendingWhatsApp(true);
+    setSuccessSendState('preparing');
+    setSuccessShareNote('Preparing Bill PDF...');
+
     try {
+      // 1. Fetch exact saved bill PDF as binary blob
+      const token = getToken();
+      const pdfRes = await fetch(`/api/invoices/${checkoutSuccess.invoiceId}/download-pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!pdfRes.ok) {
+        throw new Error('Failed to generate Bill PDF');
+      }
+      const blob = await pdfRes.blob();
+      const safeNumber = (checkoutSuccess.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `Bill_${safeNumber}.pdf`;
+      setSuccessPdfFilename(filename);
+      setSuccessSendState('ready');
+      setSuccessShareNote(`PDF Ready: ${filename}`);
+
+      // 2. Prepare existing prefilled message (always include bill link so customer gets bill & PDF)
       const msg = buildWhatsAppMessage({
         shopName: shop?.name || 'Store',
         number: checkoutSuccess.number,
@@ -7188,11 +7216,57 @@ export function App() {
         balanceMinor: checkoutSuccess.balanceMinor,
         shareToken: checkoutSuccess.shareToken,
         lang: successLang,
-        includeLink: Boolean(shop?.whatsappIncludeLink),
+        includeLink: true,
       });
 
-      const link = whatsappLink(check.normalized, msg);
-      window.open(link, '_blank', 'noopener,noreferrer');
+      // 3. Share flow: Electron Windows EXE vs Direct Browser WhatsApp
+      const electronApi = (window as any).electronAPI;
+      if (electronApi && typeof electronApi.shareBillWhatsApp === 'function') {
+        setSuccessSendState('opening');
+        setSuccessShareNote('Opening WhatsApp in Windows...');
+
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const res = reader.result as string;
+            const b64 = res.substring(res.indexOf(',') + 1);
+            resolve(b64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+
+        await electronApi.shareBillWhatsApp({
+          base64Data,
+          filename,
+          phone: check.normalized,
+          message: msg,
+        });
+
+        setSuccessSendState('awaiting_send');
+        setSuccessShareNote(`PDF ready in folder. WhatsApp opened for ${check.normalized}.`);
+      } else {
+        // Direct WhatsApp Flow (no Windows dialog) + Auto-download PDF + Prefilled message with Bill PDF Link
+        setSuccessSendState('opening');
+        setSuccessShareNote('Opening WhatsApp...');
+
+        // Automatically download Bill PDF to computer so cashier has the physical file
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
+
+        // Open WhatsApp directly with prefilled message (with clickable bill PDF link)
+        const waUrl = `https://api.whatsapp.com/send?phone=${check.normalized}&text=${encodeURIComponent(msg)}`;
+        window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+        setSuccessSendState('awaiting_send');
+        setSuccessShareNote(`Bill PDF downloaded (${filename}). WhatsApp opened with Bill link. (Drag downloaded file into WhatsApp chat to attach)`);
+      }
 
       // Asynchronously track (WhatsApp failure must never block billing)
       api(`/api/invoices/${checkoutSuccess.invoiceId}/whatsapp-track`, {
@@ -7206,8 +7280,10 @@ export function App() {
       }).catch((err) => {
         console.error('WhatsApp track failed', err);
       });
-
-      setSuccessSendState('sent');
+    } catch (err: any) {
+      console.error('WhatsApp bill share failed', err);
+      setSuccessSendState('failed');
+      setSuccessShareNote(err.message || 'Sharing Failed.');
     } finally {
       setIsSendingWhatsApp(false);
     }
@@ -7239,7 +7315,7 @@ export function App() {
         balanceMinor: resendInvoice.balanceMinor,
         shareToken: resendInvoice.shareToken,
         lang: resendLang,
-        includeLink: Boolean(shop?.whatsappIncludeLink),
+        includeLink: true,
       });
 
       const link = whatsappLink(check.normalized, msg);
@@ -8235,6 +8311,7 @@ export function App() {
       origLineId: string;
       returnQtyMilli: number;
       restock: boolean;
+      condition?: string;
       reason: string;
       customReason?: string;
     }[] = [];
@@ -8257,10 +8334,14 @@ export function App() {
           return;
         }
 
+        const isDamagedReason = inp.reason === 'Damaged' || inp.reason === 'Damaged product' || inp.reason === 'Expired';
+        const isRestock = !isDamagedReason && (inp?.restock ?? true);
+
         linesPayload.push({
           origLineId: l.id,
           returnQtyMilli,
-          restock: inp?.restock ?? true,
+          restock: isRestock,
+          condition: isDamagedReason || !isRestock ? 'damaged' : 'resellable',
           reason: inp.reason,
           customReason: inp.customReason?.trim() || undefined,
         });
@@ -10277,7 +10358,7 @@ export function App() {
                 </button>
               )}
 
-              {(user.role === 'owner' || user.role === 'admin' || String(user.role).toUpperCase() === 'SUPER_ADMIN') && branches.length > 0 && (
+              {(user.role === 'owner' || user.role === 'admin' || String(user.role).toUpperCase() === 'SUPER_ADMIN') && branches.length > 1 && (
                 <BranchSelector
                   branches={branches}
                   selectedBranch={selectedBranchScope}
@@ -24444,7 +24525,7 @@ export function App() {
                       <button
                         type="button"
                         disabled={!validateIndianPhone(successPhone).valid || isSendingWhatsApp}
-                        onClick={handleSendWhatsAppFromSuccessModal}
+                        onClick={() => handleSendWhatsAppFromSuccessModal()}
                         style={{
                           width: '100%',
                           padding: '0.55rem 0.85rem',
@@ -24466,8 +24547,38 @@ export function App() {
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
                         </svg>
-                        <span>{successSendState === 'sent' ? 'Sent — Send Again' : 'Send Bill on WhatsApp'}</span>
+                        <span>
+                          {successSendState === 'preparing' && 'Preparing Bill PDF...'}
+                          {successSendState === 'ready' && 'PDF Ready. Opening...'}
+                          {successSendState === 'opening' && 'Opening WhatsApp...'}
+                          {successSendState === 'awaiting_send' && 'Awaiting WhatsApp Send'}
+                          {successSendState === 'cancelled' && 'Sharing Cancelled (Try Again)'}
+                          {successSendState === 'failed' && 'Sharing Failed (Try Again)'}
+                          {(successSendState === 'idle' || successSendState === 'sent') && 'Send Bill on WhatsApp'}
+                        </span>
                       </button>
+
+                      {/* Internal Sharing Feedback */}
+                      {successShareNote && (
+                        <div
+                          style={{
+                            fontSize: '0.78rem',
+                            marginTop: '6px',
+                            padding: '0.45rem 0.65rem',
+                            borderRadius: '6px',
+                            background: successSendState === 'failed' ? '#fef2f2' : (successSendState === 'cancelled' ? '#fffbeb' : '#f0fdf4'),
+                            color: successSendState === 'failed' ? '#b91c1c' : (successSendState === 'cancelled' ? '#92400e' : '#15803d'),
+                            border: `1px solid ${successSendState === 'failed' ? '#fecaca' : (successSendState === 'cancelled' ? '#fde68a' : '#bbf7d0')}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            fontWeight: 500,
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          <span>{successShareNote}</span>
+                        </div>
+                      )}
                     </div>
                   )}
 

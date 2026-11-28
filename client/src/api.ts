@@ -2785,8 +2785,8 @@ export const retrySms = (id: string) =>
 // RETURN, EXCHANGE & DAY CLOSING APIS
 // =========================================================================
 
-export const searchInvoicesForReturn = (q: string) =>
-  api<{ invoices: any[] }>(`/api/invoices/search-for-return?q=${encodeURIComponent(q)}`);
+export const searchInvoicesForReturn = (q: string, mode?: string) =>
+  api<{ invoices: any[] }>(`/api/invoices/search-for-return?q=${encodeURIComponent(q)}${mode ? `&mode=${encodeURIComponent(mode)}` : ''}`);
 
 export const fetchInvoiceReturnInfo = (invoiceId: string) =>
   api<ReturnInfo>(`/api/invoices/${encodeURIComponent(invoiceId)}/return-info`);
@@ -3384,6 +3384,194 @@ export const exportSupplierInvoiceExcel = async (payload: {
   return resBlob;
 };
 
+// ── Intelligent Invoice Processing Pipeline API ───────────────────────────────
+export type InvoiceReviewStatus =
+  | 'verified'
+  | 'needs_review'
+  | 'missing_information'
+  | 'calculation_mismatch'
+  | 'duplicate_product'
+  | 'new_catalog_item';
+
+export interface InvoiceBoundingBox {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  unit: 'normalized' | 'px';
+}
+
+export interface InvoiceProductMatchCandidate {
+  itemId: string;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  hsn: string | null;
+  unit: string | null;
+  sellingPriceMinor: number;
+  costPriceMinor: number;
+  similarityScore: number;
+  matchReason: string;
+}
+
+export interface IntelligentInvoiceItem extends ExtractedSupplierInvoiceItem {
+  rowOrder?: number;
+  brand?: string | null;
+  description?: string | null;
+  variant?: string | null;
+  sizeWeightVolume?: string | null;
+  quantity?: number | null;
+  boxCartonQty?: number | null;
+  piecesPerBox?: number | null;
+  unitPurchaseRate?: number | null;
+  lineItemAmount?: number | null;
+  discountAmount?: number | null;
+  gstPercentage?: number | null;
+  gstAmount?: number | null;
+  isDittoInherited?: boolean;
+  originalOcrText?: string | null;
+  sourcePage?: number;
+  sourceBbox?: InvoiceBoundingBox | null;
+  fieldConfidence?: Record<string, { score: number | null; status: 'scored' | 'unknown' }>;
+  reviewStatus?: InvoiceReviewStatus;
+  warningMessages?: string[];
+  validationErrors?: string[];
+  matchType?: 'exact_match' | 'potential_match' | 'ambiguous_match' | 'new_product';
+  matchedItemId?: string | null;
+  matchedItemName?: string | null;
+  matchCandidates?: InvoiceProductMatchCandidate[];
+  userApproved?: boolean;
+}
+
+export interface IntelligentInvoiceHeader {
+  supplierName: string | null;
+  supplierGstin: string | null;
+  supplierAddress: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  purchaseOrderNumber: string | null;
+  deliveryOrLrNumber: string | null;
+  billingAddress: string | null;
+  shippingAddress: string | null;
+  subtotal: number | null;
+  discount: number | null;
+  sgst: number | null;
+  cgst: number | null;
+  igst: number | null;
+  otherCharges: number | null;
+  roundOff: number | null;
+  finalInvoiceAmount: number | null;
+}
+
+export interface IntelligentReconciliationReport {
+  invoiceSubtotal: number | null;
+  extractedLineSum: number;
+  subtotalDifference: number | null;
+  invoiceTaxTotal: number | null;
+  extractedTaxSum: number;
+  taxDifference: number | null;
+  invoiceGrandTotal: number | null;
+  computedGrandTotal: number;
+  grandTotalDifference: number | null;
+  isReconciled: boolean;
+  discrepancyMessages: string[];
+}
+
+export interface IntelligentInvoiceSummary {
+  totalPagesProcessed: number;
+  totalProductRows: number;
+  verifiedProducts: number;
+  productsRequiringReview: number;
+  missingMandatoryFields: number;
+  extractionCompletenessPct: number;
+  invoiceTotal: number | null;
+  extractedLineItemTotal: number;
+  reconciliationDifference: number | null;
+}
+
+export interface InvoiceProcessingCapabilities {
+  localPreprocessing: boolean;
+  localOcrEngine: string;
+  cloudOcrProvider: 'google-document-ai' | 'none';
+  cloudOcrConfigured: boolean;
+  aiProvider: 'gemini-vision' | 'none';
+  aiConfigured: boolean;
+}
+
+export const getInvoiceCapabilities = () =>
+  api<{ ok: boolean; capabilities: InvoiceProcessingCapabilities }>('/api/invoices/capabilities');
+
+export const uploadInvoiceDocument = (payload: {
+  fileName: string;
+  fileData: string;
+  mimeType?: string;
+  supplierId?: string;
+}) =>
+  api<{
+    ok: boolean;
+    jobId: string;
+    fileName: string;
+    mimeType: string;
+    fileSizeBytes: number;
+    appliedPreprocessing: string[];
+    capabilities: InvoiceProcessingCapabilities;
+  }>('/api/invoices/upload', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+export const extractInvoiceJob = (
+  jobId: string,
+  payload?: { supplierId?: string; fileData?: string; fileName?: string; mimeType?: string }
+) =>
+  api<{
+    ok: boolean;
+    jobId: string;
+    capabilities: InvoiceProcessingCapabilities;
+    appliedPreprocessing: string[];
+    ocrProvider: string;
+    aiProvider: string;
+    warnings: string[];
+    header: IntelligentInvoiceHeader;
+    items: IntelligentInvoiceItem[];
+    issues: Array<{ code: string; severity: string; rowId?: string; rowOrder?: number; message: string }>;
+    reconciliation: IntelligentReconciliationReport;
+    summary: IntelligentInvoiceSummary;
+    headers: string[];
+    columnMap: Record<string, string | undefined>;
+  }>(`/api/invoices/${encodeURIComponent(jobId)}/extract`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+
+export const updateInvoiceJobItems = (jobId: string, items: IntelligentInvoiceItem[]) =>
+  api<{
+    ok: boolean;
+    items: IntelligentInvoiceItem[];
+    issues: Array<{ code: string; severity: string; rowId?: string; rowOrder?: number; message: string }>;
+    reconciliation: IntelligentReconciliationReport;
+    summary: IntelligentInvoiceSummary;
+  }>(`/api/invoices/${encodeURIComponent(jobId)}/items`, {
+    method: 'PUT',
+    body: JSON.stringify({ items }),
+  });
+
+export const importInvoiceJobToInventory = (
+  jobId: string,
+  payload: { items: IntelligentInvoiceItem[]; supplierId?: string | null }
+) =>
+  api<{ ok: boolean; created: number; restocked: number; importedIds: string[] }>(
+    `/api/invoices/${encodeURIComponent(jobId)}/import`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+
+export const fetchSupplierInvoiceHistory = () =>
+  api<{ ok: boolean; jobs: any[] }>('/api/supplier-invoices/history');
+
 export const fetchWholesaleCustomers = (params?: { search?: string; includeInactive?: boolean }) => {
   const q = new URLSearchParams();
   if (params?.search) q.set('search', params.search);
@@ -3644,6 +3832,407 @@ export const getDeadStockReport = (days = 30) =>
 
 export const getPendingTailoringReport = () =>
   api<{ report: any[] }>(`/api/reports/tailoring/pending`);
+
+// ==========================================
+// DAMAGED & DEFECTIVE STOCK & SUPPLIER RETURNS
+// ==========================================
+
+export interface DamagedStockItem {
+  id: string;
+  tenantId?: string;
+  tenant_id?: string;
+  branchId?: string;
+  branch_id?: string;
+  damageNumber?: string;
+  damage_number?: string;
+  itemId?: string;
+  item_id?: string;
+  itemName?: string;
+  item_name?: string;
+  category?: string;
+  sku?: string;
+  barcode?: string;
+  qtyMilli?: number;
+  qty_milli?: number;
+  unit: string;
+  rollNo?: string;
+  roll_no?: string;
+  batchNo?: string;
+  batch_no?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  fabric_type?: string;
+  purchaseId?: string;
+  purchase_id?: string;
+  supplierId?: string;
+  supplier_id?: string;
+  supplierName?: string;
+  supplier_name?: string;
+  originalPurchaseNumber?: string;
+  original_purchase_number?: string;
+  supplierReturnNumber?: string;
+  supplier_return_number?: string;
+  supplierReturnDate?: string;
+  supplier_return_date?: string;
+  dispatchDate?: string;
+  dispatch_date?: string;
+  dispatchRef?: string;
+  dispatch_ref?: string;
+  replacementReceivedDate?: string;
+  replacement_received_date?: string;
+  replacementNumber?: string;
+  replacement_number?: string;
+  damageDate?: string;
+  damage_date?: string;
+  damageReason?: string;
+  damage_reason?: string;
+  customReason?: string;
+  custom_reason?: string;
+  notes?: string;
+  photoUrl?: string;
+  photo_url?: string;
+  status: 'DAMAGED' | 'DEFECTIVE' | 'RETURN_PENDING' | 'SENT_TO_SUPPLIER' | 'REPLACEMENT_PENDING' | 'SCRAPPED' | 'RESOLVED';
+  classification: 'DAMAGED' | 'DEFECTIVE';
+  reporterName?: string;
+  reporter_name?: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+}
+
+export interface DamagedStockStats {
+  damagedCount?: number;
+  damaged_count?: number;
+  damagedQtyMilli?: number;
+  damaged_qty_milli?: number;
+  defectiveCount?: number;
+  defective_count?: number;
+  defectiveQtyMilli?: number;
+  defective_qty_milli?: number;
+  returnPendingCount?: number;
+  return_pending_count?: number;
+  returnPendingQtyMilli?: number;
+  return_pending_qty_milli?: number;
+  sentToSupplierCount?: number;
+  sent_to_supplier_count?: number;
+  sentToSupplierQtyMilli?: number;
+  sent_to_supplier_qty_milli?: number;
+  replacementPendingCount?: number;
+  replacement_pending_count?: number;
+  replacementPendingQtyMilli?: number;
+  replacement_pending_qty_milli?: number;
+  scrappedCount?: number;
+  scrapped_count?: number;
+  scrappedQtyMilli?: number;
+  scrapped_qty_milli?: number;
+  resolvedCount?: number;
+  resolved_count?: number;
+  resolvedQtyMilli?: number;
+  resolved_qty_milli?: number;
+  totalRecords?: number;
+  total_records?: number;
+}
+
+export interface SupplierReturnLine {
+  id: string;
+  returnId?: string;
+  return_id?: string;
+  damagedStockId?: string;
+  damaged_stock_id?: string;
+  damageNumber?: string;
+  damage_number?: string;
+  customerReturnDate?: string;
+  customer_return_date?: string;
+  itemId?: string;
+  item_id?: string;
+  itemName?: string;
+  item_name?: string;
+  sku?: string;
+  barcode?: string;
+  qtyMilli?: number;
+  qty_milli?: number;
+  unit: string;
+  unitCostMinor?: number;
+  unit_cost_minor?: number;
+  rollNo?: string;
+  roll_no?: string;
+  batchNo?: string;
+  batch_no?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  fabric_type?: string;
+  returnReason?: string;
+  return_reason?: string;
+  replacedQtyMilli?: number;
+  replaced_qty_milli?: number;
+  pendingQtyMilli?: number;
+  pending_qty_milli?: number;
+  notes?: string;
+  createdAt?: string;
+  created_at?: string;
+}
+
+export interface SupplierReturn {
+  id: string;
+  tenantId?: string;
+  tenant_id?: string;
+  branchId?: string;
+  branch_id?: string;
+  returnNumber?: string;
+  return_number?: string;
+  returnDate?: string;
+  return_date?: string;
+  dispatchDate?: string;
+  dispatch_date?: string;
+  dispatchRef?: string;
+  dispatch_ref?: string;
+  customerReturnDate?: string;
+  customer_return_date?: string;
+  damageNumber?: string;
+  damage_number?: string;
+  supplierId?: string;
+  supplier_id?: string;
+  supplierName?: string;
+  supplier_name?: string;
+  supplierGstin?: string;
+  supplier_gstin?: string;
+  supplierPhone?: string;
+  supplier_phone?: string;
+  purchaseId?: string;
+  purchase_id?: string;
+  originalPurchaseNumber?: string;
+  original_purchase_number?: string;
+  replacementReceivedDate?: string;
+  replacement_received_date?: string;
+  replacementNumber?: string;
+  replacement_number?: string;
+  status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'READY_TO_DISPATCH' | 'SENT_TO_SUPPLIER' | 'PARTIALLY_REPLACED' | 'FULLY_REPLACED' | 'REFUND_PENDING' | 'CREDIT_NOTE_RECEIVED' | 'CLOSED' | 'REJECTED';
+  returnType?: 'REPLACEMENT' | 'REFUND' | 'CREDIT_NOTE' | 'SCRAP';
+  return_type?: 'REPLACEMENT' | 'REFUND' | 'CREDIT_NOTE' | 'SCRAP';
+  totalItems?: number;
+  total_items?: number;
+  totalQtyMilli?: number;
+  total_qty_milli?: number;
+  notes?: string;
+  creatorName?: string;
+  creator_name?: string;
+  createdAt?: string;
+  created_at?: string;
+  lines: SupplierReturnLine[];
+}
+
+export interface SupplierReplacement {
+  id: string;
+  tenantId?: string;
+  tenant_id?: string;
+  branchId?: string;
+  branch_id?: string;
+  replacementNumber?: string;
+  replacement_number?: string;
+  returnId?: string;
+  return_id?: string;
+  returnLineId?: string;
+  return_line_id?: string;
+  returnNumber?: string;
+  return_number?: string;
+  returnDate?: string;
+  return_date?: string;
+  dispatchDate?: string;
+  dispatch_date?: string;
+  dispatchRef?: string;
+  dispatch_ref?: string;
+  customerReturnDate?: string;
+  customer_return_date?: string;
+  damageNumber?: string;
+  damage_number?: string;
+  supplierId?: string;
+  supplier_id?: string;
+  supplierName?: string;
+  supplier_name?: string;
+  challanNo?: string;
+  challan_no?: string;
+  receivedDate?: string;
+  received_date?: string;
+  originalItemId?: string;
+  original_item_id?: string;
+  originalItemName?: string;
+  original_item_name?: string;
+  originalSku?: string;
+  original_sku?: string;
+  replacementItemId?: string;
+  replacement_item_id?: string;
+  replacementItemName?: string;
+  replacement_item_name?: string;
+  replacementSku?: string;
+  replacement_sku?: string;
+  qtyMilli?: number;
+  qty_milli?: number;
+  unit: string;
+  condition: 'GOOD' | 'DAMAGED' | 'DEFECTIVE' | 'SHORT_RECEIVED' | 'WRONG_PRODUCT';
+  batchNo?: string;
+  batch_no?: string;
+  rollNo?: string;
+  roll_no?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  fabric_type?: string;
+  notes?: string;
+  receiverName?: string;
+  receiver_name?: string;
+  createdAt?: string;
+  created_at?: string;
+}
+
+export const fetchDamagedStock = (params?: {
+  status?: string;
+  classification?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  supplierId?: string;
+}) => {
+  const q = new URLSearchParams();
+  if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+  if (params?.classification && params.classification !== 'ALL') q.set('classification', params.classification);
+  if (params?.search) q.set('search', params.search);
+  if (params?.from) q.set('from', params.from);
+  if (params?.to) q.set('to', params.to);
+  if (params?.supplierId) q.set('supplierId', params.supplierId);
+  const qs = q.toString();
+  return api<{ damagedStock: DamagedStockItem[] }>(`/api/inventory/damaged-stock${qs ? `?${qs}` : ''}`);
+};
+
+export const fetchDamagedStockStats = () =>
+  api<{ stats: DamagedStockStats }>(`/api/inventory/damaged-stock/stats`);
+
+export const createDamagedStock = (data: {
+  itemId: string;
+  qtyMilli?: number;
+  qty?: number;
+  classification?: 'DAMAGED' | 'DEFECTIVE';
+  damageReason: string;
+  customReason?: string;
+  unit?: string;
+  rollNo?: string;
+  batchNo?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  purchaseId?: string;
+  supplierId?: string;
+  damageDate?: string;
+  notes?: string;
+  photoUrl?: string;
+}) =>
+  api<{ success: boolean; damagedStock: DamagedStockItem }>(`/api/inventory/damaged-stock`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const scrapDamagedStock = (id: string, reason?: string) =>
+  api<{ success: boolean; message: string }>(`/api/inventory/damaged-stock/${id}/scrap`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+
+export const fetchSupplierReturns = (params?: {
+  status?: string;
+  search?: string;
+  supplierId?: string;
+}) => {
+  const q = new URLSearchParams();
+  if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+  if (params?.search) q.set('search', params.search);
+  if (params?.supplierId) q.set('supplierId', params.supplierId);
+  const qs = q.toString();
+  return api<{ supplierReturns: SupplierReturn[] }>(`/api/inventory/supplier-returns${qs ? `?${qs}` : ''}`);
+};
+
+export const createSupplierReturn = (data: {
+  supplierId: string;
+  purchaseId?: string;
+  returnType?: 'REPLACEMENT' | 'REFUND' | 'CREDIT_NOTE' | 'SCRAP';
+  returnDate?: string;
+  notes?: string;
+  lines: Array<{
+    damagedStockId?: string;
+    itemId: string;
+    qtyMilli?: number;
+    qty?: number;
+    unit?: string;
+    rollNo?: string;
+    batchNo?: string;
+    size?: string;
+    colour?: string;
+    design?: string;
+    fabricType?: string;
+    returnReason: string;
+    unitCostMinor?: number;
+    notes?: string;
+  }>;
+}) =>
+  api<{ success: boolean; supplierReturn: SupplierReturn }>(`/api/inventory/supplier-returns`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const dispatchSupplierReturn = (
+  id: string,
+  data: { dispatchDate?: string; dispatchRef: string; notes?: string },
+) =>
+  api<{ success: boolean; message: string }>(`/api/inventory/supplier-returns/${id}/dispatch`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+
+export const rejectSupplierReturn = (id: string, reason?: string) =>
+  api<{ success: boolean; message: string }>(`/api/inventory/supplier-returns/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+
+export const fetchSupplierReplacements = (params?: { returnId?: string; search?: string }) => {
+  const q = new URLSearchParams();
+  if (params?.returnId) q.set('returnId', params.returnId);
+  if (params?.search) q.set('search', params.search);
+  const qs = q.toString();
+  return api<{ supplierReplacements: SupplierReplacement[] }>(`/api/inventory/supplier-replacements${qs ? `?${qs}` : ''}`);
+};
+
+export const createSupplierReplacement = (data: {
+  returnId: string;
+  returnLineId: string;
+  replacementItemId?: string;
+  qtyMilli?: number;
+  qty?: number;
+  unit?: string;
+  condition?: 'GOOD' | 'DAMAGED' | 'DEFECTIVE' | 'SHORT_RECEIVED' | 'WRONG_PRODUCT';
+  challanNo?: string;
+  receivedDate?: string;
+  batchNo?: string;
+  rollNo?: string;
+  size?: string;
+  colour?: string;
+  design?: string;
+  fabricType?: string;
+  notes?: string;
+}) =>
+  api<{ success: boolean; supplierReplacement: SupplierReplacement; nextReturnStatus: string }>(
+    `/api/inventory/supplier-replacements`,
+    {
+      method: 'POST',
+      body: JSON.stringify(data),
+    },
+  );
+
 
 
 
