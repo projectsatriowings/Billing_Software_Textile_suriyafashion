@@ -35,8 +35,9 @@ try {
   req('dns').lookup = fallbackLookup;
 } catch {}
 
-// Load .env (Node 22 built-in) when present; real environment variables win.
-try { process.loadEnvFile('.env'); } catch { /* no .env file: fine */ }
+// Load .env (Node 22 built-in) when present; checks root first, then server/.env fallback
+try { process.loadEnvFile('.env'); } catch { /* no root .env file */ }
+try { process.loadEnvFile('server/.env'); } catch { /* no server/.env file */ }
 
 const production = process.env.NODE_ENV === 'production';
 let jwtSecret = process.env.JWT_SECRET ?? '';

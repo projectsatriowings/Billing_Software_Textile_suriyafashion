@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'billing-textile',
+      name: 'textilebilling',
       script: 'server/src/index.ts',
       interpreter: 'node',
       interpreter_args: '--import tsx',
@@ -11,6 +11,7 @@ module.exports = {
       max_memory_restart: '1G',
       env: {
         NODE_ENV: 'production',
+        PORT: 5023,
       },
     },
   ],

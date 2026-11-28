@@ -3,74 +3,113 @@ import { Capacitor } from '@capacitor/core';
 import { api, setToken, type User, type Shop } from '../api';
 import './auth/modernLogin.css';
 
-// Crisp inline SVG Icons to eliminate all unicode emojis
-const CrownIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z" />
-    <path d="M3 20h18" strokeWidth="2.4" />
-  </svg>
-);
-
-const StoreIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+const StoreLogoIcon: React.FC<{ size?: number }> = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     <polyline points="9 22 9 12 15 12 15 22" />
   </svg>
 );
 
-const CashierIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <rect x="2" y="4" width="20" height="16" rx="3" />
-    <line x1="2" y1="10" x2="22" y2="10" />
-    <line x1="6" y1="15" x2="10" y2="15" />
-    <line x1="14" y1="15" x2="18" y2="15" />
-  </svg>
-);
-
-const LightningBoltIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
-    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-  </svg>
-);
-
-const MailIcon: React.FC<{ size?: number; className?: string }> = ({ size = 18, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+const MailIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
     <polyline points="22,6 12,13 2,6" />
   </svg>
 );
 
-const UserIcon: React.FC<{ size?: number; className?: string }> = ({ size = 18, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+const UserIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
     <circle cx="12" cy="7" r="4" />
   </svg>
 );
 
-const LockIcon: React.FC<{ size?: number; className?: string }> = ({ size = 18, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+const LockIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
   </svg>
 );
 
-const ShieldLockIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-  </svg>
-);
+/** Distinct minimalist line-art illustration for each role */
+const RoleIllustration: React.FC<{ role: 'super_admin' | 'store_manager' | 'cashier' }> = ({ role }) => {
+  if (role === 'cashier') {
+    return (
+      <svg className="rl-illustration-svg" viewBox="0 0 420 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Background POS Terminal & Counter */}
+        <rect x="65" y="128" width="290" height="132" rx="6" fill="#F9DFD1" stroke="#264143" strokeWidth="2.4" />
+        <rect x="85" y="150" width="250" height="110" fill="#FFFFFF" stroke="#264143" strokeWidth="2" />
+        {/* POS Monitor */}
+        <rect x="118" y="48" width="128" height="72" rx="6" fill="#DCEEF2" stroke="#264143" strokeWidth="2.4" />
+        <rect x="130" y="60" width="104" height="44" rx="3" fill="#FFFFFF" stroke="#264143" strokeWidth="1.8" />
+        <line x1="142" y1="74" x2="196" y2="74" stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="142" y1="86" x2="178" y2="86" stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+        <circle cx="216" cy="80" r="9" fill="#D5EBE1" stroke="#264143" strokeWidth="2" />
+        <path d="M172 120v8M192 120v8M158 128h48" stroke="#264143" strokeWidth="2.4" strokeLinecap="round" />
+        {/* Receipt Printer & Paper */}
+        <rect x="272" y="88" width="56" height="40" rx="4" fill="#D5EBE1" stroke="#264143" strokeWidth="2.4" />
+        <path d="M282 88V50l6 4 6-4 6 4 6-4 6 4 6-4v38" fill="#FFFFFF" stroke="#264143" strokeWidth="2" strokeLinejoin="round" />
+        <line x1="288" y1="64" x2="312" y2="64" stroke="#264143" strokeWidth="1.8" strokeLinecap="round" />
+        <line x1="288" y1="73" x2="306" y2="73" stroke="#264143" strokeWidth="1.8" strokeLinecap="round" />
+        {/* Barcode Scanner & Decorative Trees */}
+        <rect x="110" y="176" width="76" height="46" rx="4" fill="#F4E9D2" stroke="#264143" strokeWidth="2" />
+        <line x1="126" y1="188" x2="126" y2="210" stroke="#264143" strokeWidth="2" />
+        <line x1="134" y1="188" x2="134" y2="210" stroke="#264143" strokeWidth="2" />
+        <line x1="144" y1="188" x2="144" y2="210" stroke="#264143" strokeWidth="3" />
+        <line x1="154" y1="188" x2="154" y2="210" stroke="#264143" strokeWidth="2" />
+        <line x1="164" y1="188" x2="164" y2="210" stroke="#264143" strokeWidth="2.5" />
+        <path d="M36 260v-44c-14 0-22-12-22-24 0-12 10-22 22-22 12 0 22 10 22 22 0 12-8 24-22 24z" fill="#D5EBE1" stroke="#264143" strokeWidth="2.2" />
+        <path d="M384 260v-38c-12 0-18-10-18-20 0-10 8-18 18-18 10 0 18 8 18 18 0 10-6 20-18 20z" fill="#D5EBE1" stroke="#264143" strokeWidth="2.2" />
+      </svg>
+    );
+  }
 
-const ArrowRightIcon: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = '' }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <line x1="5" y1="12" x2="19" y2="12" />
-    <polyline points="12 5 19 12 12 19" />
-  </svg>
-);
+  if (role === 'store_manager') {
+    return (
+      <svg className="rl-illustration-svg" viewBox="0 0 420 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+        {/* Storefront & Inventory Warehouse */}
+        <rect x="78" y="84" width="150" height="176" fill="#FFFFFF" stroke="#264143" strokeWidth="2.4" />
+        <polygon points="66,84 240,84 226,52 80,52" fill="#F9DFD1" stroke="#264143" strokeWidth="2.4" strokeLinejoin="round" />
+        <rect x="228" y="112" width="118" height="148" fill="#DCEEF2" stroke="#264143" strokeWidth="2.4" />
+        {/* Shelves / Stock Boxes */}
+        <rect x="100" y="110" width="44" height="36" fill="#F4E9D2" stroke="#264143" strokeWidth="2" />
+        <rect x="160" y="110" width="44" height="36" fill="#D5EBE1" stroke="#264143" strokeWidth="2" />
+        <rect x="100" y="164" width="44" height="36" fill="#DCEEF2" stroke="#264143" strokeWidth="2" />
+        <rect x="160" y="164" width="44" height="36" fill="#F9DFD1" stroke="#264143" strokeWidth="2" />
+        <rect x="252" y="138" width="70" height="52" fill="#FFFFFF" stroke="#264143" strokeWidth="2" />
+        <line x1="264" y1="154" x2="308" y2="154" stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+        <line x1="264" y1="168" x2="296" y2="168" stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+        <rect x="268" y="206" width="38" height="54" fill="#F4E9D2" stroke="#264143" strokeWidth="2" />
+        <path d="M44 260v-48c-15 0-24-13-24-26 0-13 11-24 24-24 13 0 24 11 24 24 0 13-9 26-24 26z" fill="#D5EBE1" stroke="#264143" strokeWidth="2.2" />
+        <path d="M378 260v-42c-13 0-20-11-20-22 0-11 9-20 20-20 11 0 20 9 20 20 0 11-7 22-20 22z" fill="#D5EBE1" stroke="#264143" strokeWidth="2.2" />
+      </svg>
+    );
+  }
 
-const RoleIcon: React.FC<{ role: string; size?: number; className?: string }> = ({ role, size = 16, className = '' }) => {
-  if (role === 'super-admin' || role === 'super_admin') return <CrownIcon size={size} className={className} />;
-  if (role === 'store-manager' || role === 'store_manager') return <StoreIcon size={size} className={className} />;
-  return <CashierIcon size={size} className={className} />;
+  // Admin: Architectural Storefront & Towers (matching reference line-art style)
+  return (
+    <svg className="rl-illustration-svg" viewBox="0 0 420 260" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="32,260 32,126 108,104 108,260" fill="#DCEEF2" stroke="#264143" strokeWidth="2.4" strokeLinejoin="round" />
+      <polygon points="108,260 108,68 186,44 186,260" fill="#FFFFFF" stroke="#264143" strokeWidth="2.4" strokeLinejoin="round" />
+      <polygon points="186,260 186,102 252,126 252,260" fill="#F9DFD1" stroke="#264143" strokeWidth="2.4" strokeLinejoin="round" />
+      <rect x="252" y="34" width="96" height="226" fill="#FFFFFF" stroke="#264143" strokeWidth="2.4" />
+      <polygon points="348,260 348,74 396,96 396,260" fill="#D5EBE1" stroke="#264143" strokeWidth="2.4" strokeLinejoin="round" />
+      {/* Architectural Window Lines */}
+      <line x1="126" y1="86" x2="126" y2="236" stroke="#264143" strokeWidth="2" strokeLinecap="round" />
+      <line x1="146" y1="80" x2="146" y2="236" stroke="#264143" strokeWidth="2" strokeLinecap="round" />
+      <line x1="166" y1="74" x2="166" y2="236" stroke="#264143" strokeWidth="2" strokeLinecap="round" />
+      {[56, 82, 108, 134, 160].map((y) => (
+        <g key={y}>
+          <line x1="274" y1={y} x2="274" y2={y + 12} stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+          <line x1="298" y1={y} x2="298" y2={y + 12} stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+          <line x1="322" y1={y} x2="322" y2={y + 12} stroke="#264143" strokeWidth="2.2" strokeLinecap="round" />
+        </g>
+      ))}
+      <path d="M74 260v-36c-12 0-18-10-18-20 0-10 8-18 18-18 10 0 18 8 18 18 0 10-6 20-18 20z" fill="#D5EBE1" stroke="#264143" strokeWidth="2.2" />
+      <path d="M222 260v-42c-14 0-21-11-21-22 0-11 9-21 21-21 12 0 21 10 21 21 0 11-7 22-21 22z" fill="#F4E9D2" stroke="#264143" strokeWidth="2.2" />
+      <path d="M372 260v-32c-11 0-16-9-16-18 0-9 7-16 16-16 9 0 16 7 16 16 0 9-5 18-16 18z" fill="#F9DFD1" stroke="#264143" strokeWidth="2.2" />
+    </svg>
+  );
 };
 
 interface LoginPageProps {
@@ -88,64 +127,43 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({
   initialRole,
   onSuccess,
-  onNavigateRegister,
   onBackToHome,
   onRequirePasswordChange,
 }) => {
-  const detectInitialRole = (): 'super_admin' | 'store_manager' | 'cashier' | 'cashier2' => {
-    if (initialRole) return initialRole as any;
+  const detectInitialRole = (): 'super_admin' | 'store_manager' | 'cashier' => {
+    if (initialRole) return initialRole;
     try {
       const hash = (typeof window !== 'undefined' ? window.location.hash : '').toLowerCase();
       const search = (typeof window !== 'undefined' ? window.location.search : '').toLowerCase();
-      if (hash.includes('cashier2') || search.includes('cashier2')) return 'cashier2';
       if (hash.includes('cashier') || search.includes('cashier')) return 'cashier';
+      if (hash.includes('manager') || search.includes('manager')) return 'store_manager';
     } catch { }
     return 'super_admin';
   };
 
-  const [selectedRole, setSelectedRole] = useState<'super_admin' | 'store_manager' | 'cashier' | 'cashier2'>(detectInitialRole);
-  const [email, setEmail] = useState(() => {
-    const role = detectInitialRole();
-    if (role === 'cashier') return 'cashier@billing.local';
-    if (role === 'cashier2') return 'lakshmi@billing.local';
-    if (role === 'store_manager') return 'manager@billing.local';
-    return 'demo@billing.local';
-  });
-  const [password, setPassword] = useState('Password123!');
+  const [selectedRole, setSelectedRole] = useState<'super_admin' | 'store_manager' | 'cashier'>(detectInitialRole);
+  // No demo logins prefilled
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleRoleTabChange = (role: 'super_admin' | 'store_manager' | 'cashier' | 'cashier2') => {
+  const handleRoleChange = (role: 'super_admin' | 'store_manager' | 'cashier') => {
     setSelectedRole(role);
     setError('');
-    if (role === 'super_admin') {
-      setEmail('demo@billing.local');
-      setPassword('Password123!');
-    } else if (role === 'store_manager') {
-      setEmail('manager@billing.local');
-      setPassword('Password123!');
-    } else if (role === 'cashier2') {
-      setEmail('lakshmi@billing.local');
-      setPassword('Password123!');
-    } else {
-      setEmail('cashier@billing.local');
-      setPassword('Password123!');
-    }
   };
 
   // Forgot password modal state
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotIdentifier, setForgotIdentifier] = useState('');
-  const [forgotStatus, setForgotStatus] = useState<{ message: string; isError?: boolean } | null>(null);
+  const [forgotStatus, setForgotStatus] = useState<{ message: string; isError: boolean } | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
 
-  // Desktop App Installer & PWA
+  // Desktop Software Download modal state
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [isInstalled, setIsInstalled] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
+  const [isInstalled, setIsInstalled] = useState(() => {
     return (
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as any).standalone === true ||
@@ -154,20 +172,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   });
 
   useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    const installedHandler = () => {
-      setIsInstalled(true);
-      setInstallPrompt(null);
-    };
+    const installedHandler = () => setIsInstalled(true);
     window.addEventListener('appinstalled', installedHandler);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handler);
-      window.removeEventListener('appinstalled', installedHandler);
-    };
+    return () => window.removeEventListener('appinstalled', installedHandler);
   }, []);
 
   const handleDownloadInstaller = () => {
@@ -178,30 +185,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     window.location.href = '/api/download/android';
   };
 
-  const handleInstallApp = async () => {
-    if (installPrompt) {
-      installPrompt.prompt();
-      const choice = await installPrompt.userChoice;
-      if (choice && choice.outcome === 'accepted') {
-        setIsInstalled(true);
-        setInstallPrompt(null);
-      }
-    } else {
-      alert(
-        "To install A2Z as a Desktop App on your PC:\n\n" +
-        "1. In Chrome or Edge, look at the URL address bar at the top.\n" +
-        "2. Click the 'Install App' icon (or click Menu ⋮ → 'Install A2Z Billing').\n" +
-        "3. Click 'Install' — A2Z will be added directly to your Desktop and Start Menu with zero Windows warnings!"
-      );
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (!email.trim() || !password) {
-      setError('Please provide both your email and password.');
+      setError('Please provide both your email/username and password.');
       return;
     }
 
@@ -240,7 +229,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         onSuccess(data as { token: string; user: User; shop: Shop });
       }
     } catch (err: any) {
-      setError(err?.message || 'Invalid email or password. Please verify your credentials.');
+      setError(err?.message || 'Invalid credentials. Please verify your email/username and password.');
     } finally {
       setIsLoading(false);
     }
@@ -261,7 +250,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         body: JSON.stringify({ identifier: forgotIdentifier.trim() }),
       });
       setForgotStatus({
-        message: "If an account with this identifier exists, a password reset link has been dispatched to your email.",
+        message: 'If an account with this identifier exists, a password reset link has been dispatched to your email.',
         isError: false,
       });
     } catch (err: any) {
@@ -274,188 +263,90 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
   };
 
-  const isCashier = selectedRole === 'cashier' || selectedRole === 'cashier2';
-  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
-
-  const roleMeta: Record<string, {
-    key: string;
-    image: string | null;
-    title: string;
-    subtitle: string;
-    heroTitle: string;
-    heroSubtitle: string;
+  const roleConfig: Record<'super_admin' | 'store_manager' | 'cashier', {
+    radioLabel: string;
     inputLabel: string;
     placeholder: string;
     btnText: string;
-    badge: string;
-    securityTag: string;
-    loginQuote: string;
+    quote: string;
+    authorName: string;
+    authorRole: string;
+    avatarChar: string;
   }> = {
     super_admin: {
-      key: 'super-admin',
-      image: '/images/admin.png?v=20261120_v4',
-      title: 'Super Admin Portal',
-      subtitle: 'Enterprise headquarters: consolidated sales, multi-branch network & governance.',
-      heroTitle: 'Consolidated Enterprise Control.',
-      heroSubtitle: 'Manage headquarters sales, branch inventory and company governance all in one real-time workspace.',
-      inputLabel: 'Super Admin Email',
-      placeholder: 'demo@billing.local',
-      btnText: 'Log In as Super Admin',
-      badge: 'HQ Super Admin',
-      securityTag: 'HQ Executive Clearance',
-      loginQuote: 'Track enterprise growth, oversee branches, and analyze performance!',
+      radioLabel: 'As Admin',
+      inputLabel: 'Email *',
+      placeholder: 'Enter admin email',
+      btnText: 'Sign in',
+      quote: 'Complete visibility across your textile store, wholesale tax invoices, live inventory valuation, and daily profits—all in one clean workspace.',
+      authorName: 'Admin Portal',
+      authorRole: 'Store Owner & Governance',
+      avatarChar: 'A',
     },
     store_manager: {
-      key: 'store-manager',
-      image: '/images/manager.png?v=20261120_v4',
-      title: 'Store Manager Portal',
-      subtitle: 'Branch operations: register closing approvals, cash float audits & staff supervision.',
-      heroTitle: 'Keep In Touch With Your Store.',
-      heroSubtitle: 'Monitor live cashier counters, balance register floats, and approve daily shift audits seamlessly.',
-      inputLabel: 'Store Manager Username or Email',
-      placeholder: 'manager@billing.local',
-      btnText: 'Log In as Store Manager',
-      badge: 'Store Manager',
-      securityTag: 'Branch Operations Clearance',
-      loginQuote: 'Manage daily store operations, track sales, and supervise shifts!',
+      radioLabel: 'As Manager',
+      inputLabel: 'Email or Username *',
+      placeholder: 'Enter manager email or username',
+      btnText: 'Sign in',
+      quote: 'Keep daily store operations running smoothly—monitor active billing counters, review stock levels, and reconcile register shifts effortlessly.',
+      authorName: 'Manager Portal',
+      authorRole: 'Store Operations & Shifts',
+      avatarChar: 'M',
     },
     cashier: {
-      key: 'cashier',
-      image: '/images/cashier.png?v=20261120_v4',
-      title: 'Cashier Billing Counter',
-      subtitle: 'High-speed retail checkout, cash drawer shift balancing & rapid barcode billing.',
-      heroTitle: 'High-Speed Cashier POS.',
-      heroSubtitle: 'Instant barcode scanning, customer-facing display sync & offline transaction buffering.',
-      inputLabel: 'Cashier Employee ID or Email',
-      placeholder: 'cashier@billing.local',
-      btnText: selectedRole === 'cashier2' ? 'Log In as Cashier 2 (Lakshmi)' : 'Log In as Cashier',
-      badge: 'Cashier Station',
-      securityTag: 'POS Register Terminal',
-      loginQuote: 'Start your shift and serve customers with fast, seamless billing!',
+      radioLabel: 'As Cashier',
+      inputLabel: 'Username or Email *',
+      placeholder: 'Enter cashier username',
+      btnText: 'Sign in',
+      quote: 'High-speed counter billing with instant barcode scanning, quick discounts, and seamless receipt sharing for every customer.',
+      authorName: 'Cashier Counter',
+      authorRole: 'POS Billing Terminal',
+      avatarChar: 'C',
     },
   };
 
-  const currentMeta = isCashier
-    ? roleMeta.cashier
-    : selectedRole === 'store_manager'
-      ? roleMeta.store_manager
-      : roleMeta.super_admin;
+  const currentRole = roleConfig[selectedRole];
 
   return (
-    <div className="modern-login-page">
-      <div className={`modern-login-card role-${currentMeta.key}`}>
-        {/* ------------------------------------------------------------------
-            LEFT HALF: USER'S GENERATED IMAGE DISPLAY / BRANDING
-            ------------------------------------------------------------------ */}
-        {(() => {
-          const isSuperAdmin = currentMeta.key === 'super-admin';
-          const isCashierRole = currentMeta.key === 'cashier';
-          const isStoreManager = currentMeta.key === 'store-manager';
-          const isHeroLayout = isSuperAdmin || isCashierRole || isStoreManager;
-          const hasImage = Boolean(currentMeta.image && !failedImages[currentMeta.image]);
-
-          if (isHeroLayout) {
-            const roleLayoutClass = isSuperAdmin
-              ? 'super-admin-layout'
-              : isCashierRole
-                ? 'cashier-layout'
-                : 'store-manager-layout';
-
-            return (
-              <div className={`modern-login-left ${roleLayoutClass}`}>
-                <div className="modern-login-top-wordings">
-                  <div className="modern-left-badge">
-                    <RoleIcon role={currentMeta.key} size={15} />
-                    <span>{currentMeta.badge}</span>
-                  </div>
-                  <h1 className="modern-left-heading">{currentMeta.heroTitle}</h1>
-                </div>
-
-                {hasImage && currentMeta.image && (
-                  <div className="modern-admin-illustration-area">
-                    <img
-                      key={currentMeta.image}
-                      src={currentMeta.image}
-                      alt={`${currentMeta.title} Illustration`}
-                      className="modern-admin-hero-img"
-                      onError={() => {
-                        setFailedImages((prev) => ({ ...prev, [currentMeta.image!]: true }));
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          return (
-            <div className={`modern-login-left ${hasImage ? 'has-image' : 'text-only-layout'}`}>
-              {hasImage && currentMeta.image ? (
-                <img
-                  key={currentMeta.image}
-                  src={currentMeta.image}
-                  alt={`${currentMeta.title} Illustration`}
-                  className="user-login-image"
-                  onError={() => {
-                    setFailedImages((prev) => ({ ...prev, [currentMeta.image!]: true }));
-                  }}
-                />
-              ) : (
-                <div className="modern-login-top-wordings">
-                  <div className="modern-left-badge">
-                    <RoleIcon role={currentMeta.key} size={15} />
-                    <span>{currentMeta.badge}</span>
-                  </div>
-                  <h1 className="modern-left-heading">{currentMeta.heroTitle}</h1>
-                  <p className="modern-left-subtitle">{currentMeta.heroSubtitle}</p>
-                </div>
-              )}
+    <div className={`rl-page rl-theme-${selectedRole}`}>
+      <div className="rl-card">
+        {/* LEFT COLUMN: Warm Cream Sign-In Form */}
+        <div className="rl-left">
+          <div className="rl-brand" onClick={onBackToHome} title="Surya Textiles Billing">
+            <div className="rl-brand-icon">
+              <StoreLogoIcon size={17} />
             </div>
-          );
-        })()}
+            <span className="rl-brand-name">A2Z Billing</span>
+          </div>
 
-        {/* ------------------------------------------------------------------
-            RIGHT HALF: CLEAN MINIMALIST LOGIN FORM (Matching Reference Design)
-            ------------------------------------------------------------------ */}
-        <div className="modern-login-right">
-          <div className="felix-login-container">
-            {/* Top Row: Brand Mark & Role Switcher */}
-            <div className="felix-top-nav">
-              <div className="felix-brand-mark" onClick={onBackToHome} title="Adaptive Billing">
-                <LightningBoltIcon size={38} className="felix-bolt-icon" />
-              </div>
+          <div className="rl-form-wrap">
+            <h1 className="rl-heading">Sign In</h1>
+            <p className="rl-subheading">Welcome back! Please enter your details to continue</p>
 
-              {/* Minimal Pill Role Tabs */}
-              <div className="felix-role-tabs-strip">
-                <button
-                  type="button"
-                  className={`felix-role-pill ${selectedRole === 'super_admin' ? 'active' : ''}`}
-                  onClick={() => handleRoleTabChange('super_admin')}
-                >
-                  <CrownIcon size={13} />
-                  <span className="role-pill-full">Super Admin</span>
-                  <span className="role-pill-short">Admin</span>
-                </button>
-                <button
-                  type="button"
-                  className={`felix-role-pill ${isCashier ? 'active' : ''}`}
-                  onClick={() => handleRoleTabChange('cashier')}
-                >
-                  <CashierIcon size={13} />
-                  <span className="role-pill-full">Cashier Counter</span>
-                  <span className="role-pill-short">Cashier</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Title & Subtitle Matching Screenshot */}
-            <div className="felix-heading-block">
-              <h1 className="felix-title">Login</h1>
-              <p className="felix-subtitle">{currentMeta.loginQuote}</p>
+            {/* Role Radio Selector: Admin | Manager | Cashier */}
+            <div className="rl-role-radios" role="radiogroup" aria-label="Select Login Role">
+              {(['super_admin', 'store_manager', 'cashier'] as const).map((r) => {
+                const active = selectedRole === r;
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`rl-radio-opt ${active ? 'active' : ''}`}
+                    onClick={() => handleRoleChange(r)}
+                  >
+                    <span className="rl-radio-dot">
+                      <span className="rl-radio-dot-inner" />
+                    </span>
+                    <span>{roleConfig[r].radioLabel}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {error && (
-              <div className="modern-error-banner" role="alert">
+              <div className="modern-error-banner" role="alert" style={{ marginBottom: '1rem' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="12" y1="8" x2="12" y2="12"></line>
@@ -465,43 +356,63 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             )}
 
-            {/* Main Form Matching Screenshot */}
-            <form onSubmit={handleSubmit} className="felix-auth-form">
-              <div className="felix-input-group">
-                <label className="felix-label" htmlFor="felix-email">
-                  Email*
+            <form onSubmit={handleSubmit} className="rl-form">
+              <div className="rl-field-group">
+                <label className="rl-label" htmlFor="rl-email">
+                  {currentRole.inputLabel}
                 </label>
-                <input
-                  id="felix-email"
-                  type={selectedRole === 'super_admin' ? 'email' : 'text'}
-                  className="felix-input"
-                  required
-                  autoFocus
-                  placeholder="mail@website.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete={isCashier ? 'username' : 'email'}
-                />
+                <div className="rl-input-wrap">
+                  <span className="rl-input-icon">
+                    {selectedRole === 'super_admin' ? <MailIcon size={16} /> : <UserIcon size={16} />}
+                  </span>
+                  <input
+                    id="rl-email"
+                    type={selectedRole === 'super_admin' ? 'email' : 'text'}
+                    className="rl-input"
+                    required
+                    autoFocus
+                    placeholder={currentRole.placeholder}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete={selectedRole === 'cashier' ? 'username' : 'email'}
+                  />
+                </div>
               </div>
 
-              <div className="felix-input-group">
-                <label className="felix-label" htmlFor="felix-password">
-                  Password*
-                </label>
-                <div className="felix-input-relative">
+              <div className="rl-field-group">
+                <div className="rl-label-row">
+                  <label className="rl-label" htmlFor="rl-password">
+                    Password *
+                  </label>
+                  <button
+                    type="button"
+                    className="rl-forgot-btn"
+                    onClick={() => {
+                      setForgotIdentifier(email);
+                      setForgotStatus(null);
+                      setShowForgotModal(true);
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+                <div className="rl-input-wrap">
+                  <span className="rl-input-icon">
+                    <LockIcon size={16} />
+                  </span>
                   <input
-                    id="felix-password"
+                    id="rl-password"
                     type={showPassword ? 'text' : 'password'}
-                    className="felix-input"
+                    className="rl-input"
                     required
-                    placeholder="Min. 8 character"
+                    placeholder="Enter password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     autoComplete="current-password"
                   />
                   <button
                     type="button"
-                    className="felix-pwd-toggle"
+                    className="rl-pwd-toggle"
                     onClick={() => setShowPassword(!showPassword)}
                     title={showPassword ? 'Hide password' : 'Show password'}
                   >
@@ -520,8 +431,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </div>
 
-              <div className="felix-options-row">
-                <label className="felix-checkbox-label">
+              <div className="rl-remember-row">
+                <label className="rl-remember-label">
                   <input
                     type="checkbox"
                     checked={rememberMe}
@@ -529,91 +440,42 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   />
                   <span>Remember me</span>
                 </label>
-
-                <button
-                  type="button"
-                  className="felix-forgot-link"
-                  onClick={() => {
-                    setForgotIdentifier(email);
-                    setForgotStatus(null);
-                    setShowForgotModal(true);
-                  }}
-                >
-                  Forget password?
-                </button>
               </div>
 
-              <button
-                type="submit"
-                className="felix-btn-submit"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <span className="btn-loading-flex">
-                    <svg className="spin-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-                      <path d="M12 2a10 10 0 0 1 10 10" />
-                    </svg>
-                    <span>Logging in...</span>
-                  </span>
-                ) : (
-                  'Login'
-                )}
+              <button type="submit" className="rl-submit-btn" disabled={isLoading}>
+                {isLoading ? 'Signing in...' : currentRole.btnText}
               </button>
             </form>
+          </div>
 
+          <div className="rl-footer-links">
             {!isInstalled && !Capacitor.isNativePlatform() && (
-              <button
-                type="button"
-                onClick={() => setShowDownloadModal(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.65rem',
-                  width: '100%',
-                  padding: '0.75rem 1rem',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%)',
-                  border: '1.5px solid #D8B4FE',
-                  color: '#6B21A8',
-                  fontWeight: 700,
-                  fontSize: '0.84rem',
-                  cursor: 'pointer',
-                  marginTop: '0.85rem',
-                  boxShadow: '0 2px 8px rgba(107, 33, 168, 0.08)',
-                  transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                  fontFamily: 'inherit',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #F3E8FF 0%, #E9D5FF 100%)';
-                  e.currentTarget.style.borderColor = '#C084FC';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(107, 33, 168, 0.15)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%)';
-                  e.currentTarget.style.borderColor = '#D8B4FE';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(107, 33, 168, 0.08)';
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', lineHeight: 1.25 }}>
-                  <span style={{ fontWeight: 800 }}>Download A2Z </span>
-                  <span style={{ fontSize: '0.72rem', color: 'black', fontWeight: 500 }}>Setup Wizard • Choose Install Location</span>
-                </div>
+              <button type="button" className="rl-download-link" onClick={() => setShowDownloadModal(true)}>
+                Download Desktop &amp; Mobile App
               </button>
             )}
+            <span>©2026 Atriowings All rights reserved.</span>
+          </div>
+        </div>
 
-            {/* Footer Copyright */}
-            <div className="felix-copyright">
-              ©2026 Atriowings All rights reserved.
+        {/* RIGHT COLUMN: Pure White Editorial Quote & Custom Role Illustration */}
+        <div className="rl-right">
+          <div className="rl-quote-block">
+            <span className="rl-quote-mark" aria-hidden="true">“</span>
+            <p className="rl-quote-text">{currentRole.quote}</p>
+            <span className="rl-quote-mark closing" aria-hidden="true">”</span>
+
+            <div className="rl-author-row">
+              <div className="rl-author-avatar">{currentRole.avatarChar}</div>
+              <div>
+                <div className="rl-author-name">{currentRole.authorName}</div>
+                <div className="rl-author-sub">{currentRole.authorRole}</div>
+              </div>
             </div>
+          </div>
+
+          <div className="rl-illustration-wrap">
+            <RoleIllustration role={selectedRole} />
           </div>
         </div>
       </div>
@@ -669,7 +531,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </div>
 
             <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748B', lineHeight: '1.5' }}>
-              Enter your username or registered email address. We'll send you a secure link to reset your credentials.
+              Enter your username or registered email address. We&apos;ll send you a secure link to reset your credentials.
             </p>
 
             {forgotStatus && (
@@ -701,10 +563,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   id="forgot-identifier"
                   type="text"
                   className="modern-input"
-                  required
-                  placeholder="e.g. manager@billing.local or demo@billing.local"
+                  placeholder="Enter username or email"
                   value={forgotIdentifier}
                   onChange={(e) => setForgotIdentifier(e.target.value)}
+                  required
+                  style={{ paddingLeft: '1rem' }}
                 />
               </div>
 
@@ -738,6 +601,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </div>
         </div>
       )}
+
       {/* Modern Desktop Software Download Modal */}
       {showDownloadModal && (
         <div
@@ -775,7 +639,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header with Official Logo */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
                 <img
@@ -785,14 +648,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     width: '46px',
                     height: '46px',
                     borderRadius: '12px',
-                    boxShadow: '0 4px 12px rgba(109, 40, 217, 0.3)',
+                    boxShadow: '0 4px 12px rgba(31, 81, 53, 0.25)',
                     objectFit: 'contain',
                   }}
                 />
                 <div>
                   <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     A2Z Software Download
-                    <span style={{ fontSize: '0.7rem', background: '#EDE9FE', color: '#352737', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
+                    <span style={{ fontSize: '0.7rem', background: '#DCFCE7', color: '#1F5135', padding: '2px 8px', borderRadius: '9999px', fontWeight: 700 }}>
                       v0.1.0
                     </span>
                   </h3>
@@ -822,7 +685,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </button>
             </div>
 
-            {/* Direct Download Buttons */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.25rem' }}>
               <button
                 type="button"
@@ -834,31 +696,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   gap: '0.65rem',
                   padding: '0.9rem 1.25rem',
                   borderRadius: '14px',
-                  backgroundColor: '#352737',
+                  backgroundColor: '#1F5135',
                   color: '#FFFFFF',
                   border: 'none',
                   fontSize: '0.95rem',
                   fontWeight: 700,
                   cursor: 'pointer',
-                  boxShadow: '0 6px 18px rgba(109, 40, 217, 0.35)',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(109, 40, 217, 0.45)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 6px 18px rgba(109, 40, 217, 0.35)';
                 }}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
                 <span>Download Windows Installer (.exe)</span>
-                <span style={{ fontSize: '0.75rem', opacity: 0.85, fontWeight: 500 }}>(122 MB)</span>
               </button>
 
               <button
@@ -877,54 +723,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   fontSize: '0.825rem',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#F1F5F9';
-                  e.currentTarget.style.borderColor = '#CBD5E1';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#F8FAFC';
-                  e.currentTarget.style.borderColor = '#E2E8F0';
                 }}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style={{ color: '#059669', flexShrink: 0 }}>
-                  <path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8C2.67 8 2 8.67 2 9.5v6c0 .83.67 1.5 1.5 1.5S5 16.33 5 15.5v-6C5 8.67 4.33 8 3.5 8zm17 0c-.83 0-1.5.67-1.5 1.5v6c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-6c0-.83-.67-1.5-1.5-1.5zm-4.97-4.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.68 2.24 12.87 2 12 2c-.87 0-1.68.24-2.64.63L7.88 1.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.3 1.3C6.72 4.18 5.5 5.94 5.5 8h13c0-2.06-1.22-3.82-2.97-4.84zM9 6c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z" />
-                </svg>
                 <span>Download Android App (.apk)</span>
-                <span style={{ fontSize: '0.75rem', opacity: 0.75, fontWeight: 500 }}>(16 MB)</span>
               </button>
-            </div>
-
-            {/* Quick 3-Step Setup Guide */}
-            <div style={{ background: '#F8FAFC', borderRadius: '14px', padding: '1rem', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Setup &amp; Installation Steps
-              </div>
-              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'flex-start', fontSize: '0.82rem', color: '#475569', lineHeight: 1.45 }}>
-                <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#352737', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800, flexShrink: 0, marginTop: '1px' }}>1</span>
-                <div><strong>Windows (.exe):</strong> Double-click <strong>A2Z Setup 0.1.0.exe</strong> after download completes and follow the setup wizard.</div>
-              </div>
-              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'flex-start', fontSize: '0.82rem', color: '#475569', lineHeight: 1.45 }}>
-                <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#352737', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800, flexShrink: 0, marginTop: '1px' }}>2</span>
-                <div><strong>Android (.apk):</strong> Open <strong>A2Z-Billing.apk</strong> on your device, enable <em>"Install unknown apps"</em> when prompted, and tap <strong>Install</strong>.</div>
-              </div>
-              <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'flex-start', fontSize: '0.82rem', color: '#475569', lineHeight: 1.45 }}>
-                <span style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#352737', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800, flexShrink: 0, marginTop: '1px' }}>3</span>
-                <div>Launch the official <strong>A2Z shortcut</strong> on your Desktop or Android Home Screen to begin billing!</div>
-              </div>
-            </div>
-
-            {/* SmartScreen / Unknown Apps Helper */}
-            <div style={{ background: '#FFFBEB', borderRadius: '14px', padding: '0.85rem 1rem', border: '1px solid #FDE68A', display: 'flex', gap: '0.65rem', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: '1.1rem', marginTop: '1px' }}>💡</span>
-              <div style={{ fontSize: '0.78rem', color: '#92400E', lineHeight: 1.45 }}>
-                <strong>Installation Tips:</strong>
-                <div style={{ marginTop: '3px' }}>
-                  <strong>Windows:</strong> If SmartScreen appears, click <em>"More info"</em> → <strong>"Run anyway"</strong>.<br />
-                  <strong>Android:</strong> Allow Chrome or Files to <em>"Install unknown apps"</em> in device Settings when prompted.
-                </div>
-              </div>
             </div>
           </div>
         </div>
