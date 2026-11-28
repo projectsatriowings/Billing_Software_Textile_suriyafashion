@@ -225,7 +225,6 @@ import { ResponsiveNavbar } from './components/navigation/ResponsiveNavbar';
 import { VariantPickerModal } from './components/pos/VariantPickerModal.tsx';
 import { TailoringModal } from './components/tailoring/TailoringModal.tsx';
 import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
-import { TextileReportsView } from './components/reports/TextileReportsView.tsx';
 import { getItemVariants, saveItemVariants, type ProductVariant, type TailoringOrder } from './api.ts';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
@@ -405,7 +404,6 @@ export const TAB_PAGE_TITLES: Record<string, string> = {
   'gst-filing-history': 'GST Filing History',
   'day-closing': 'Day Closing & Register Reconciliation',
   'return-reports': 'Returns, Exchanges & Profit Reports',
-  'textile-reports': 'Textile & Variant Reports',
   'notifications': 'Notifications & Shift Activity',
 };
 
@@ -757,7 +755,6 @@ export function App() {
     | 'user-management'
     | 'day-closing'
     | 'return-reports'
-    | 'textile-reports'
     | 'notifications'
   >(() => {
     try {
@@ -9466,26 +9463,6 @@ export function App() {
 
                   {!isSidebarCollapsed && isInventoryOpen && (
                     <div className="sidebar-sub-items">
-                      {isModuleVisible('inventory.transfers') && (
-                        <button
-                          type="button"
-                          className={`sidebar-nav-item ${activeTab === 'stock-transfer' ? 'active' : ''}`}
-                          onClick={() => {
-                            setActiveTab('stock-transfer');
-                          }}
-                          title="Stock Transfer"
-                        >
-                          <span className="nav-icon">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="17 1 21 5 17 9" />
-                              <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                              <polyline points="7 23 3 19 7 15" />
-                              <path d="M21 13v2a4 4 0 0 1-4 4H3" />
-                            </svg>
-                          </span>
-                          <span className="nav-text">Stock Transfer</span>
-                        </button>
-                      )}
                       {isModuleVisible('inventory.adjustment') && (
                         <button
                           type="button"
@@ -9762,16 +9739,6 @@ export function App() {
                         </button>
                       )}
 
-                      <button
-                        type="button"
-                        className={`sidebar-nav-item ${activeTab === 'textile-reports' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('textile-reports')}
-                      >
-                        <span className="nav-icon">
-                          <Layers size={16} strokeWidth={2.2} />
-                        </span>
-                        <span className="nav-text">Textile &amp; Variant Reports</span>
-                      </button>
                     </div>
                   )}
                 </>
@@ -10006,49 +9973,8 @@ export function App() {
             )}
             {displayTab === 'pos' || activeTab === 'pos' ? (
               <div className="top-pos-header-left">
-                <Tooltip label={`Store Branch: ${currentBranchName} (${currentBranchCode})`} position="bottom">
-                  <div
-                    className="top-pos-bento-badge top-pos-branch-badge"
-                    onClick={() => showToast(`Store Branch: ${currentBranchName} (${currentBranchCode})`, 'info')}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Branch: ${currentBranchName} (${currentBranchCode})`}
-                  >
-                    <div className="top-pos-badge-icon branch">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                        <circle cx="12" cy="10" r="3" />
-                      </svg>
-                    </div>
-                    <div className="top-pos-badge-text">
-                      <span className="top-pos-badge-label">Branch</span>
-                      <div className="top-pos-badge-val-row">
-                        <span className="top-pos-badge-val">{currentBranchName}</span>
-                        <span className="top-pos-code-tag">{currentBranchCode}</span>
-                      </div>
-                    </div>
-                  </div>
-                </Tooltip>
-
                 {renderPosCounterBadge()}
 
-                {/* Customer Screen Button in Top Bar right after Counter */}
-                <Tooltip label="Customer Screen (Customer-Facing Display)" position="bottom">
-                  <button
-                    type="button"
-                    className={`top-pos-cfd-btn ${isCfdConnected ? 'active' : ''}`}
-                    onClick={() => setShowCfdModal(true)}
-                    aria-label="Customer Screen"
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                      <line x1="8" y1="21" x2="16" y2="21" />
-                      <line x1="12" y1="17" x2="12" y2="21" />
-                    </svg>
-                    <span className="top-pos-cfd-label">Customer Screen</span>
-                    {isCfdConnected && <span className="bento-cfd-dot" />}
-                  </button>
-                </Tooltip>
               </div>
             ) : (displayTab === 'invoices' || activeTab === 'invoices') && user?.role === 'cashier' ? (
               <div className="top-invoices-header-left">
@@ -10060,23 +9986,6 @@ export function App() {
                     Live POS transactions, receipts & customer returns
                   </span>
                 </div>
-                <Tooltip label={`Store Branch: ${currentBranchName} (${currentBranchCode})`} position="bottom">
-                  <div className="top-pos-bento-badge top-pos-branch-badge" aria-label={`Store Branch: ${currentBranchName} (${currentBranchCode})`}>
-                    <div className="top-pos-badge-icon branch">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                        <circle cx="12" cy="10" r="3" />
-                      </svg>
-                    </div>
-                    <div className="top-pos-badge-text">
-                      <span className="top-pos-badge-label">Branch</span>
-                      <div className="top-pos-badge-val-row">
-                        <span className="top-pos-badge-val">{currentBranchName}</span>
-                        <span className="top-pos-code-tag">{currentBranchCode}</span>
-                      </div>
-                    </div>
-                  </div>
-                </Tooltip>
                 {renderPosCounterBadge()}
               </div>
             ) : (displayTab === 'shifts' || activeTab === 'shifts') && user?.role === 'cashier' ? (
@@ -10090,23 +9999,6 @@ export function App() {
                   </span>
                 </div>
                 <div className="top-shifts-badges-row">
-                  <Tooltip label={`Store Branch: ${currentBranchName} (${currentBranchCode})`} position="bottom">
-                    <div className="top-pos-bento-badge top-pos-branch-badge" aria-label={`Store Branch: ${currentBranchName} (${currentBranchCode})`}>
-                      <div className="top-pos-badge-icon branch">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-                          <circle cx="12" cy="10" r="3" />
-                        </svg>
-                      </div>
-                      <div className="top-pos-badge-text">
-                        <span className="top-pos-badge-label">Branch</span>
-                        <div className="top-pos-badge-val-row">
-                          <span className="top-pos-badge-val">{currentBranchName}</span>
-                          <span className="top-pos-code-tag">{currentBranchCode}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </Tooltip>
                   {renderPosCounterBadge()}
                 </div>
               </div>
@@ -10197,15 +10089,6 @@ export function App() {
                   <span className="top-overdue-label-full">Closing Overdue ({topOverdueClosing.expectedClosingTime})</span>
                   <span className="top-overdue-label-short">{topOverdueClosing.expectedClosingTime}</span>
                 </button>
-              )}
-
-              {(user.role === 'owner' || user.role === 'admin' || String(user.role).toUpperCase() === 'SUPER_ADMIN') && branches.length > 0 && (
-                <BranchSelector
-                  branches={branches}
-                  selectedBranch={selectedBranchScope}
-                  onSelectBranch={handleGlobalBranchChange}
-                  canAccessOverall={user.role === 'owner' || user.role === 'admin' || String(user.role).toUpperCase() === 'SUPER_ADMIN'}
-                />
               )}
 
               {/* Developer Mode Header Indicator */}
@@ -11746,6 +11629,60 @@ export function App() {
                               </span>
                             </div>
                           )}
+
+                          <div className="bento-summary-row" style={{ flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                            <span className="summary-label">Bill Discount</span>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                              {[0, 5, 10, 15, 20].map((pct) => {
+                                const isActive = appliedDiscountPercent === pct;
+                                return (
+                                  <button
+                                    key={pct}
+                                    type="button"
+                                    disabled={cart.length === 0 && pct > 0}
+                                    onClick={() => {
+                                      const next = isActive && pct > 0 ? 0 : pct;
+                                      setAppliedDiscountPercent(next);
+                                      showToast(next > 0 ? `${next}% bill discount applied!` : 'Discount cleared');
+                                    }}
+                                    style={{
+                                      padding: '0.22rem 0.58rem',
+                                      borderRadius: '7px',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 700,
+                                      cursor: cart.length === 0 && pct > 0 ? 'not-allowed' : 'pointer',
+                                      border: isActive ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                                      background: isActive ? '#eef2ff' : '#ffffff',
+                                      color: isActive ? '#4338ca' : '#334155',
+                                      opacity: cart.length === 0 && pct > 0 ? 0.5 : 1,
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                  >
+                                    {pct === 0 ? 'None' : `${pct}%`}
+                                  </button>
+                                );
+                              })}
+                              <button
+                                type="button"
+                                disabled={cart.length === 0}
+                                onClick={() => setShowDiscountPicker(true)}
+                                style={{
+                                  padding: '0.22rem 0.55rem',
+                                  borderRadius: '7px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 650,
+                                  cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                                  border: '1px dashed #cbd5e1',
+                                  background: '#f8fafc',
+                                  color: '#475569',
+                                  opacity: cart.length === 0 ? 0.5 : 1,
+                                }}
+                                title="More discount options"
+                              >
+                                More…
+                              </button>
+                            </div>
+                          </div>
 
                           {appliedDiscountPercent > 0 && (
                             <div className="bento-summary-row discount-row">
@@ -16099,12 +16036,6 @@ export function App() {
               </div>
             )}
 
-            {/* TAB: TEXTILE & VARIANT REPORTS */}
-            {(activeTab === 'textile-reports' || displayTab === 'textile-reports') && (
-              <div className="tab-content-wrapper" key={`textile-reports-${selectedBranchScope}`}>
-                <TextileReportsView />
-              </div>
-            )}
 
             {/* TAB: USER MANAGEMENT (SUPER ADMIN & STORE MANAGER) */}
             {(activeTab === 'user-management' || displayTab === 'user-management') && (

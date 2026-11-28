@@ -405,7 +405,10 @@ export function registerInvoices(r: Router) {
     const isIntra = b.intra !== undefined
       ? Boolean(b.intra)
       : (customerStateCode ? customerStateCode === shopState : true);
-    const isGstEnabled = Boolean(shop.gst_enabled ?? shop.gstEnabled ?? false);
+    const shopGstEnabled = Boolean(shop.gst_enabled ?? shop.gstEnabled ?? false);
+    const isGstEnabled = isWholesale && b.applyGst !== undefined
+      ? Boolean(b.applyGst)
+      : shopGstEnabled;
 
     const formattedLines = linesInput.map((l: any, i: number) => {
       const name = V.str(l.name, `Item ${i + 1} name`, { required: true, max: 120 });

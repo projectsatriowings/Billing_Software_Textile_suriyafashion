@@ -331,16 +331,16 @@ export function registerDashboard(r: Router) {
     }
     shiftSql += ' ORDER BY s.opened_at DESC LIMIT 1';
 
-    // Resolve active counters for this branch from database records
+    // Resolve active counters for this branch from database records (exclude manager counters)
     let activeCounters: Array<{ id: string; code: string; name: string }> = [];
     if (activeBranch?.id) {
       const dbCounters = isAllBranches
         ? await ctx.db.query<any>(
-            "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND status = 'ACTIVE' ORDER BY branch_id ASC, code ASC",
+            "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND status = 'ACTIVE' AND upper(code) NOT LIKE '%-MGR' AND lower(name) NOT LIKE 'manager counter%' ORDER BY branch_id ASC, code ASC",
             [tenantId],
           )
         : await ctx.db.query<any>(
-            "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND branch_id = ? AND status = 'ACTIVE' ORDER BY code ASC",
+            "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND branch_id = ? AND status = 'ACTIVE' AND upper(code) NOT LIKE '%-MGR' AND lower(name) NOT LIKE 'manager counter%' ORDER BY code ASC",
             [tenantId, activeBranch.id],
           );
       if (dbCounters && dbCounters.length > 0) {
@@ -356,7 +356,12 @@ export function registerDashboard(r: Router) {
       const rawDetails = activeBranch?.dynamicCounterDetails || activeBranch?.dynamic_counter_details;
       if (Array.isArray(rawDetails) && rawDetails.length > 0) {
         activeCounters = rawDetails
-          .filter((c: any) => c && c.id && c.status !== 'DISABLED')
+          .filter((c: any) => {
+            if (!c || !c.id || c.status === 'DISABLED') return false;
+            const code = String(c.code || '').toUpperCase();
+            const name = String(c.name || '').toLowerCase();
+            return !code.endsWith('-MGR') && !name.startsWith('manager counter');
+          })
           .map((c: any) => ({
             id: c.id,
             code: c.code,

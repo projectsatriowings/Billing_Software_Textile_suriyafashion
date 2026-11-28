@@ -225,14 +225,14 @@ interface ToastMessage {
 }
 
 export const UserManagementView: React.FC = () => {
-  // Navigation Tabs: 'managers' | 'branches' | 'counters'
-  const [activeTab, setActiveTab] = useState<'managers' | 'branches' | 'counters'>('managers');
+  // Navigation Tabs: 'branches' | 'counters'
+  const [activeTab, setActiveTab] = useState<'managers' | 'branches' | 'counters'>('counters');
 
-  // Sync tab with URL query parameter (?tab=managers|branches|counters)
+  // Sync tab with URL query parameter (?tab=branches|counters)
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search).get('tab');
-      if (p === 'managers' || p === 'branches' || p === 'counters') {
+      if (p === 'branches' || p === 'counters') {
         setActiveTab(p);
       }
     } catch {}
@@ -240,7 +240,7 @@ export const UserManagementView: React.FC = () => {
     const onPop = () => {
       try {
         const p = new URLSearchParams(window.location.search).get('tab');
-        if (p === 'managers' || p === 'branches' || p === 'counters') {
+        if (p === 'branches' || p === 'counters') {
           setActiveTab(p);
         }
       } catch {}
@@ -1100,6 +1100,9 @@ export const UserManagementView: React.FC = () => {
 
   const filteredCounters = useMemo(() => {
     return counters.filter((c) => {
+      if (c.code.toUpperCase().endsWith('-MGR') || c.name.toLowerCase().startsWith('manager counter')) {
+        return false;
+      }
       if (cntBranchFilter !== 'ALL' && c.branch.id !== cntBranchFilter) {
         return false;
       }
@@ -1127,63 +1130,15 @@ export const UserManagementView: React.FC = () => {
         <header className="um-header-row">
           <div className="um-header-titles">
             <h1>User Management</h1>
-            <p>Manage branches, store managers and their sign-in access.</p>
-          </div>
-          <div className="um-header-actions">
-            <button
-              type="button"
-              className="um-btn-base um-btn-secondary"
-              onClick={openCreateBranchModal}
-              aria-label="Create branch"
-            >
-              <Icons.Building />
-              <span>Create branch</span>
-            </button>
-            <button
-              type="button"
-              className="um-btn-base um-btn-primary"
-              onClick={() => openAddManagerDrawer()}
-              aria-label="Add store manager"
-            >
-              <Icons.UserPlus />
-              <span>Add store manager</span>
-            </button>
+            <p>Manage billing counters and cashier sign-in access.</p>
           </div>
         </header>
 
         {/* ==================================================================
-            B) FOUR STAT CARDS
+            B) STAT CARDS
             ================================================================== */}
         <div className="um-stats-grid">
-          {/* 1. Branches */}
-          <div className="um-stat-card">
-            <div className="um-stat-card-header">
-              <div className="um-stat-icon-tile purple">
-                <Icons.Building />
-              </div>
-              <span className="um-stat-label">Branches</span>
-            </div>
-            <div className="um-stat-value">{displayBranchesTotal}</div>
-            <div className="um-stat-hint">
-              {displayBranchesActive} active · {displayBranchesInactive} inactive
-            </div>
-          </div>
-
-          {/* 2. Store Managers */}
-          <div className="um-stat-card">
-            <div className="um-stat-card-header">
-              <div className="um-stat-icon-tile blue">
-                <Icons.Users />
-              </div>
-              <span className="um-stat-label">Store Managers</span>
-            </div>
-            <div className="um-stat-value">{displayManagersTotal}</div>
-            <div className="um-stat-hint">
-              {displayManagersAssigned} assigned · {displayManagersUnassigned} not assigned
-            </div>
-          </div>
-
-          {/* 3. Counters */}
+          {/* Counters */}
           <div className="um-stat-card">
             <div className="um-stat-card-header">
               <div className="um-stat-icon-tile green">
@@ -1193,20 +1148,8 @@ export const UserManagementView: React.FC = () => {
             </div>
             <div className="um-stat-value">{displayCountersTotal}</div>
             <div className="um-stat-hint">
-              {displayCountersActive} active · {displayCounterBranches === 1 ? 'across 1 branch' : `across ${displayCounterBranches} branches`}
+              {displayCountersActive} active
             </div>
-          </div>
-
-          {/* 4. Branches Without Manager */}
-          <div className="um-stat-card">
-            <div className="um-stat-card-header">
-              <div className="um-stat-icon-tile amber">
-                <Icons.AlertTriangle />
-              </div>
-              <span className="um-stat-label">Branches Without Manager</span>
-            </div>
-            <div className="um-stat-value">{displayBranchesWithoutManager}</div>
-            <div className="um-stat-hint">Assign one so the branch can be run</div>
           </div>
         </div>
 
@@ -1214,28 +1157,6 @@ export const UserManagementView: React.FC = () => {
             C) TABS (Underline style)
             ================================================================== */}
         <div className="um-tabs-row" role="tablist" aria-label="User Management Sections">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'managers'}
-            className={`um-tab-btn ${activeTab === 'managers' ? 'active' : ''}`}
-            onClick={() => handleTabSwitch('managers')}
-          >
-            <span>Store managers</span>
-            <span className="um-tab-badge">{displayManagersTotal}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'branches'}
-            className={`um-tab-btn ${activeTab === 'branches' ? 'active' : ''}`}
-            onClick={() => handleTabSwitch('branches')}
-          >
-            <span>Branches</span>
-            <span className="um-tab-badge">{displayBranchesTotal}</span>
-          </button>
-
           <button
             type="button"
             role="tab"
@@ -1619,26 +1540,12 @@ export const UserManagementView: React.FC = () => {
                 <input
                   type="text"
                   className="um-search-input"
-                  placeholder="Search by counter name, code, login or branch"
+                  placeholder="Search by counter name, code, or login"
                   value={cntSearch}
                   onChange={(e) => setCntSearch(e.target.value)}
                   aria-label="Search counters"
                 />
               </div>
-
-              <select
-                className="um-select"
-                value={cntBranchFilter}
-                onChange={(e) => setCntBranchFilter(e.target.value)}
-                aria-label="Filter counters by branch"
-              >
-                <option value="ALL">All branches</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} ({b.code})
-                  </option>
-                ))}
-              </select>
 
               <select
                 className="um-select"
@@ -1657,9 +1564,7 @@ export const UserManagementView: React.FC = () => {
                 <thead>
                   <tr>
                     <th>Counter</th>
-                    <th>Branch</th>
                     <th>Counter Login</th>
-                    <th>Branch Manager</th>
                     <th>Status</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
@@ -1667,7 +1572,7 @@ export const UserManagementView: React.FC = () => {
                 <tbody>
                   {filteredCounters.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={4}>
                         <div className="um-empty-state">
                           <h3 className="um-empty-title">No counters found</h3>
                           <p className="um-empty-sub">Try a different search or filter.</p>
@@ -1704,21 +1609,6 @@ export const UserManagementView: React.FC = () => {
                           </div>
                         </td>
 
-                        {/* Branch + inactive warning */}
-                        <td>
-                          <div className="um-branch-cell">
-                            <span className="um-branch-name">{cnt.branch.name}</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span className="um-mono-chip">{cnt.branch.code}</span>
-                              {!cnt.branch.active && (
-                                <span style={{ color: '#B42318', fontSize: '12px', fontWeight: 600 }}>
-                                  Branch inactive
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
                         {/* Counter Login */}
                         <td>
                           {cnt.loginUsername ? (
@@ -1727,18 +1617,6 @@ export const UserManagementView: React.FC = () => {
                             </span>
                           ) : (
                             <span style={{ color: '#8C88A2' }}>—</span>
-                          )}
-                        </td>
-
-                        {/* Branch Manager */}
-                        <td>
-                          {cnt.manager ? (
-                            <span style={{ fontWeight: 600, color: '#1A1830' }}>{cnt.manager.name}</span>
-                          ) : (
-                            <span className="um-warning-text">
-                              <Icons.AlertCircle />
-                              <span>Not assigned</span>
-                            </span>
                           )}
                         </td>
 

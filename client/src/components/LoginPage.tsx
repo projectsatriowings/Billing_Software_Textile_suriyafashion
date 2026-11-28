@@ -99,7 +99,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const search = (typeof window !== 'undefined' ? window.location.search : '').toLowerCase();
       if (hash.includes('cashier2') || search.includes('cashier2')) return 'cashier2';
       if (hash.includes('cashier') || search.includes('cashier')) return 'cashier';
-      if (hash.includes('manager') || search.includes('manager')) return 'store_manager';
     } catch { }
     return 'super_admin';
   };
@@ -436,15 +435,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <CrownIcon size={13} />
                   <span className="role-pill-full">Super Admin</span>
                   <span className="role-pill-short">Admin</span>
-                </button>
-                <button
-                  type="button"
-                  className={`felix-role-pill ${selectedRole === 'store_manager' ? 'active' : ''}`}
-                  onClick={() => handleRoleTabChange('store_manager')}
-                >
-                  <StoreIcon size={13} />
-                  <span className="role-pill-full">Store Manager</span>
-                  <span className="role-pill-short">Manager</span>
                 </button>
                 <button
                   type="button"

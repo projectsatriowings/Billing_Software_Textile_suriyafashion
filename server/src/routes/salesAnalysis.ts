@@ -403,7 +403,7 @@ export function registerSalesAnalysis(r: Router) {
     // 5. Sales by Category (Top 7 + Others)
     const categoryRows = await ctx.db.query<any>(
       `SELECT
-        COALESCE(NULLIF(TRIM(it.category), ''), 'Grocery') AS cat_name,
+        COALESCE(NULLIF(TRIM(it.category), ''), 'General') AS cat_name,
         COALESCE(SUM(
           CASE WHEN i.kind = 'sale' THEN il.total_minor ELSE -il.total_minor END
         ), 0)::bigint AS cat_sales,
@@ -944,7 +944,7 @@ export function registerSalesAnalysis(r: Router) {
         icon: '⏰',
         theme: 'amber',
         title: `Weekend & Evening Rush (${peakSlot})`,
-        description: `Peak trading occurred around ${peakSlot}. Plan additional counter staffing and keep top selling groceries stocked.`,
+        description: `Peak trading occurred around ${peakSlot}. Plan additional counter staffing and keep top selling items stocked.`,
       });
     }
 
@@ -957,7 +957,7 @@ export function registerSalesAnalysis(r: Router) {
         icon: '🔄',
         theme: 'rose',
         title: `Returns at ${currentSummary.returnRatePct}% of sales`,
-        description: `${fmtRupeesText(currentSummary.returnsMinor)} returned across ${currentSummary.returnsCount} credit notes. Audit returned items for expiry and cold storage condition.`,
+        description: `${fmtRupeesText(currentSummary.returnsMinor)} returned across ${currentSummary.returnsCount} credit notes. Audit returned items for quality defects, sizing issues, or billing errors.`,
       });
     }
 

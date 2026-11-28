@@ -500,16 +500,6 @@ export const ResponsiveNavbar: React.FC<ResponsiveNavbarProps> = ({
                         <span>Categories</span>
                       </button>
                     )}
-                    {isModuleVisible('inventory.transfers') && (
-                      <button
-                        type="button"
-                        className={`sheet-item-card ${activeTab === 'stock-transfer' ? 'active' : ''}`}
-                        onClick={() => handleSelectTab('stock-transfer')}
-                      >
-                        <ArrowRightLeft size={18} />
-                        <span>Stock Transfer</span>
-                      </button>
-                    )}
                     {isModuleVisible('inventory.adjustment') && (
                       <button
                         type="button"

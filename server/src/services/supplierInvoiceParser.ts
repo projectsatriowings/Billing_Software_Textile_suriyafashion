@@ -419,7 +419,8 @@ export async function extractTextFromInvoice(
 
 // ── Summary / Footer Row Detection ───────────────────────────────────────────
 export function isSummaryOrFooterRow(line: string): boolean {
-  const l = (line || '').trim().toLowerCase();
+  // Ignore leading bullets / OCR noise ("- Terms…", "« Terms…", "= Payment…")
+  const l = (line || '').trim().toLowerCase().replace(/^[\s\-–—•·«»=~:;,.]+/, '');
   if (!l) return false;
 
   const summaryPatterns = [
@@ -431,6 +432,8 @@ export function isSummaryOrFooterRow(line: string): boolean {
     /^(?:total\s*in\s*words|amount\s*in\s*words|rupees\s+(?:only|in\s*words)|two\s+thousand|one\s+thousand|three\s+thousand)\b/i,
     /^(?:bank\s*details|account\s*(?:no|num|number)|a\/c|ifsc|branch|upi\s*id|pay\s*using\s*upi)\b/i,
     /^(?:terms\s*(?:and|&)\s*conditions|subject\s*to|our\s*responsibility|goods\s*once\s*sold|delivery\s*ex-premises)\b/i,
+    /^terms\s+(?:an[ad]|&)\s+cond/i, // OCR variants such as "Terms ana conditons"
+    /^(?:invoice\s*total|bill\s*total|amount\s*payable|balance\s*due|thank\s*you)\b/i,
     /^(?:authorised\s*signatory|authorized\s*signatory|certified\s*that|for\s+go\s+gst|for\s+[a-z0-9&.,\- ]+demo|signature)\b/i,
     /^(?:e\.?\s*&\s*o\.?e\.?|customer\s*detail|delivery\s*date|store\s*location)\b/i,
     /^(?:notes?|remarks?)\b(?:\s*[:\-]|\s+sub\s*total|\s*$)/i,
@@ -1140,8 +1143,9 @@ export function isValidProductRow(item: ExtractedProductItem): boolean {
   if (!item || !item.name) return false;
   const name = item.name.trim();
 
-  // 1. Min name length & must contain letters
+  // 1. Min name length & must contain letters; a paragraph of prose is never a product name
   if (name.length < 2 || !/[a-zA-Z]/.test(name)) return false;
+  if (name.length > 120 || name.split(/\s+/).length > 16) return false;
 
   // 2. Reject summary or footer rows
   if (isSummaryOrFooterRow(name)) return false;
@@ -1378,6 +1382,151 @@ export interface QtyRateAmountRow {
 
 const PLAIN_NUMBER_RX = /^(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?$/;
 
+/** Removes currency marks, including common OCR misreads of ₹ (¥, %, "Rs.", "INR"). */
+function stripCurrencyMarks(text: string): string {
+  return text
+    .replace(/[₹¥€£$]/g, ' ')
+    .replace(/\b(?:rs|inr)\.?(?=\s|\d|$)/gi, ' ');
+}
+
+const HSN_PLACEHOLDER_RX = /^(?:n\/?a|nil|none|-+|—)$/i;
+// Any unit word that can stand in a Unit / UOM column
+const UOM_TOKEN_RX = new RegExp(
+  `^(?:${UOM_WORD_REGEX.source.replace(/\\b/g, '')}|mtrs?\\.?|meters?|metres?|sets?|pairs?|prs|doz(?:en)?|rolls?|ml|l|g|kg)$`,
+  'i'
+);
+// Unit abbreviations that never belong to a product name, so they may end it
+// ("Bag", "Box", "Bottle" can be products: "Cotton Bag", "Lunch Box")
+const UNIT_ABBREV_RX = /^(?:pcs?\.?|nos?\.?|units?|kgs?|gms?|g|ltrs?|lts?|l|ml|mtrs?\.?|meters?|metres?|sets?|pairs?|prs|doz(?:en)?|pkts?|rolls?)$/i;
+
+export interface ArithmeticProductRow {
+  sno: string;
+  name: string;
+  isDitto: boolean;
+  hsn: string;
+  uom: string;
+  size: string;
+  qty: string;
+  rate: string;
+  amount: string;
+}
+
+/**
+ * Generic product-row reader for any bill layout: `[S.No] Product [HSN] [Unit] Rate/Qty Qty/Rate [..] Amount`.
+ * Columns are identified by arithmetic (QTY × RATE = AMOUNT, in either order), so the rate is never
+ * mistaken for an HSN code and the cost is the exact printed rate. HSN is a 4-8 digit number outside
+ * the arithmetic; the unit is a unit word; the name is the text before them.
+ * Rows with a GST % token are left to the GST-aware parser. Returns null when the arithmetic does not hold.
+ */
+export function parseArithmeticProductRow(
+  line: string,
+  opts: { qtyBeforeRate?: boolean } = {}
+): ArithmeticProductRow | null {
+  const raw = (line || '').trim();
+  if (!raw || /^\*/.test(raw) || isSummaryOrFooterRow(raw) || /%/.test(raw)) return null;
+
+  const tokens = stripCurrencyMarks(raw)
+    .replace(/[|[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  if (tokens.length < 4) return null;
+
+  let sno = '';
+  let body = tokens;
+  if (/^\d{1,3}[.)]?$/.test(body[0])) {
+    sno = body[0].replace(/[.)]/g, '');
+    body = body.slice(1);
+  }
+
+  // Product name = leading text tokens. Stops at the first number or HSN placeholder, or at a unit
+  // word that is directly followed by a number/placeholder ("Saree pcs 2200 …", but "Cotton Bag pcs 10 …").
+  const isStopper = (t: string | undefined) => t !== undefined && (PLAIN_NUMBER_RX.test(t) || HSN_PLACEHOLDER_RX.test(t));
+  let nameEnd = 0;
+  while (nameEnd < body.length) {
+    const t = body[nameEnd];
+    if (isStopper(t)) break;
+    if (nameEnd > 0 && UNIT_ABBREV_RX.test(t) && isStopper(body[nameEnd + 1])) break;
+    nameEnd++;
+  }
+  const nameTokens = body.slice(0, nameEnd);
+  const rest = body.slice(nameEnd);
+
+  const nums: { idx: number; raw: string; val: number }[] = [];
+  let uom = '';
+  let strayWords = 0;
+  for (let i = 0; i < rest.length; i++) {
+    const t = rest[i];
+    if (PLAIN_NUMBER_RX.test(t)) nums.push({ idx: i, raw: t, val: parseFloat(t.replace(/,/g, '')) });
+    else if (!uom && UOM_TOKEN_RX.test(t)) uom = t;
+    else if (!HSN_PLACEHOLDER_RX.test(t) && /[a-z]{2,}/i.test(t)) strayWords++;
+  }
+  if (strayWords > 2) return null; // prose, not a table row
+  if (nums.length < 3) return null;
+
+  const amount = nums[nums.length - 1];
+  const approx = (a: number, b: number) => Math.abs(a - b) <= Math.max(1, b * 0.005);
+  // Prefer the pair closest to the amount (adjacent columns), scanning right to left
+  let pair: [typeof nums[number], typeof nums[number]] | null = null;
+  for (let j = nums.length - 2; j >= 1 && !pair; j--) {
+    for (let i = j - 1; i >= 0; i--) {
+      if (nums[i].val > 0 && nums[j].val > 0 && approx(nums[i].val * nums[j].val, amount.val)) {
+        pair = [nums[i], nums[j]];
+        break;
+      }
+    }
+  }
+  if (!pair || !(amount.val > 0)) return null;
+
+  const [a, b] = pair;
+  let qtyTok = a;
+  let rateTok = b;
+  if (opts.qtyBeforeRate === false) {
+    qtyTok = b;
+    rateTok = a;
+  } else if (opts.qtyBeforeRate === undefined) {
+    // No header: whole numbers without decimals are quantities; otherwise the smaller value is the quantity
+    const aWhole = Number.isInteger(a.val) && !a.raw.includes('.');
+    const bWhole = Number.isInteger(b.val) && !b.raw.includes('.');
+    if (aWhole !== bWhole) {
+      qtyTok = aWhole ? a : b;
+      rateTok = aWhole ? b : a;
+    } else if (b.val < a.val) {
+      qtyTok = b;
+      rateTok = a;
+    }
+  }
+
+  // HSN: a 4-8 digit integer before the qty/rate columns that is not part of the arithmetic
+  const firstPairIdx = Math.min(a.idx, b.idx);
+  const hsnTok = nums.find((n) => n.idx < firstPairIdx && /^\d{4,8}$/.test(n.raw));
+
+  // Letter size at the end of the name (Shirt M, Kurti XL, Frock Free Size)
+  let size = '';
+  let nameParts = [...nameTokens];
+  if (nameParts.length >= 3 && /^free\s*size$/i.test(nameParts.slice(-2).join(' '))) {
+    size = 'Free Size';
+    nameParts = nameParts.slice(0, -2);
+  } else if (nameParts.length >= 2 && LETTER_SIZE_RX.test(nameParts[nameParts.length - 1])) {
+    size = nameParts[nameParts.length - 1].toUpperCase();
+    nameParts = nameParts.slice(0, -1);
+  }
+
+  const rawName = nameParts.join(' ');
+  return {
+    sno,
+    name: cleanInvoiceProductName(rawName),
+    isDitto: isDittoProductName(rawName),
+    hsn: hsnTok ? hsnTok.raw : '',
+    uom: uom ? normalizeUom(uom) : '',
+    size,
+    qty: String(qtyTok.val),
+    rate: rateTok.val.toFixed(2),
+    amount: amount.val.toFixed(2),
+  };
+}
+
 /**
  * Parses rows shaped like `SL | PARTICULARS | HSN | SIZE | BOX | PCS | RATE | AMOUNT`, e.g.
  * `1 ANAND Unclear in source 80 2 20 135 2,700` → size 80, box 2, qty 20, rate 135.
@@ -1389,7 +1538,7 @@ export function parseQtyRateAmountRow(line: string, hints: TableLayoutHints = {}
   const raw = (line || '').trim();
   if (!raw || /^\*/.test(raw) || isSummaryOrFooterRow(raw)) return null;
 
-  const tokens = raw.replace(/[|[\]]/g, ' ').replace(/₹/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const tokens = stripCurrencyMarks(raw).replace(/[|[\]]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
   let start = tokens.length;
   while (start > 0 && PLAIN_NUMBER_RX.test(tokens[start - 1])) start--;
   const numTokens = tokens.slice(start);
@@ -1572,6 +1721,13 @@ export function parseLineItems(
   let currentItem: ExtractedProductItem | null = null;
   let rowSeq = 1;
   const layoutHints = layoutHintsFromHeaders(headers);
+  // Column order hint for generic rows: is QTY printed before RATE in the header?
+  const qtyHeaderIdx = headers.findIndex((h) => /\b(?:qty|quantity|pcs|nos)\b/i.test(h));
+  const rateHeaderIdx = headers.findIndex((h) => /\b(?:rate|price|mrp)\b/i.test(h));
+  const qtyBeforeRate = qtyHeaderIdx >= 0 && rateHeaderIdx >= 0 ? qtyHeaderIdx < rateHeaderIdx : undefined;
+  // Rows verified by QTY × RATE = AMOUNT; when the table header was unreadable these are trusted
+  // over the heuristic parsers, which can turn address / terms text into fake products.
+  const verifiedIds = new Set<string>();
 
   for (let idx = 0; idx < dataLines.length; idx++) {
     const rawLine = dataLines[idx].trim();
@@ -1611,6 +1767,34 @@ export function parseLineItems(
         flags: ['Selling Price required'],
       };
       if (!sized.hsn) currentItem.flags?.push('HSN missing');
+      verifiedIds.add(currentItem.id);
+      continue;
+    }
+
+    // Any other bill layout: Product [HSN] [Unit] Rate/Qty Qty/Rate Amount, resolved by arithmetic
+    const generic = parseArithmeticProductRow(rawLine, { qtyBeforeRate });
+    if (generic) {
+      if (currentItem) items.push(currentItem);
+      currentItem = {
+        id: `inv-item-${rowSeq++}`,
+        name: generic.name,
+        size: generic.size,
+        uom: generic.uom || normalizeUom('', generic.name),
+        sellingPrice: '', // Kept empty per requirement
+        costPrice: generic.rate, // Exact unit RATE from the bill
+        hsn: generic.hsn,
+        gstRate: '5%',
+        priceInclusive: 'Yes',
+        openingStock: generic.qty,
+        rawRate: generic.rate,
+        rawQty: generic.qty,
+        rawTotal: generic.amount,
+        isDitto: generic.isDitto,
+        confidence: generic.name ? 'high' : 'medium',
+        flags: ['Selling Price required'],
+      };
+      if (!generic.hsn) currentItem.flags?.push('HSN missing');
+      verifiedIds.add(currentItem.id);
       continue;
     }
 
@@ -1830,7 +2014,10 @@ export function parseLineItems(
       ? item
       : { ...item, name: `Product Item ${i + 1}`, flags: [...(item.flags || []), 'Product name unclear'] }
   );
-  const validItems = withNames.filter(isValidProductRow);
+  let validItems = withNames.filter(isValidProductRow);
+  if (headers.length === 0 && validItems.some((i) => verifiedIds.has(i.id))) {
+    validItems = validItems.filter((i) => verifiedIds.has(i.id));
+  }
 
   if (validItems.length === 0 && sparseText) {
     return parseSparseTable(sparseText).filter(isValidProductRow);

@@ -140,3 +140,41 @@ test('suggestCategory matches by first+last word, last word, and first word', ()
   const withMensShirts = [...cats, { id: 'c7', name: "MEN'S SHIRTS" }];
   assert.equal(suggestCategory("Men's Cotton Formal Shirt", withMensShirts)?.name, "MEN'S SHIRTS");
 });
+
+function parseOcr(text: string) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const { headers, columnMap, dataLines } = detectTableColumns(lines);
+  return parseLineItems(dataLines, columnMap, headers)
+    .filter(isValidProductRow)
+    .map((p) => [p.name, p.hsn, p.uom, p.costPrice, p.openingStock]);
+}
+
+test('Generic bill: unreadable header, "N/A" HSN, Rate before Qty, terms text never becomes a product', () => {
+  // Tesseract output of a coloured "Textiles Invoice" (S No | Products | HSN | Units | Rate | Qty | Amount)
+  const ocr = `Textiles Invoice
+Billed By Bifling To Invoice No: 1ala/2026/0074
+Elegant Textiles & Garments Pvt. Lid. Chittwa Date 1 18/06/2020
+sales@elegantiextiles.com 1234507890
+1 Premium Cotton Saree N/A pcs 2200 1 ¥ 2,200.00
+Sub Total : ¥ 2,200.00
+GST@18% ¥ 396.00
+Invoice Total : ¥ 2,596.00
+Account Number : 787097900754
+- Terms ana conditons (T&Cs) sre 3 egal binding contract between = 5
+For Elegant Textiles & Garmems Pvt. Ltd.
+Thank You`;
+  assert.deepEqual(parseOcr(ocr), [['Premium Cotton Saree', '', 'pcs', '2200.00', '1']]);
+});
+
+test('Generic bill: header with Qty before Rate, real HSN codes, several rows', () => {
+  const ocr = `S.No Description HSN Qty Unit Rate Amount
+1 Cotton Bag 6305 10 pcs 45.00 450.00
+2 Silk Dupatta 5007 4 nos 350 1400
+3 Linen Fabric 5309 12.5 mtr 220 2750
+Total 4600`;
+  assert.deepEqual(parseOcr(ocr), [
+    ['Cotton Bag', '6305', 'pcs', '45.00', '10'],
+    ['Silk Dupatta', '5007', 'nos', '350.00', '4'],
+    ['Linen Fabric', '5309', 'mtr', '220.00', '12.5'],
+  ]);
+});

@@ -412,13 +412,13 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
-              <h1 className="srb-header-title">Stock Movement Report</h1>
+              <h1 className="srb-header-title">Stock Report</h1>
               <span className="srb-badge-live">
-                <span className="srb-live-dot"></span> PostgreSQL Live
+                <span className="srb-live-dot"></span> Live Data
               </span>
             </div>
             <p className="srb-header-sub">
-              Track stock turnover velocity, high-movement leaders &amp; dormant inventory capital
+              See which products are selling fast, moving slowly, or not selling at all
             </p>
           </div>
         </div>
@@ -579,14 +579,14 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                   <RotateCcwIcon size={16} />
                 </div>
                 <div>
-                  <span className="srb-tile-label">Circulation Index</span>
+                  <span className="srb-tile-label">Stock Activity</span>
                   <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block' }}>
-                    Turnover Health Score
+                    Overall Sales Health
                   </span>
                 </div>
               </div>
               <span className="srb-tile-pill purple">
-                {circPct >= 60 ? 'Healthy Turnover' : 'Idle Heavy'}
+                {circPct >= 60 ? 'Good Sales' : 'Needs Attention'}
               </span>
             </div>
 
@@ -617,7 +617,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 <span className="srb-arc-pct">
                   <AnimatedCounter value={circPct} suffix="%" triggerKey={animationKey} />
                 </span>
-                <span className="srb-arc-sub">IN MOTION</span>
+                <span className="srb-arc-sub">SELLING</span>
               </div>
             </div>
 
@@ -637,7 +637,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 <div
                   className="srb-seg-block red"
                   style={{ width: animateIn ? `${nonPct}%` : '0%' }}
-                  title={`Dormant: ${nonPct}%`}
+                  title={`Not Selling: ${nonPct}%`}
                 />
               </div>
               <div className="srb-circ-legend-row">
@@ -648,7 +648,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                   ● Slow <AnimatedCounter value={slowPct} suffix="%" triggerKey={animationKey} />
                 </span>
                 <span style={{ color: '#dc2626', fontWeight: 700 }}>
-                  ● Dormant <AnimatedCounter value={nonPct} suffix="%" triggerKey={animationKey} />
+                  ● Not Selling <AnimatedCounter value={nonPct} suffix="%" triggerKey={animationKey} />
                 </span>
               </div>
             </div>
@@ -671,15 +671,15 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                       textTransform: 'uppercase',
                     }}
                   >
-                    MOVEMENT PULSE
+                    ITEMS SOLD
                   </span>
                   <span style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'block' }}>
-                    Real-time Dispatch Stream
+                    Sales Summary
                   </span>
                 </div>
               </div>
               <span className="srb-pulse-badge">
-                <span className="srb-pulse-dot"></span> Live Sync
+                <span className="srb-pulse-dot"></span> Live
               </span>
             </div>
 
@@ -691,7 +691,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 </span>
               </div>
               <div className="srb-pulse-sub">
-                Total stock dispatched across <AnimatedCounter value={summary.totalSalesBills} triggerKey={animationKey} /> bills
+                Total items sold across <AnimatedCounter value={summary.totalSalesBills} triggerKey={animationKey} /> bills
               </div>
             </div>
 
@@ -712,7 +712,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
 
             <div className="srb-pulse-footer">
               <span>
-                <AnimatedCounter value={summary.totalTrackedProducts} triggerKey={animationKey} /> Catalogue Items
+                <AnimatedCounter value={summary.totalTrackedProducts} triggerKey={animationKey} /> Total Products
               </span>
               {invStats?.totalStockValueMinor != null && (
                 <span style={{ color: '#6d4aff', fontWeight: 700 }}>
@@ -736,15 +736,15 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 </div>
                 <div>
                   <span className="srb-tile-label" style={{ color: '#991b1b' }}>
-                    Turnover Radar
+                    Needs Attention
                   </span>
                   <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block' }}>
-                    Replenish &amp; Buffer Control
+                    Items to Review
                   </span>
                 </div>
               </div>
               <span className={`srb-tile-pill ${summary.nonMovingCount > 0 ? 'red' : 'green'}`}>
-                {summary.nonMovingCount > 0 ? 'Action Needed' : 'Healthy Buffer'}
+                {summary.nonMovingCount > 0 ? 'Action Needed' : 'All Good'}
               </span>
             </div>
 
@@ -753,14 +753,14 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
               <div className="srb-radar-row alert-red">
                 <div>
                   <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#991b1b' }}>
-                    <AnimatedCounter value={summary.nonMovingCount} triggerKey={animationKey} /> Dormant SKUs
+                    <AnimatedCounter value={summary.nonMovingCount} triggerKey={animationKey} /> Unsold Items
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#b91c1c' }}>
                     <AnimatedCounter
                       value={data?.insights.nonMovingSummary.tiedCapitalMinor || 0}
                       formatter={formatCurrency}
                       triggerKey={animationKey}
-                    /> tied up
+                    /> stuck in stock
                   </div>
                 </div>
                 <button
@@ -779,10 +779,10 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
               <div className="srb-radar-row alert-amber">
                 <div>
                   <div style={{ fontWeight: 800, fontSize: '0.82rem', color: '#92400e' }}>
-                    <AnimatedCounter value={summary.slowMovingCount} triggerKey={animationKey} /> Slow Buffer
+                    <AnimatedCounter value={summary.slowMovingCount} triggerKey={animationKey} /> Slow-Selling Items
                   </div>
                   <div style={{ fontSize: '0.72rem', color: '#b45309' }}>
-                    1–{summary.fastMinUnits - 1} units moving
+                    1–{summary.fastMinUnits - 1} units sold
                   </div>
                 </div>
                 <button
@@ -835,7 +835,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 <div className="srb-tile-icon-box green">
                   <ZapIcon size={16} />
                 </div>
-                <span className="srb-tile-label">Fast-Moving</span>
+                <span className="srb-tile-label">Fast Selling</span>
               </div>
               <span className="srb-tile-pill green">
                 <ZapIcon size={11} /> <AnimatedCounter value={fastPct} suffix="%" triggerKey={animationKey} />
@@ -845,7 +845,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
               <AnimatedCounter value={summary.fastMovingCount} triggerKey={animationKey} />
             </div>
             <div className="srb-tile-footer">
-              <span>≥ {summary.fastMinUnits} units or ≥ {summary.fastMinTxns} bills</span>
+              <span>{summary.fastMinUnits}+ units or {summary.fastMinTxns}+ bills</span>
               <ArrowRightIcon size={12} color="#059669" />
             </div>
           </div>
@@ -863,7 +863,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 <div className="srb-tile-icon-box amber">
                   <HourglassIcon size={16} />
                 </div>
-                <span className="srb-tile-label">Slow-Moving</span>
+                <span className="srb-tile-label">Slow Selling</span>
               </div>
               <span className="srb-tile-pill amber">
                 <HourglassIcon size={11} /> <AnimatedCounter value={slowPct} suffix="%" triggerKey={animationKey} />
@@ -873,7 +873,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
               <AnimatedCounter value={summary.slowMovingCount} triggerKey={animationKey} />
             </div>
             <div className="srb-tile-footer">
-              <span>1–{summary.fastMinUnits - 1} units sold in period</span>
+              <span>1–{summary.fastMinUnits - 1} units sold</span>
               <ArrowRightIcon size={12} color="#d97706" />
             </div>
           </div>
@@ -891,7 +891,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 <div className="srb-tile-icon-box red">
                   <AlertOctagonIcon size={16} />
                 </div>
-                <span className="srb-tile-label">Dead Stock</span>
+                <span className="srb-tile-label">Not Selling</span>
               </div>
               <span className="srb-tile-pill red">
                 <AlertOctagonIcon size={11} /> 0 Sales
@@ -901,7 +901,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
               <AnimatedCounter value={summary.nonMovingCount} triggerKey={animationKey} />
             </div>
             <div className="srb-tile-footer">
-              <span>Zero sales in past {summary.rangeDays} days</span>
+              <span>No sales in last {summary.rangeDays} days</span>
               <ArrowRightIcon size={12} color="#dc2626" />
             </div>
           </div>
@@ -922,7 +922,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 <div className="srb-tile-icon-box purple">
                   <RupeeIcon size={16} />
                 </div>
-                <span className="srb-tile-label">Tied Capital</span>
+                <span className="srb-tile-label">Unsold Stock Value</span>
               </div>
               <span className="srb-tile-pill purple">{categories.length} Categories</span>
             </div>
@@ -935,7 +935,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
             </div>
             <div className="srb-tile-footer">
               <span>
-                <AnimatedCounter value={summary.totalTrackedProducts} triggerKey={animationKey} /> catalogue SKUs
+                <AnimatedCounter value={summary.totalTrackedProducts} triggerKey={animationKey} /> total products
               </span>
               <ArrowRightIcon size={12} color="#6d4aff" />
             </div>
@@ -954,15 +954,15 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                   <TrophyIcon size={18} />
                 </div>
                 <div>
-                  <h2 className="srb-deck-title">Top 10 High-Velocity Best-Sellers</h2>
+                  <h2 className="srb-deck-title">Top 10 Best-Selling Products</h2>
                   <span className="srb-deck-subtitle">
-                    Leaderboard ranked by volume dispatched in selected date range
+                    Most sold products in the selected dates
                   </span>
                 </div>
               </div>
               <div className="srb-deck-badge-group">
                 <span className="srb-tile-pill purple">
-                  <TrendingUpIcon size={11} /> Top Volume: {topSellerMax} {topSellers[0]?.unit || 'units'}
+                  <TrendingUpIcon size={11} /> Highest Sold: {topSellerMax} {topSellers[0]?.unit || 'units'}
                 </span>
               </div>
             </div>
@@ -976,7 +976,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                   fontSize: '0.84rem',
                 }}
               >
-                No completed sales recorded during this date window.
+                No sales recorded in the selected dates.
               </div>
             ) : (
               <div className="srb-leader-list">
@@ -1034,7 +1034,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                             }}
                           />
                         </div>
-                        <span className="srb-leader-pct-label">{Math.round(pct)}% of top volume</span>
+                        <span className="srb-leader-pct-label">{Math.round(pct)}% of top seller</span>
                       </div>
 
                       {/* Quantity and units metric */}
@@ -1059,12 +1059,12 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                   <BrainIcon size={18} />
                 </div>
                 <div>
-                  <h2 className="srb-deck-title">Grounded Risk Intelligence</h2>
-                  <span className="srb-deck-subtitle">PostgreSQL turnover heuristics & capital alerts</span>
+                  <h2 className="srb-deck-title">Smart Stock Insights</h2>
+                  <span className="srb-deck-subtitle">Quick alerts on fast &amp; slow-selling items</span>
                 </div>
               </div>
               <span className="srb-badge-live">
-                <span className="srb-pulse-dot green" /> Live Sync
+                <span className="srb-pulse-dot green" /> Live
               </span>
             </div>
 
@@ -1077,7 +1077,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                       <div className="srb-intel-mini-icon amber">
                         <TrophyIcon size={13} />
                       </div>
-                      <span className="srb-intel-kicker amber">Velocity Champion</span>
+                      <span className="srb-intel-kicker amber">Top Seller</span>
                     </div>
                     {data.insights.bestSeller.runwayDays !== null &&
                       data.insights.bestSeller.runwayDays !== undefined ? (
@@ -1095,7 +1095,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
 
                   <div className="srb-intel-stats-row">
                     <div className="srb-intel-stat-chip">
-                      <span className="srb-stat-chip-label">Dispatched</span>
+                      <span className="srb-stat-chip-label">Sold</span>
                       <span className="srb-stat-chip-val">
                         <AnimatedCounter value={data.insights.bestSeller.unitsSold} triggerKey={animationKey} />{' '}
                         <span className="srb-stat-unit">{data.insights.bestSeller.unit}</span>
@@ -1103,7 +1103,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     </div>
 
                     <div className="srb-intel-stat-chip">
-                      <span className="srb-stat-chip-label">Invoices</span>
+                      <span className="srb-stat-chip-label">Bills</span>
                       <span className="srb-stat-chip-val">
                         <AnimatedCounter value={data.insights.bestSeller.salesTxns} triggerKey={animationKey} />{' '}
                         <span className="srb-stat-unit">bills</span>
@@ -1112,7 +1112,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
 
                     {data.insights.bestSeller.currentStockUnits !== undefined && (
                       <div className="srb-intel-stat-chip">
-                        <span className="srb-stat-chip-label">Shelf Balance</span>
+                        <span className="srb-stat-chip-label">In Stock</span>
                         <span className="srb-stat-chip-val">
                           <AnimatedCounter
                             value={data.insights.bestSeller.currentStockUnits}
@@ -1153,7 +1153,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                       <div className="srb-intel-mini-icon blue">
                         <ZapIcon size={13} />
                       </div>
-                      <span className="srb-intel-kicker blue">Demand Velocity Alert</span>
+                      <span className="srb-intel-kicker blue">Sales Slowing Down</span>
                     </div>
                     <span className="srb-runway-badge blue">
                       <AlertTriangleIcon size={11} /> Slowing
@@ -1166,7 +1166,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
 
                   <div className="srb-intel-stats-row">
                     <div className="srb-intel-stat-chip">
-                      <span className="srb-stat-chip-label">Recent Sold</span>
+                      <span className="srb-stat-chip-label">Recently Sold</span>
                       <span className="srb-stat-chip-val">
                         <AnimatedCounter
                           value={data.insights.slowingProduct.unitsSold}
@@ -1177,7 +1177,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     </div>
 
                     <div className="srb-intel-stat-chip">
-                      <span className="srb-stat-chip-label">Stock Sitting</span>
+                      <span className="srb-stat-chip-label">In Stock</span>
                       <span className="srb-stat-chip-val blue">
                         <AnimatedCounter
                           value={data.insights.slowingProduct.currentStockUnits}
@@ -1199,13 +1199,13 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                       <div className="srb-intel-mini-icon green">
                         <CheckCircleIcon size={13} />
                       </div>
-                      <span className="srb-intel-kicker green">Velocity Health</span>
+                      <span className="srb-intel-kicker green">Sales Health</span>
                     </div>
-                    <span className="srb-runway-badge green">Pristine Flow</span>
+                    <span className="srb-runway-badge green">Looking Good</span>
                   </div>
-                  <div className="srb-intel-item-title">Smooth Circulation Across Catalogue</div>
+                  <div className="srb-intel-item-title">All Products Selling Normally</div>
                   <div className="srb-intel-insight-text">
-                    No critical velocity drop-offs or bottlenecked products detected in this period. All active items are circulating within normal thresholds.
+                    No sudden drops in sales or stuck products found in this period.
                   </div>
                 </div>
               )}
@@ -1243,13 +1243,13 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                         triggerKey={animationKey}
                       />
                     </span>
-                    <span className="srb-dormant-skus-tag">Idle SKUs</span>
+                    <span className="srb-dormant-skus-tag">Unsold Items</span>
                   </div>
                 </div>
 
                 <div className="srb-dormant-action-row">
                   <span className="srb-dormant-subtext">
-                    Zero customer orders in past {data.insights.nonMovingSummary.days} days. Review reorder policy before buying new stock.
+                    No sales in the last {data.insights.nonMovingSummary.days} days. Check before ordering more stock.
                   </span>
                   <button
                     type="button"
@@ -1260,9 +1260,9 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                       const el = document.getElementById('srb-ledger-table-section');
                       if (el) el.scrollIntoView({ behavior: 'smooth' });
                     }}
-                    title="Filter ledger to dormant products"
+                    title="Filter table to unsold products"
                   >
-                    <EyeIcon size={12} /> Review {data.insights.nonMovingSummary.count} SKUs <ArrowRightIcon size={11} />
+                    <EyeIcon size={12} /> View {data.insights.nonMovingSummary.count} Items <ArrowRightIcon size={11} />
                   </button>
                 </div>
               </div>
@@ -1380,7 +1380,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
               >
-                <AlertOctagonIcon size={12} /> Dormant
+                <AlertOctagonIcon size={12} /> Not Selling
               </button>
             </div>
 
@@ -1393,12 +1393,12 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                 setPage(1);
               }}
             >
-              <option value="units_desc">Units Sold (High-Low)</option>
-              <option value="units_asc">Units Sold (Low-High)</option>
-              <option value="txns_desc">Invoices / Txns (High-Low)</option>
+              <option value="units_desc">Most Sold First</option>
+              <option value="units_asc">Least Sold First</option>
+              <option value="txns_desc">Most Bills First</option>
               <option value="name_asc">Name (A-Z)</option>
-              <option value="stock_desc">Current Stock (High-Low)</option>
-              <option value="stock_asc">Current Stock (Low-High)</option>
+              <option value="stock_desc">Highest Stock First</option>
+              <option value="stock_asc">Lowest Stock First</option>
             </select>
 
             {hasActiveFilters && (
@@ -1502,17 +1502,17 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     </span>
                     {p.movementStatus === 'fast_moving' && (
                       <span className="srb-movement-status-badge fast">
-                        <ZapIcon size={12} color="#047857" /> Fast-Moving
+                        <ZapIcon size={12} color="#047857" /> Fast Selling
                       </span>
                     )}
                     {p.movementStatus === 'slow_moving' && (
                       <span className="srb-movement-status-badge slow">
-                        <HourglassIcon size={12} color="#b45309" /> Slow-Moving
+                        <HourglassIcon size={12} color="#b45309" /> Slow Selling
                       </span>
                     )}
                     {p.movementStatus === 'non_moving' && (
                       <span className="srb-movement-status-badge dead">
-                        <AlertOctagonIcon size={12} color="#dc2626" /> Non-Moving
+                        <AlertOctagonIcon size={12} color="#dc2626" /> Not Selling
                       </span>
                     )}
                   </div>
@@ -1520,7 +1520,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                   {/* Metrics Spec Grid */}
                   <div className="srb-mobile-spec-grid">
                     <div className="srb-mobile-spec-item">
-                      <span className="srb-mobile-spec-label">Units Sold</span>
+                      <span className="srb-mobile-spec-label">Sold</span>
                       <span className="srb-mobile-spec-val" style={{ color: '#6d4aff', fontWeight: 800 }}>
                         {p.unitsSold.toLocaleString('en-IN')}{' '}
                         <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>{p.unit}</span>
@@ -1528,7 +1528,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     </div>
 
                     <div className="srb-mobile-spec-item">
-                      <span className="srb-mobile-spec-label">Invoices</span>
+                      <span className="srb-mobile-spec-label">Bills</span>
                       <span className="srb-mobile-spec-val">
                         {p.salesTxns}{' '}
                         <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>bills</span>
@@ -1574,7 +1574,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     setSortField((prev) => (prev === 'name_asc' ? 'units_desc' : 'name_asc'))
                   }
                 >
-                  PRODUCT &amp; IDENTIFIERS {sortField === 'name_asc' ? '▴' : ''}
+                  PRODUCT {sortField === 'name_asc' ? '▴' : ''}
                 </th>
                 <th>CATEGORY</th>
                 <th
@@ -1583,7 +1583,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     setSortField((prev) => (prev === 'stock_desc' ? 'stock_asc' : 'stock_desc'))
                   }
                 >
-                  CURRENT STOCK {sortField === 'stock_desc' ? '▼' : sortField === 'stock_asc' ? '▲' : ''}
+                  IN STOCK {sortField === 'stock_desc' ? '▼' : sortField === 'stock_asc' ? '▲' : ''}
                 </th>
                 <th
                   style={{ cursor: 'pointer', color: '#6d4aff' }}
@@ -1591,7 +1591,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     setSortField((prev) => (prev === 'units_desc' ? 'units_asc' : 'units_desc'))
                   }
                 >
-                  UNITS SOLD {sortField === 'units_desc' ? '▼' : sortField === 'units_asc' ? '▲' : ''}
+                  SOLD {sortField === 'units_desc' ? '▼' : sortField === 'units_asc' ? '▲' : ''}
                 </th>
                 <th
                   style={{ cursor: 'pointer' }}
@@ -1599,10 +1599,10 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                     setSortField((prev) => (prev === 'txns_desc' ? 'units_desc' : 'txns_desc'))
                   }
                 >
-                  INVOICE BILLS {sortField === 'txns_desc' ? '▼' : ''}
+                  BILLS {sortField === 'txns_desc' ? '▼' : ''}
                 </th>
                 <th>LAST SOLD</th>
-                <th>MOVEMENT STATUS</th>
+                <th>STATUS</th>
                 <th style={{ textAlign: 'right' }}>ACTION</th>
               </tr>
             </thead>
@@ -1679,17 +1679,17 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                       <td>
                         {p.movementStatus === 'fast_moving' && (
                           <span className="srb-movement-status-badge fast">
-                            <ZapIcon size={12} color="#047857" /> Fast-Moving
+                            <ZapIcon size={12} color="#047857" /> Fast Selling
                           </span>
                         )}
                         {p.movementStatus === 'slow_moving' && (
                           <span className="srb-movement-status-badge slow">
-                            <HourglassIcon size={12} color="#b45309" /> Slow-Moving
+                            <HourglassIcon size={12} color="#b45309" /> Slow Selling
                           </span>
                         )}
                         {p.movementStatus === 'non_moving' && (
                           <span className="srb-movement-status-badge dead">
-                            <AlertOctagonIcon size={12} color="#dc2626" /> Non-Moving
+                            <AlertOctagonIcon size={12} color="#dc2626" /> Not Selling
                           </span>
                         )}
                       </td>
@@ -1708,7 +1708,7 @@ export const ProductMovementAnalysisView: React.FC<ProductMovementAnalysisViewPr
                           </button>
                         ) : (
                           <span style={{ fontSize: '0.74rem', color: '#94a3b8' }}>
-                            {p.movementStatus === 'non_moving' ? 'Hold POs' : 'Adequate'}
+                            {p.movementStatus === 'non_moving' ? "Don't Reorder" : 'Stock OK'}
                           </span>
                         )}
                       </td>

@@ -1577,19 +1577,21 @@ export const TodayDashboardView: React.FC<TodayDashboardViewProps> = ({
           </div>
 
           {/* GST COLLECTED FOOTER TILES */}
-          <div className="payment-gst-tiles">
-            <div className="gst-tile">
-              <span className="gst-tile-label">GST COLLECTED TODAY</span>
-              <span className="gst-tile-val mono">{formatRupees(payments.gst.totalGstMinor, true)}</span>
+          {(Boolean(shop?.gstEnabled) || payments.gst.totalGstMinor > 0) && (
+            <div className="payment-gst-tiles">
+              <div className="gst-tile">
+                <span className="gst-tile-label">GST COLLECTED TODAY</span>
+                <span className="gst-tile-val mono">{formatRupees(payments.gst.totalGstMinor, true)}</span>
+              </div>
+              <div className="gst-tile">
+                <span className="gst-tile-label">CGST · SGST</span>
+                <span className="gst-tile-val mono">
+                  {formatRupees(payments.gst.cgstMinor)} · {formatRupees(payments.gst.sgstMinor)}
+                  {payments.gst.igstMinor > 0 && ` · ${formatRupees(payments.gst.igstMinor)} IGST`}
+                </span>
+              </div>
             </div>
-            <div className="gst-tile">
-              <span className="gst-tile-label">CGST · SGST</span>
-              <span className="gst-tile-val mono">
-                {formatRupees(payments.gst.cgstMinor)} · {formatRupees(payments.gst.sgstMinor)}
-                {payments.gst.igstMinor > 0 && ` · ${formatRupees(payments.gst.igstMinor)} IGST`}
-              </span>
-            </div>
-          </div>
+          )}
         </div>
       </section>
 
@@ -1794,13 +1796,13 @@ export const TodayDashboardView: React.FC<TodayDashboardViewProps> = ({
                   );
                 })
               ) : (
-                <div className="empty-sub-card">No active counters configured for this branch.</div>
+                <div className="empty-sub-card">No active counters configured.</div>
               )}
             </div>
 
             <div className="counter-total-row-bento">
               <div className="counter-total-left">
-                <span className="counter-total-label">Branch Total</span>
+                <span className="counter-total-label">Total Collections</span>
                 <span className="counter-total-meta">
                   Across {countersToday?.counters?.length || 0} active {countersToday?.counters?.length === 1 ? 'counter' : 'counters'}
                 </span>
@@ -1921,25 +1923,27 @@ export const TodayDashboardView: React.FC<TodayDashboardViewProps> = ({
         </div>
 
         {/* WS CARD 5: WHOLESALE GST COLLECTED */}
-        <div className="today-kpi-card">
-          <div className="kpi-card-header">
-            <span className="kpi-label" title="GST COLLECTED">GST COLLECTED</span>
-            <span className="kpi-icon-badge green">
-              <ShieldCheckIcon size={16} style={{ color: "#059669" }} />
-            </span>
+        {(Boolean(shop?.gstEnabled) || wholesale.totalGstMinor > 0) && (
+          <div className="today-kpi-card">
+            <div className="kpi-card-header">
+              <span className="kpi-label" title="GST COLLECTED">GST COLLECTED</span>
+              <span className="kpi-icon-badge green">
+                <ShieldCheckIcon size={16} style={{ color: "#059669" }} />
+              </span>
+            </div>
+            <div className="kpi-value-row">
+              <span className="kpi-value mono">
+                <AnimatedCounter value={wholesale.totalGstMinor} isRupees={true} animKey={chartAnimKey} />
+              </span>
+            </div>
+            <div className="kpi-footer-row">
+              <span className="kpi-meta-text">
+                CGST {formatRupees(wholesale.cgstMinor)} · SGST {formatRupees(wholesale.sgstMinor)}
+                {wholesale.igstMinor > 0 && ` · IGST ${formatRupees(wholesale.igstMinor)}`}
+              </span>
+            </div>
           </div>
-          <div className="kpi-value-row">
-            <span className="kpi-value mono">
-              <AnimatedCounter value={wholesale.totalGstMinor} isRupees={true} animKey={chartAnimKey} />
-            </span>
-          </div>
-          <div className="kpi-footer-row">
-            <span className="kpi-meta-text">
-              CGST {formatRupees(wholesale.cgstMinor)} · SGST {formatRupees(wholesale.sgstMinor)}
-              {wholesale.igstMinor > 0 && ` · IGST ${formatRupees(wholesale.igstMinor)}`}
-            </span>
-          </div>
-        </div>
+        )}
 
         {/* WS CARD 6: WHOLESALE OUTSTANDING / CREDIT AMOUNT */}
         <div className="today-kpi-card">

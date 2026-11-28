@@ -71,20 +71,7 @@ export const branchView = (b: any): Branch => {
  */
 export async function ensureDedicatedCounters(db: Queryable, tenantId: string): Promise<void> {
   try {
-    // 1. Ensure Manager Counter for every branch
-    await db.exec(
-      `INSERT INTO counters (id, tenant_id, branch_id, name, code, status, created_at, updated_at)
-       SELECT 'cnt_' || substr(md5(b.id || '_mgr'), 1, 16), b.tenant_id, b.id, 'Manager Counter (' || b.code || ')', b.code || '-MGR', 'ACTIVE', now(), now()
-       FROM branches b
-       WHERE b.tenant_id = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM counters c WHERE c.tenant_id = b.tenant_id AND c.branch_id = b.id AND (upper(c.code) = upper(b.code || '-MGR') OR lower(c.name) LIKE 'manager counter%')
-         )
-       ON CONFLICT (id) DO NOTHING`,
-      [tenantId],
-    );
-
-    // 2. Ensure strictly ONE dedicated Super Admin POS Counter per tenant (linked to MAIN branch or first branch)
+    // Ensure strictly ONE dedicated Super Admin POS Counter per tenant (linked to MAIN branch or first branch)
     const mainBranch =
       (await db.one<any>("SELECT id FROM branches WHERE tenant_id = ? AND code = 'MAIN' LIMIT 1", [tenantId])) ||
       (await db.one<any>('SELECT id FROM branches WHERE tenant_id = ? ORDER BY created_at ASC LIMIT 1', [tenantId]));

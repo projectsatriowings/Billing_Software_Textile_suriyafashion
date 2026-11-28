@@ -106,12 +106,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
     itemsRef.current = items || [];
   }, [items]);
 
-  const getBranchLabel = (branchId?: string | null, branchName?: string | null) => {
-    if (!branchId && !branchName) return 'Main Store';
-    const found = branches.find((b) => b.id === branchId || b.code === branchId);
-    return found?.name || branchName || branchId || 'Main Store';
-  };
-
   // Helper to scope items to active branch
   const getBranchScopedItems = useCallback((rawItems: Item[]) => {
     if (!rawItems || rawItems.length === 0) return [];
@@ -333,11 +327,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
           <Skeleton width={220} height={11} radius={4} />
         </div>
       ),
-    },
-    {
-      header: 'Branch',
-      minWidth: '130px',
-      renderSkeleton: () => <Skeleton width={160} height={32} radius={6} />,
     },
     {
       header: 'Category',
@@ -1573,13 +1562,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
                       </span>
                     </div>
 
-                    <div className="inv-mobile-spec-item">
-                      <span className="inv-mobile-spec-label">Branch</span>
-                      <span className="inv-mobile-spec-val" style={{ fontSize: '0.78rem', color: '#475569' }}>
-                        {getBranchLabel(item.branchId, (item as any).branchName)}
-                      </span>
-                    </div>
-
                     {item.preferredSupplierName ? (
                       <div className="inv-mobile-spec-item">
                         <span className="inv-mobile-spec-label">Supplier</span>
@@ -1701,7 +1683,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
                 <thead>
                   <tr>
                     <th style={{ minWidth: '170px' }} className="col-sticky-prod">Product & Identifiers</th>
-                    <th style={{ minWidth: '130px', textAlign: 'left', whiteSpace: 'nowrap' }}>Branch</th>
                     <th style={{ minWidth: '140px', width: '150px', textAlign: 'left', whiteSpace: 'nowrap' }}>Category</th>
                     <th style={{ minWidth: '100px', textAlign: 'right' }}>Current Stock</th>
                     <th style={{ minWidth: '110px' }}>Status</th>
@@ -1727,34 +1708,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
                             {item.sku && item.barcode ? ' • ' : ''}
                             {item.barcode ? `Barcode: ${item.barcode}` : ''}
                           </div>
-                        </td>
-                        <td style={{ minWidth: '130px', textAlign: 'left', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.35rem',
-                              background: '#f8fafc',
-                              color: '#334155',
-                              border: '1px solid #e2e8f0',
-                              padding: '0.2rem 0.55rem',
-                              borderRadius: '6px',
-                              fontSize: '0.78rem',
-                              fontWeight: 600,
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={getBranchLabel(item.branchId, (item as any).branchName)}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isSuperAdmin ? "#49364A" : "#6366f1"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                              <path d="M3 21h18" />
-                              <path d="M5 21V7l8-4v18" />
-                              <path d="M19 21V11l-6-4" />
-                              <line x1="9" y1="9" x2="9" y2="9.01" />
-                              <line x1="9" y1="13" x2="9" y2="13.01" />
-                              <line x1="9" y1="17" x2="9" y2="17.01" />
-                            </svg>
-                            <span>{getBranchLabel(item.branchId, (item as any).branchName)}</span>
-                          </span>
                         </td>
                         <td style={{ minWidth: '140px', width: '150px', textAlign: 'left', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                           {(() => {
@@ -2065,7 +2018,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
                 <thead>
                   <tr>
                     <th>Product & Identifiers</th>
-                    <th style={{ minWidth: '130px', textAlign: 'left', whiteSpace: 'nowrap' }}>Branch</th>
                     <th style={{ minWidth: '140px', width: '150px', textAlign: 'left', whiteSpace: 'nowrap' }}>Category</th>
                     <th style={{ textAlign: 'right' }}>Current Stock</th>
                     <th style={{ textAlign: 'right' }}>Reorder Point</th>
@@ -2100,34 +2052,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
                             {r.sku && r.barcode ? ' • ' : ''}
                             {r.barcode ? `Barcode: ${r.barcode}` : ''}
                           </div>
-                        </td>
-                        <td style={{ minWidth: '130px', textAlign: 'left', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.35rem',
-                              background: '#f8fafc',
-                              color: '#334155',
-                              border: '1px solid #e2e8f0',
-                              padding: '0.2rem 0.55rem',
-                              borderRadius: '6px',
-                              fontSize: '0.78rem',
-                              fontWeight: 600,
-                              whiteSpace: 'nowrap',
-                            }}
-                            title={getBranchLabel(r.branchId, (r as any).branchName)}
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isSuperAdmin ? "#49364A" : "#6366f1"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                              <path d="M3 21h18" />
-                              <path d="M5 21V7l8-4v18" />
-                              <path d="M19 21V11l-6-4" />
-                              <line x1="9" y1="9" x2="9" y2="9.01" />
-                              <line x1="9" y1="13" x2="9" y2="13.01" />
-                              <line x1="9" y1="17" x2="9" y2="17.01" />
-                            </svg>
-                            <span>{getBranchLabel(r.branchId, (r as any).branchName)}</span>
-                          </span>
                         </td>
                         <td style={{ minWidth: '140px', width: '150px', textAlign: 'left', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                           <span className="category-pill">{r.category || 'General'}</span>
