@@ -192,17 +192,16 @@ test('5. Validation & reconciliation detect math mismatches without altering sup
   assert.equal(rec.isReconciled, false);
 });
 
-test('6. Exact 8-column ExcelJS output includes Price Inclusive of GST', async () => {
+test('6. Exact 4-column ExcelJS output matches Product Name, Size, Cost, Stock', async () => {
   const buf = await generateTemplateExcel([
-    { name: 'ANAND TRUNK 80', uom: 'PCS', sellingPrice: '180', costPrice: '135', hsn: '6107', gstRate: '5%', priceInclusive: 'No', openingStock: '20' },
+    { name: "Men's Cotton Formal Shirt", size: 'M', costPrice: '350', openingStock: '25' },
+    { name: '5L Plastic Storage Container', size: 'Free Size', costPrice: '110', openingStock: '20' },
   ]);
   const wb = XLSX.read(buf, { type: 'buffer' });
   const rows = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[wb.SheetNames[0]], { header: 1 });
-  assert.deepEqual(rows[0], [
-    'Product Name', 'UOM', 'Selling Price', 'Cost Price', 'HSN', 'GST Rate', 'Price Inclusive of GST', 'Opening Stock',
-  ]);
-  assert.equal(rows[1][6], 'No');
-  assert.equal(rows[1][7], 20);
+  assert.deepEqual(rows[0], ['Product Name', 'Size', 'Cost', 'Stock']);
+  assert.deepEqual(rows[1], ["Men's Cotton Formal Shirt", 'M', 350, 25]);
+  assert.deepEqual(rows[2], ['5L Plastic Storage Container', 'Free Size', 110, 20]);
 });
 
 test('7. End-to-end API pipeline: upload -> extract -> update -> export -> import -> history', async () => {

@@ -587,6 +587,41 @@ export const CATEGORY_CONCEPTS: CategoryConcept[] = [
     keywords: ['bread', 'pav', 'bun', 'cake', 'pastry', 'muffin', 'croissant', 'bake'],
     targetCategoryPatterns: ['bakery & breads', 'bakery', 'breads & bakery', 'packaged foods'],
   },
+  {
+    id: 'mens_shirts',
+    keywords: ['formal shirt', 'casual shirt', 'cotton shirt', 'linen shirt', 'check shirt', 'shirt', 't-shirt', 'tshirt', 'polo'],
+    targetCategoryPatterns: ['shirts', "men's shirts", 'mens shirts', 't-shirts', "men's wear", 'mens wear'],
+  },
+  {
+    id: 'womens_kurtis',
+    keywords: ['kurti', 'kurta', 'anarkali', 'tunic', 'palazzo', 'dupatta', 'salwar', 'churidar'],
+    targetCategoryPatterns: ['kurtis', 'kurti', "women's wear", 'womens wear', 'ethnic wear'],
+  },
+  {
+    id: 'shorts_bottoms',
+    keywords: ['shorts', 'bermuda', 'capri', 'boxer', 'track pant', 'jogger', 'trouser', 'jeans', 'denim', 'pant'],
+    targetCategoryPatterns: ['shorts', 'jeans', 'trousers', 'bottomwear', 'boys wear', "men's wear"],
+  },
+  {
+    id: 'slippers_footwear',
+    keywords: ['slipper', 'slippers', 'chappal', 'sandal', 'flip flop', 'flip-flop', 'shoe', 'shoes', 'footwear', 'crocs'],
+    targetCategoryPatterns: ["men's slippers", 'mens slippers', 'slippers', 'footwear', 'sandals', 'shoes'],
+  },
+  {
+    id: 'sarees_ethnic',
+    keywords: ['saree', 'sari', 'silk saree', 'cotton saree', 'lehenga', 'blouse'],
+    targetCategoryPatterns: ['sarees', 'saree', 'ethnic wear', "women's wear"],
+  },
+  {
+    id: 'innerwear_vests',
+    keywords: ['vest', 'banian', 'brief', 'trunk', 'innerwear', 'undershirt', 'socks'],
+    targetCategoryPatterns: ['innerwear', 'vests', "men's wear"],
+  },
+  {
+    id: 'plastic_household',
+    keywords: ['storage container', 'container', 'bucket', 'mug', 'basket', 'plastic', 'tub', 'hanger'],
+    targetCategoryPatterns: ['plastic', 'household', 'home & kitchen', 'storage', 'containers', 'general'],
+  },
 ];
 
 const CATEGORY_STOP_WORDS = new Set([
@@ -626,26 +661,90 @@ function getWordStems(word: string): string[] {
  * Accurate: uses domain concepts and priority scoring to disambiguate (e.g. hair oil -> personal care).
  * Safe: returns null if the match is ambiguous or confident match is not found.
  */
-export function suggestCategory(
+function normalizeCategoryPhrase(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/['’]s\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function getAlphaWords(text: string): string[] {
+  return normalizeCategoryPhrase(text)
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !CATEGORY_STOP_WORDS.has(w) && !/^\d+(?:[a-z]{1,2})?$/.test(w));
+}
+
+function wordsStemMatch(a: string, b: string): boolean {
+  const stemsA = getWordStems(a);
+  const stemsB = new Set(getWordStems(b));
+  return stemsA.some((s) => stemsB.has(s));
+}
+
+// Words in parent category names that say nothing about who the product is for
+const GENERIC_PARENT_WORDS = new Set(['wear', 'clothing', 'apparel', 'fashion', 'garments', 'collection', 'section', 'dept', 'department']);
+
+export interface SuggestableCategory {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  parentName?: string | null;
+}
+
+export function suggestCategory<T extends SuggestableCategory>(
   productName: string,
-  storeCategories: { id: string; name: string }[]
-): { id: string; name: string } | null {
+  storeCategories: T[]
+): T | null {
   if (!productName || !productName.trim() || !storeCategories || storeCategories.length === 0) {
     return null;
   }
+  const nameById = new Map(storeCategories.map((c) => [c.id, c.name]));
+  const parentNameOf = (cat: SuggestableCategory): string =>
+    (cat.parentName || (cat.parentId ? nameById.get(cat.parentId) : '') || '').trim();
 
   const cleanName = productName.toLowerCase().trim();
+  const normalizedProduct = normalizeCategoryPhrase(productName);
+  const productWords = getAlphaWords(productName);
+  const productAllWords = normalizedProduct.split(/\s+/).filter(Boolean);
+  const firstWord = productWords[0] || '';
+  const lastWord = productWords.length > 0 ? productWords[productWords.length - 1] : '';
 
   // Score each active store category
   const scoredCategories = storeCategories.map((cat) => {
     let score = 0;
     const catNameLower = cat.name.toLowerCase().trim();
+    const normalizedCat = normalizeCategoryPhrase(cat.name);
+    const catWords = getAlphaWords(cat.name);
 
     // 1. Exact full category name match (highest dynamic priority)
     if (catNameLower.length >= 3) {
       const fullBoundary = new RegExp(`(^|\\b)${catNameLower.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}(\\b|$)`, 'i');
-      if (fullBoundary.test(cleanName)) {
+      if (fullBoundary.test(cleanName) || (normalizedCat.length >= 3 && normalizedProduct === normalizedCat)) {
         score += 1000 + catNameLower.length * 10;
+      }
+    }
+
+    // 1b. First + Last word combined match (e.g. "Men's Rubber Slippers" -> "Men's Slippers",
+    // "Men's Cotton Formal Shirt" -> "Men's Shirts")
+    if (firstWord && lastWord && firstWord !== lastWord && catWords.length >= 2) {
+      const catFirst = catWords[0];
+      const catLast = catWords[catWords.length - 1];
+      if (wordsStemMatch(firstWord, catFirst) && wordsStemMatch(lastWord, catLast)) {
+        score += 800;
+      }
+    }
+
+    // 1c. Last word match (head noun, e.g. "Shirt" -> "SHIRTS", "Kurti" -> "KURTIS", "Shorts" -> "SHORTS")
+    // Ranked above first-word-only match so "Men's Cotton Formal Shirt" prefers "SHIRTS" over "MEN'S WEAR".
+    if (lastWord && catWords.some((cw) => wordsStemMatch(lastWord, cw))) {
+      score += 350;
+    }
+
+    // 1d. First word match (e.g. "Men's ..." -> "MEN'S WEAR" when no more specific last-word category exists)
+    if (firstWord && firstWord !== lastWord && catWords.some((cw) => wordsStemMatch(firstWord, cw))) {
+      score += 180;
+      if (catWords.some((cw) => ['wear', 'clothing', 'apparel', 'fashion', 'garments', 'collection'].includes(cw))) {
+        score += 40;
       }
     }
 
@@ -690,10 +789,33 @@ export function suggestCategory(
       }
     }
 
+    // 3b. Specificity: every word of the category name appears in the product name.
+    // "Men's Cotton Formal Shirt" fully covers "Shirts" but not "T-Shirts" (no "t"), and
+    // "Men's Polo T-Shirt" covers both, preferring the longer "T-Shirts".
+    if (score > 0) {
+      const catAllWords = normalizedCat.split(/\s+/).filter((w) => w && !CATEGORY_STOP_WORDS.has(w));
+      if (
+        catAllWords.length > 0 &&
+        catAllWords.every((cw) => productAllWords.some((pw) => pw === cw || wordsStemMatch(pw, cw)))
+      ) {
+        score += 50 * catAllWords.length;
+      }
+    }
+
+    // 4. Parent category context: the same subcategory name can exist under several parents
+    // (e.g. "Shirts" under "Men's Wear" and under "Boys' Wear"). A product word matching the
+    // parent ("Men's Cotton Formal Shirt" → Men's Wear) picks the right one.
+    if (score > 0) {
+      const parentWords = getAlphaWords(parentNameOf(cat)).filter((w) => !GENERIC_PARENT_WORDS.has(w));
+      if (parentWords.length > 0 && productWords.some((pw) => parentWords.some((cw) => wordsStemMatch(pw, cw)))) {
+        score += 60;
+      }
+    }
+
     return { cat, score };
   });
 
-  // Filter out non-matching categories
+  // Filter out non-matching categories (stable sort keeps the store's category order on equal scores)
   const positiveMatches = scoredCategories
     .filter((sc) => sc.score > 0)
     .sort((a, b) => b.score - a.score);
@@ -704,10 +826,15 @@ export function suggestCategory(
 
   const topMatch = positiveMatches[0];
 
-  // Disambiguation: if there is another category with the exact same top score, match is ambiguous
+  // Disambiguation: if a differently named category has the exact same top score, the match is
+  // ambiguous. Ties between categories with the same name (duplicate subcategories under different
+  // parents) are not ambiguous about *what* the product is, so take the first in store order.
   if (positiveMatches.length > 1) {
-    const runnerUp = positiveMatches[1];
-    if (runnerUp.score === topMatch.score) {
+    const topKey = normalizeCategoryPhrase(topMatch.cat.name);
+    const tiedDifferentName = positiveMatches.some(
+      (sc) => sc !== topMatch && sc.score === topMatch.score && normalizeCategoryPhrase(sc.cat.name) !== topKey
+    );
+    if (tiedDifferentName) {
       // Ambiguous match — user must select manually
       return null;
     }

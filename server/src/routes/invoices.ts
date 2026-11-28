@@ -446,7 +446,10 @@ export function registerInvoices(r: Router) {
     const isIntra = b.intra !== undefined
       ? Boolean(b.intra)
       : (customerStateCode ? customerStateCode === shopState : true);
-    const isGstEnabled = Boolean(shop.gst_enabled ?? shop.gstEnabled ?? false);
+    const shopGstEnabled = Boolean(shop.gst_enabled ?? shop.gstEnabled ?? false);
+    const isGstEnabled = isWholesale && b.applyGst !== undefined
+      ? Boolean(b.applyGst)
+      : shopGstEnabled;
 
     const formattedLines = linesInput.map((l: any, i: number) => {
       const name = V.str(l.name, `Item ${i + 1} name`, { required: true, max: 120 });
@@ -1035,45 +1038,9 @@ export function registerInvoices(r: Router) {
         }
       }
 
-      // 6. Customer loyalty points calculation & update based on shop's custom rule
-      if (partyId) {
-        const isLoyaltyActive = Boolean(shop.loyaltyEnabled ?? shop.loyalty_enabled ?? true);
-        const ptsPer100 = Number(shop.loyaltyPointsPer100 ?? shop.loyalty_points_per_100 ?? 10);
-        const minRedeem = Number(shop.loyaltyMinPointsRedeem ?? shop.loyalty_min_points_redeem ?? 10);
-
-        if (isLoyaltyActive && ptsPer100 > 0) {
-          // calculated.totalMinor is in paise (₹100 = 10,000 paise)
-          earnedLoyaltyPoints = Math.floor((calculated.totalMinor * ptsPer100) / 10000);
-        } else {
-          earnedLoyaltyPoints = 0;
-        }
-
-        if (redeemedPoints > 0) {
-          if (!isLoyaltyActive) {
-            throw bad('Loyalty rewards program is currently disabled for this store.');
-          }
-          const custParty = await q.one<{ loyalty_points: number; loyaltyPoints: number }>(
-            'SELECT loyalty_points FROM parties WHERE id = ? AND tenant_id = ? FOR UPDATE',
-            [partyId, tenantId]
-          );
-          const currentPts = Number(custParty?.loyaltyPoints ?? custParty?.loyalty_points ?? 0);
-          if (currentPts < minRedeem) {
-            throw bad(`Minimum ${minRedeem} points required to redeem (customer has ${currentPts} points).`);
-          }
-          if (currentPts < redeemedPoints) {
-            throw bad(`Insufficient loyalty points. Customer has ${currentPts} points, requested to redeem ${redeemedPoints}.`);
-          }
-        }
-
-        const updatedCust = await q.one<{ loyalty_points?: number; loyaltyPoints?: number }>(
-          `UPDATE parties
-           SET loyalty_points = GREATEST(0, loyalty_points - ? + ?)
-           WHERE id = ? AND tenant_id = ?
-           RETURNING loyalty_points`,
-          [redeemedPoints, earnedLoyaltyPoints, partyId, tenantId]
-        );
-        customerLoyaltyPoints = Number(updatedCust?.loyaltyPoints ?? updatedCust?.loyalty_points ?? 0);
-      }
+      // 6. Customer loyalty points system disabled
+      earnedLoyaltyPoints = 0;
+      customerLoyaltyPoints = null;
 
       // 6.5 Record post-closing adjustment record if this is a Late Sale
       if (isLateSale && closedDayRecord?.id) {
@@ -1223,13 +1190,9 @@ export function registerInvoices(r: Router) {
     let partyRow: any = null;
     if (pId) {
       partyRow = await db.one(
-        'SELECT name, phone, email, loyalty_points, gstin, address, state_code, custom FROM parties WHERE id = ?',
+        'SELECT name, phone, email, gstin, address, state_code, custom FROM parties WHERE id = ?',
         [pId]
       );
-      const pts = Number(partyRow?.loyaltyPoints ?? partyRow?.loyalty_points ?? 0);
-      if (pts > 0) {
-        customFields.push({ label: '⭐ Loyalty Balance', value: `${pts} pts` });
-      }
     }
     const wcId = inv.wholesaleCustomerId ?? inv.wholesale_customer_id;
     let wholesaleCustomerRow: any = null;

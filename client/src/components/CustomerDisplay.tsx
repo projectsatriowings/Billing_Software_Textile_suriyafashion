@@ -491,10 +491,6 @@ export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ counterId = 'c
                   <strong>🧾 GST Tax Transparency</strong>
                   <span>Itemized bills with clear tax rates & HSN breakdown</span>
                 </div>
-                <div className="cfd-perk-card">
-                  <strong>🎁 Loyalty Rewards</strong>
-                  <span>Earn points on every purchase to redeem on future bills</span>
-                </div>
               </div>
             </div>
           ) : (
@@ -842,20 +838,8 @@ export const CustomerDisplay: React.FC<CustomerDisplayProps> = ({ counterId = 'c
                 </div>
               </div>
             ) : (
-              /* SCANNING / CASH / IDLE LOYALTY HUB */
+              /* SCANNING / CASH / IDLE PAYMENT HUB */
               <div className="cfd-loyalty-hub">
-                <div className="cfd-loyalty-promo">
-                  <div className="cfd-promo-icon">🎁</div>
-                  <div className="cfd-promo-text">
-                    <span className="cfd-promo-title">Customer Loyalty Rewards</span>
-                    <span className="cfd-promo-desc">
-                      {potentialLoyaltyPoints > 0
-                        ? `You are earning +${potentialLoyaltyPoints} Points on this bill! Redeemable on your next visit.`
-                        : 'Earn loyalty points on every purchase to unlock instant bill discounts!'}
-                    </span>
-                  </div>
-                </div>
-
                 <div className="cfd-payment-badges-row">
                   <span className="cfd-badges-title">Accepted Payment Modes</span>
                   <div className="cfd-badge-grid">

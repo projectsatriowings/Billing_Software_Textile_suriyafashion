@@ -116,7 +116,7 @@ export const APP_MODULES: AppModule[] = [
   {
     key: 'customers',
     name: 'Customers',
-    description: 'Customer contact directory, purchase history & loyalty points wallet',
+    description: 'Customer contact directory & purchase history',
     icon: 'Users',
     route: 'customers',
   },

@@ -389,6 +389,11 @@ export function WholesaleBillingView({
     return 0;
   });
 
+  // Wholesale GST Toggle & Mode ('product' = per-product GST, 'bill' = overall bill GST)
+  const [applyGst, setApplyGst] = useState<boolean>(() => Boolean(shop?.gstEnabled ?? true));
+  const [gstMode, setGstMode] = useState<'product' | 'bill'>('product');
+  const [overallGstRateBp, setOverallGstRateBp] = useState<number>(500);
+
   useEffect(() => {
     try {
       if (billDiscountRupees > 0) {
@@ -518,16 +523,23 @@ export function WholesaleBillingView({
       let lineCgst = 0;
       let lineSgst = 0;
       let lineIgst = 0;
+      const effectiveGstBp = !applyGst
+        ? 0
+        : gstMode === 'bill'
+          ? overallGstRateBp
+          : line.gstRateBp;
 
-      if (isInterstate) {
-        lineIgst = (lineBaseRupees * line.gstRateBp) / 10000;
-        igstRupees += lineIgst;
-      } else {
-        const halfRate = Math.floor(line.gstRateBp / 2);
-        lineCgst = (lineBaseRupees * halfRate) / 10000;
-        lineSgst = (lineBaseRupees * (line.gstRateBp - halfRate)) / 10000;
-        cgstRupees += lineCgst;
-        sgstRupees += lineSgst;
+      if (effectiveGstBp > 0) {
+        if (isInterstate) {
+          lineIgst = (lineBaseRupees * effectiveGstBp) / 10000;
+          igstRupees += lineIgst;
+        } else {
+          const halfRate = Math.floor(effectiveGstBp / 2);
+          lineCgst = (lineBaseRupees * halfRate) / 10000;
+          lineSgst = (lineBaseRupees * (effectiveGstBp - halfRate)) / 10000;
+          cgstRupees += lineCgst;
+          sgstRupees += lineSgst;
+        }
       }
 
       const lineTotalRupees = lineBaseRupees + lineCgst + lineSgst + lineIgst;
@@ -543,7 +555,11 @@ export function WholesaleBillingView({
 
     // Bill-level discount
     const netTaxableRupees = Math.max(0, taxableRupees - billDiscountRupees);
-    const totalTaxRupees = cgstRupees + sgstRupees + igstRupees;
+    const discountScale = taxableRupees > 0 ? netTaxableRupees / taxableRupees : 1;
+    const scaledCgstRupees = cgstRupees * discountScale;
+    const scaledSgstRupees = sgstRupees * discountScale;
+    const scaledIgstRupees = igstRupees * discountScale;
+    const totalTaxRupees = scaledCgstRupees + scaledSgstRupees + scaledIgstRupees;
     const rawTotalRupees = netTaxableRupees + totalTaxRupees;
 
     // Nearest rupee round off
@@ -557,16 +573,16 @@ export function WholesaleBillingView({
       subtotalRupees,
       lineDiscountsRupees,
       netTaxableRupees,
-      cgstRupees,
-      sgstRupees,
-      igstRupees,
+      cgstRupees: scaledCgstRupees,
+      sgstRupees: scaledSgstRupees,
+      igstRupees: scaledIgstRupees,
       totalTaxRupees,
       roundOffDiffRupees,
       roundedTotalRupees,
       totalPaise,
       lineCalculations,
     };
-  }, [cart, billDiscountRupees, isInterstate]);
+  }, [cart, billDiscountRupees, isInterstate, applyGst, gstMode, overallGstRateBp]);
 
   // Payment Breakdown
   const paidNumeric = useMemo(() => {
@@ -676,16 +692,24 @@ export function WholesaleBillingView({
     setIsSubmitting(true);
     try {
       // Lines payload
-      const lines = cart.map((l) => ({
-        itemId: l.item.id,
-        name: l.item.name,
-        qtyMilli: Math.round(l.qty * 1000),
-        priceMinor: Math.round(l.rateRupees * 100),
-        taxRateBp: l.gstRateBp,
-        discountMinor: Math.round(l.discountRupees * 100),
-        hsn: l.hsn,
-        unit: l.unit,
-      }));
+      const lines = cart.map((l) => {
+        const effectiveTaxRateBp = !applyGst
+          ? 0
+          : gstMode === 'bill'
+            ? overallGstRateBp
+            : l.gstRateBp;
+        return {
+          itemId: l.item.id,
+          name: l.item.name,
+          qtyMilli: Math.round(l.qty * 1000),
+          priceMinor: Math.round(l.rateRupees * 100),
+          taxRateBp: effectiveTaxRateBp,
+          taxRateBpOverride: effectiveTaxRateBp,
+          discountMinor: Math.round(l.discountRupees * 100),
+          hsn: l.hsn,
+          unit: l.unit,
+        };
+      });
 
       // Payments payload
       const payments = [];
@@ -716,6 +740,7 @@ export function WholesaleBillingView({
 
       const payload = {
         invoiceType: 'wholesale',
+        applyGst,
         branchId: activeBranchObj?.id || (selectedBranch && selectedBranch.toLowerCase() !== 'all' ? selectedBranch : undefined),
         wholesaleCustomerId: selectedCustomer.id,
         customerId: selectedCustomer.id,
@@ -1167,7 +1192,32 @@ export function WholesaleBillingView({
                             {line.hsn || '—'}
                           </td>
                           <td style={{ padding: '0.65rem', textAlign: 'center', color: '#475569' }}>
-                            {(line.gstRateBp / 100)}%
+                            {!applyGst ? (
+                              <span style={{ color: '#94a3b8' }}>0%</span>
+                            ) : gstMode === 'bill' ? (
+                              <span style={{ color: '#4f46e5', fontWeight: 600 }}>{(overallGstRateBp / 100)}%</span>
+                            ) : (
+                              <select
+                                className="form-input"
+                                value={line.gstRateBp}
+                                onChange={(e) => {
+                                  const bp = Number(e.target.value);
+                                  setCart((prev) => {
+                                    const copy = [...prev];
+                                    copy[idx].gstRateBp = bp;
+                                    return copy;
+                                  });
+                                }}
+                                style={{ padding: '0.25rem 0.35rem', fontSize: '0.8rem', minWidth: '62px', textAlign: 'center' }}
+                              >
+                                {[0, 500, 1200, 1800, 2800].map((bp) => (
+                                  <option key={bp} value={bp}>{bp / 100}%</option>
+                                ))}
+                                {![0, 500, 1200, 1800, 2800].includes(line.gstRateBp) && (
+                                  <option value={line.gstRateBp}>{line.gstRateBp / 100}%</option>
+                                )}
+                              </select>
+                            )}
                           </td>
                           <td style={{ padding: '0.65rem', textAlign: 'center' }}>
                             <input
@@ -1325,12 +1375,146 @@ export function WholesaleBillingView({
 
                 <div style={{ borderTop: '1px dashed #cbd5e1', margin: '0.25rem 0' }} />
 
+                {/* GST Toggle & Mode (Per-Product or Overall Bill) */}
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    padding: '0.6rem 0.7rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.84rem' }}>
+                      Apply GST
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={applyGst}
+                      onClick={() => setApplyGst((prev) => !prev)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: '999px',
+                        border: applyGst ? '1px solid #16a34a' : '1px solid #cbd5e1',
+                        background: applyGst ? '#dcfce7' : '#ffffff',
+                        color: applyGst ? '#166534' : '#64748b',
+                        fontWeight: 700,
+                        fontSize: '0.76rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: applyGst ? '#16a34a' : '#94a3b8',
+                        }}
+                      />
+                      {applyGst ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+
+                  {applyGst && (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => setGstMode('product')}
+                          style={{
+                            padding: '0.32rem 0.45rem',
+                            borderRadius: '7px',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: gstMode === 'product' ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                            background: gstMode === 'product' ? '#eef2ff' : '#ffffff',
+                            color: gstMode === 'product' ? '#4338ca' : '#475569',
+                          }}
+                        >
+                          Per Product
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGstMode('bill')}
+                          style={{
+                            padding: '0.32rem 0.45rem',
+                            borderRadius: '7px',
+                            fontSize: '0.76rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: gstMode === 'bill' ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                            background: gstMode === 'bill' ? '#eef2ff' : '#ffffff',
+                            color: gstMode === 'bill' ? '#4338ca' : '#475569',
+                          }}
+                        >
+                          Overall Bill
+                        </button>
+                      </div>
+
+                      {gstMode === 'bill' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' }}>
+                          {[500, 1200, 1800, 2800].map((bp) => {
+                            const active = overallGstRateBp === bp;
+                            return (
+                              <button
+                                key={bp}
+                                type="button"
+                                onClick={() => setOverallGstRateBp(bp)}
+                                style={{
+                                  padding: '0.2rem 0.48rem',
+                                  borderRadius: '6px',
+                                  fontSize: '0.74rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  border: active ? '1.5px solid #4f46e5' : '1px solid #cbd5e1',
+                                  background: active ? '#eef2ff' : '#ffffff',
+                                  color: active ? '#4338ca' : '#334155',
+                                }}
+                              >
+                                {bp / 100}%
+                              </button>
+                            );
+                          })}
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.5"
+                            className="form-input"
+                            value={overallGstRateBp / 100}
+                            onChange={(e) => {
+                              const pct = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                              setOverallGstRateBp(Math.round(pct * 100));
+                            }}
+                            style={{ width: '56px', textAlign: 'right', padding: '0.18rem 0.35rem', fontSize: '0.76rem', marginLeft: 'auto' }}
+                            title="Custom Overall GST %"
+                          />
+                          <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>%</span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
                   <span>Taxable Amount</span>
                   <span style={{ fontWeight: 600, color: '#1e293b' }}>₹{calculated.netTaxableRupees.toFixed(2)}</span>
                 </div>
 
-                {isInterstate ? (
+                {!applyGst ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '0.8rem' }}>
+                    <span>GST</span>
+                    <span>Not Applied (0%)</span>
+                  </div>
+                ) : isInterstate ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b' }}>
                     <span>Integrated GST (IGST)</span>
                     <span style={{ fontWeight: 600, color: '#1e293b' }}>₹{calculated.igstRupees.toFixed(2)}</span>

@@ -1687,7 +1687,6 @@ export function SuperAdminDashboard({
                   style={{ width: '100%', padding: '0.6rem 0.75rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.875rem', boxSizing: 'border-box', background: '#ffffff' }}
                 >
                   <option value="cashier">Cashier (Counter Billing & Drawer Shifts)</option>
-                  <option value="manager">Store Manager (Branch Operations)</option>
                   <option value="accountant">Accountant (Ledgers & GST)</option>
                 </select>
               </div>

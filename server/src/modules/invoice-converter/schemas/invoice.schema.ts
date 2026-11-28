@@ -50,8 +50,9 @@ export interface ExtractedInvoiceHeader {
 export interface ExtractedProductRecord {
   id: string;
   rowOrder: number;
-  // Core 8-column export fields (kept compatible with UI & Excel template)
+  // Core export fields (kept compatible with UI & 4-column Excel template)
   name: string;
+  size?: string;
   uom: string;
   sellingPrice: string;
   costPrice: string;

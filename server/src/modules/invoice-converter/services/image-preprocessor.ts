@@ -1,5 +1,10 @@
 import jpeg from 'jpeg-js';
-import UPNG from '@pdf-lib/upng';
+import UPNGModule from '@pdf-lib/upng';
+
+// Under ESM this CommonJS package arrives double-wrapped ({ default: { encode, decode, ... } }).
+// Without unwrapping, UPNG.encode / UPNG.decode are undefined and preprocessing silently fell back
+// to the raw image for every photo.
+const UPNG: typeof UPNGModule = ((UPNGModule as any)?.encode ? UPNGModule : (UPNGModule as any)?.default) as typeof UPNGModule;
 
 export const ALLOWED_INVOICE_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.txt'] as const;
 export const MAX_INVOICE_FILE_BYTES = 20 * 1024 * 1024; // 20 MB
@@ -47,7 +52,42 @@ export function validateInvoiceFile(
  * Fast O(W*H) integral-image adaptive thresholding (Bradley-Roth).
  * Handles uneven mobile camera shadows, pink/yellow paper, and faded ink.
  */
-function applyAdaptiveThreshold(luma: Uint8Array, width: number, height: number, windowRadius = 15, t = 0.12): Uint8Array {
+/** Otsu's global threshold: the grey level that best separates dark ink from the page background. */
+function otsuThreshold(luma: Uint8Array): number {
+  const hist = new Float64Array(256);
+  for (let i = 0; i < luma.length; i++) hist[luma[i]]++;
+  const total = luma.length;
+  let sumAll = 0;
+  for (let v = 0; v < 256; v++) sumAll += v * hist[v];
+  let sumB = 0;
+  let wB = 0;
+  let best = 0;
+  let bestT = 128;
+  for (let v = 0; v < 256; v++) {
+    wB += hist[v];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += v * hist[v];
+    const mB = sumB / wB;
+    const mF = (sumAll - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) {
+      best = between;
+      bestT = v;
+    }
+  }
+  return bestT;
+}
+
+function applyAdaptiveThreshold(
+  luma: Uint8Array,
+  width: number,
+  height: number,
+  windowRadius = 15,
+  t = 0.12,
+  globalDarkLimit = 255
+): Uint8Array {
   const integral = new Float64Array((width + 1) * (height + 1));
   const stride = width + 1;
 
@@ -75,7 +115,9 @@ function applyAdaptiveThreshold(luma: Uint8Array, width: number, height: number,
       const localMean = sum / count;
       const px = luma[y * width + x];
       // Keep soft anti-aliased dark ink while whitening paper background
-      out[y * width + x] = px < localMean * (1 - t) ? Math.min(px, 60) : 255;
+      // Ink must be darker than its neighbourhood AND dark overall, so tinted or dotted
+      // backgrounds (light blue paper with white dots) do not turn into black speckle.
+      out[y * width + x] = px < localMean * (1 - t) && px <= globalDarkLimit ? Math.min(px, 60) : 255;
     }
   }
   return out;
@@ -210,8 +252,11 @@ export function preprocessInvoiceBuffer(
       appliedSteps.push('upscale_2x');
     }
 
-    // 4. Adaptive local thresholding for uneven lighting & handwritten pen strokes
-    luma = applyAdaptiveThreshold(luma, width, height, 15, 0.11);
+    // 4. Adaptive local thresholding for uneven lighting & handwritten pen strokes,
+    // gated by Otsu's global threshold (with headroom for faded ink / shadows)
+    const otsu = otsuThreshold(luma);
+    const globalDarkLimit = Math.min(255, Math.round(otsu + (255 - otsu) * 0.25));
+    luma = applyAdaptiveThreshold(luma, width, height, 15, 0.11, globalDarkLimit);
     appliedSteps.push('adaptive_threshold');
 
     const finalPixels = width * height;

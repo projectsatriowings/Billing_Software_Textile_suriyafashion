@@ -672,44 +672,9 @@ export function registerExchanges(r: Router) {
         }
       }
 
-      // 9.5 Customer Loyalty Points update on Exchange (earn on new items, reverse on returned items)
-      const exchangePartyId = customerInput.id || (primaryOrigInv.partyId ?? primaryOrigInv.party_id) || null;
-      let finalPartyId = exchangePartyId;
-
-      if (!finalPartyId && customerInput.phone) {
-        const foundParty = await q.one<any>(
-          'SELECT id FROM parties WHERE tenant_id = ? AND phone = ? LIMIT 1',
-          [tenantId, customerInput.phone]
-        );
-        if (foundParty?.id) {
-          finalPartyId = foundParty.id;
-        }
-      }
-
+      // 9.5 Customer Loyalty Points disabled
       netLoyaltyPointsAdjusted = 0;
       customerLoyaltyPoints = null;
-      if (finalPartyId) {
-        const shop = await q.one<any>('SELECT * FROM tenants WHERE id = ?', [tenantId]);
-        const isLoyaltyActive = Boolean(shop?.loyaltyEnabled ?? shop?.loyalty_enabled ?? true);
-        const ptsPer100 = Number(shop?.loyaltyPointsPer100 ?? shop?.loyalty_points_per_100 ?? 10);
-
-        if (isLoyaltyActive && ptsPer100 > 0) {
-          const earnedOnNew = Math.floor((newTotalMinor * ptsPer100) / 10000);
-          const reversedOnReturn = Math.floor((returnTotalMinor * ptsPer100) / 10000);
-          netLoyaltyPointsAdjusted = earnedOnNew - reversedOnReturn;
-
-          if (netLoyaltyPointsAdjusted !== 0) {
-            const updated = await q.one<any>(
-              `UPDATE parties
-               SET loyalty_points = GREATEST(0, loyalty_points + ?)
-               WHERE id = ? AND tenant_id = ?
-               RETURNING loyalty_points`,
-              [netLoyaltyPointsAdjusted, finalPartyId, tenantId]
-            );
-            customerLoyaltyPoints = Number(updated?.loyaltyPoints ?? updated?.loyalty_points ?? 0);
-          }
-        }
-      }
 
       // 10. Audit log
       await audit(q, ctx, {

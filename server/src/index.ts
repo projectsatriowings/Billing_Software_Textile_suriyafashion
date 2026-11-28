@@ -52,7 +52,11 @@ async function main() {
   }
 
   const stop = () => {
-    if (httpsServer) httpsServer.close();
+    if (httpsServer) {
+      httpsServer.closeAllConnections?.();
+      httpsServer.close();
+    }
+    server.closeAllConnections?.();
     server.close(() => { db.close().finally(() => process.exit(0)); });
   };
   process.on('SIGTERM', stop);

@@ -260,11 +260,11 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     }
   }, [isStoreManagerEnabled, activeTab]);
 
-  // Sync tab with URL query parameter (?tab=managers|cashiers|counters)
+  // Sync tab with URL query parameter (?tab=cashiers|counters)
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search).get('tab');
-      if (p === 'managers' || p === 'cashiers' || p === 'counters') {
+      if (p === 'cashiers' || p === 'counters') {
         setActiveTab(p);
       }
     } catch {}
@@ -272,7 +272,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     const onPop = () => {
       try {
         const p = new URLSearchParams(window.location.search).get('tab');
-        if (p === 'managers' || p === 'cashiers' || p === 'counters') {
+        if (p === 'cashiers' || p === 'counters') {
           setActiveTab(p);
         }
       } catch {}
@@ -1278,6 +1278,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
   const filteredCounters = useMemo(() => {
     return counters.filter((c) => {
+      if (c.code.toUpperCase().endsWith('-MGR') || c.name.toLowerCase().startsWith('manager counter')) {
+        return false;
+      }
       if (cntBranchFilter !== 'ALL' && c.branch.id !== cntBranchFilter) {
         return false;
       }
@@ -1319,12 +1322,12 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         <header className="um-header-row">
           <div className="um-header-titles">
             <h1>User Management</h1>
-            <p>Manage store managers, cashiers, and checkout counters.</p>
+            <p>Manage cashiers and billing counters.</p>
           </div>
           <div className="um-header-actions">
             <button
               type="button"
-              className="um-btn-base um-btn-secondary"
+              className="um-btn-base um-btn-primary"
               onClick={openAddCashierDrawer}
               aria-label="Add cashier"
             >
@@ -1355,7 +1358,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         </header>
 
         {/* ==================================================================
-            B) THREE STAT CARDS
+            B) TWO STAT CARDS (Cashiers & Counters)
             ================================================================== */}
         <div className="um-stats-grid" style={{ gridTemplateColumns: isStoreManagerEnabled ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)' }}>
           {/* 1. Store Managers */}
@@ -1388,7 +1391,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             </div>
           </div>
 
-          {/* 3. Counters */}
+          {/* 2. Counters */}
           <div className="um-stat-card">
             <div className="um-stat-card-header">
               <div className="um-stat-icon-tile green">
@@ -1419,7 +1422,6 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
               <span className="um-tab-badge">{displayManagersTotal}</span>
             </button>
           )}
-
           <button
             type="button"
             role="tab"
@@ -1866,26 +1868,12 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 <input
                   type="text"
                   className="um-search-input"
-                  placeholder="Search by counter name, code, login or branch"
+                  placeholder="Search by counter name, code, or login"
                   value={cntSearch}
                   onChange={(e) => setCntSearch(e.target.value)}
                   aria-label="Search counters"
                 />
               </div>
-
-              <select
-                className="um-select"
-                value={cntBranchFilter}
-                onChange={(e) => setCntBranchFilter(e.target.value)}
-                aria-label="Filter counters by branch"
-              >
-                <option value="ALL">All branches</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} ({b.code})
-                  </option>
-                ))}
-              </select>
 
               <select
                 className="um-select"
@@ -1914,9 +1902,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 <thead>
                   <tr>
                     <th>Counter</th>
-                    <th>Branch</th>
                     <th>Counter Login</th>
-                    <th>Branch Manager</th>
                     <th>Status</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
@@ -1924,7 +1910,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 <tbody>
                   {filteredCounters.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={4}>
                         <div className="um-empty-state">
                           <h3 className="um-empty-title">No counters found</h3>
                           <p className="um-empty-sub">Create your checkout counters to start billing.</p>
@@ -1970,21 +1956,6 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                           </div>
                         </td>
 
-                        {/* Branch + inactive warning */}
-                        <td>
-                          <div className="um-branch-cell">
-                            <span className="um-branch-name">{cnt.branch.name}</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span className="um-mono-chip">{cnt.branch.code}</span>
-                              {!cnt.branch.active && (
-                                <span style={{ color: '#B42318', fontSize: '12px', fontWeight: 600 }}>
-                                  Branch inactive
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
                         {/* Counter Login */}
                         <td>
                           {cnt.loginUsername ? (
@@ -1993,18 +1964,6 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                             </span>
                           ) : (
                             <span style={{ color: '#8C88A2' }}>—</span>
-                          )}
-                        </td>
-
-                        {/* Branch Manager */}
-                        <td>
-                          {cnt.manager ? (
-                            <span style={{ fontWeight: 600, color: '#1A1830' }}>{cnt.manager.name}</span>
-                          ) : (
-                            <span className="um-warning-text">
-                              <Icons.AlertCircle />
-                              <span>Not assigned</span>
-                            </span>
                           )}
                         </td>
 

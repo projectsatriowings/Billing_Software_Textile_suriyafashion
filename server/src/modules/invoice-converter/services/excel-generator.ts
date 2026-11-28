@@ -2,25 +2,25 @@ import ExcelJS from 'exceljs';
 
 export interface ExcelExportRowInput {
   name: string;
-  uom: string;
-  sellingPrice: string;
+  size?: string | null;
+  sizeWeightVolume?: string | null;
+  variant?: string | null;
   costPrice: string;
-  hsn: string;
-  gstRate: string;
-  priceInclusive?: 'Yes' | 'No' | string;
   openingStock: string;
+  // Optional legacy fields
+  uom?: string;
+  sellingPrice?: string;
+  hsn?: string;
+  gstRate?: string;
+  priceInclusive?: 'Yes' | 'No' | string;
 }
 
 /**
- * Generates the exact 8-column Excel template compatible with BulkImportModal:
+ * Generates the exact 4-column Excel template:
  * 1. Product Name
- * 2. UOM
- * 3. Selling Price
- * 4. Cost Price
- * 5. HSN
- * 6. GST Rate
- * 7. Price Inclusive of GST
- * 8. Opening Stock
+ * 2. Size
+ * 3. Cost
+ * 4. Stock
  */
 export async function generateTemplateExcel(products: ExcelExportRowInput[]): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
@@ -32,14 +32,10 @@ export async function generateTemplateExcel(products: ExcelExportRowInput[]): Pr
   });
 
   worksheet.columns = [
-    { header: 'Product Name', key: 'productName', width: 34 },
-    { header: 'UOM', key: 'uom', width: 12 },
-    { header: 'Selling Price', key: 'sellingPrice', width: 16 },
-    { header: 'Cost Price', key: 'costPrice', width: 16 },
-    { header: 'HSN', key: 'hsn', width: 14 },
-    { header: 'GST Rate', key: 'gstRate', width: 14 },
-    { header: 'Price Inclusive of GST', key: 'priceInclusive', width: 20 },
-    { header: 'Opening Stock', key: 'openingStock', width: 16 },
+    { header: 'Product Name', key: 'productName', width: 38 },
+    { header: 'Size', key: 'size', width: 16 },
+    { header: 'Cost', key: 'cost', width: 16 },
+    { header: 'Stock', key: 'stock', width: 14 },
   ];
 
   const headerRow = worksheet.getRow(1);
@@ -61,20 +57,15 @@ export async function generateTemplateExcel(products: ExcelExportRowInput[]): Pr
   for (let i = 0; i < products.length; i++) {
     const p = products[i];
 
-    const spNum = p.sellingPrice ? parseFloat(p.sellingPrice) : null;
-    const cpNum = p.costPrice ? parseFloat(p.costPrice) : null;
-    const stockNum = p.openingStock ? parseFloat(p.openingStock) : 0;
-    const priceIncl = p.priceInclusive === 'No' ? 'No' : 'Yes';
+    const cpNum = p.costPrice ? parseFloat(String(p.costPrice).replace(/,/g, '')) : null;
+    const stockNum = p.openingStock ? parseFloat(String(p.openingStock).replace(/,/g, '')) : 0;
+    const sizeVal = (p.size ?? p.sizeWeightVolume ?? p.variant ?? '').trim();
 
     const row = worksheet.addRow({
-      productName: p.name || '',
-      uom: p.uom || 'PCS',
-      sellingPrice: spNum !== null && !isNaN(spNum) ? spNum : '',
-      costPrice: cpNum !== null && !isNaN(cpNum) ? cpNum : '',
-      hsn: p.hsn ? String(p.hsn) : '',
-      gstRate: p.gstRate || '5%',
-      priceInclusive: priceIncl,
-      openingStock: !isNaN(stockNum) ? stockNum : 0,
+      productName: (p.name || '').trim(),
+      size: sizeVal,
+      cost: cpNum !== null && !isNaN(cpNum) ? cpNum : '',
+      stock: !isNaN(stockNum) ? stockNum : 0,
     });
 
     row.height = 20;
@@ -83,19 +74,12 @@ export async function generateTemplateExcel(products: ExcelExportRowInput[]): Pr
     row.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
     row.getCell(3).alignment = { vertical: 'middle', horizontal: 'right' };
     row.getCell(4).alignment = { vertical: 'middle', horizontal: 'right' };
-    row.getCell(5).alignment = { vertical: 'middle', horizontal: 'center' };
-    row.getCell(6).alignment = { vertical: 'middle', horizontal: 'center' };
-    row.getCell(7).alignment = { vertical: 'middle', horizontal: 'center' };
-    row.getCell(8).alignment = { vertical: 'middle', horizontal: 'right' };
 
-    if (spNum !== null && !isNaN(spNum)) {
+    if (cpNum !== null && !isNaN(cpNum)) {
       row.getCell(3).numFmt = '#,##0.00';
     }
-    if (cpNum !== null && !isNaN(cpNum)) {
-      row.getCell(4).numFmt = '#,##0.00';
-    }
     if (!isNaN(stockNum)) {
-      row.getCell(8).numFmt = '#,##0';
+      row.getCell(4).numFmt = '#,##0';
     }
   }
 

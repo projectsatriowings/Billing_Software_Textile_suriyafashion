@@ -512,7 +512,7 @@ export function SmsSettingsSection({ user, shop, showToast }: SmsSettingsSection
                   Automatic SMS After Bill Generation
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                  When enabled, billing bills will automatically send a thank-you SMS with invoice number, amount, and loyalty points.
+                  When enabled, billing bills will automatically send a thank-you SMS with invoice number and amount.
                 </div>
               </div>
 
@@ -765,7 +765,7 @@ export function SmsSettingsSection({ user, shop, showToast }: SmsSettingsSection
           </span>
         </div>
         <p style={{ margin: 0, fontSize: '0.84rem', color: '#334155', fontStyle: 'italic', background: '#ffffff', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px dashed #94a3b8' }}>
-          "Thank you, <strong>[Customer Name]</strong>, for shopping at <strong>{shop?.name || 'Shop Name'}</strong>. Bill No: <strong>INV-1024</strong>. Amount: Rs.<strong>1250.00</strong>. Loyalty Points Earned: <strong>125</strong>. Visit again!"
+          "Thank you, <strong>[Customer Name]</strong>, for shopping at <strong>{shop?.name || 'Shop Name'}</strong>. Bill No: <strong>INV-1024</strong>. Amount: Rs.<strong>1250.00</strong>. Visit again!"
         </p>
         <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.75rem', fontSize: '0.76rem', color: '#64748b', flexWrap: 'wrap' }}>
           <span>✓ Branch name dynamically formatted</span>

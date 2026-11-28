@@ -53,6 +53,37 @@ import { ScanManufacturerBarcodeModal } from './ScanManufacturerBarcodeModal.tsx
 import { fileToOptimizedDataUrl, resolveDriveImageUrl, isGoogleDriveUrl, handleProductImageError } from '../imageUtils';
 import { type BarcodeTargetItem } from '../../../shared/barcodeScannerUtils.ts';
 
+/**
+ * Finds an active category from a stored label: a plain name ("Shirts") or a hierarchy label
+ * ("Men's Wear → Shirts", "Men's Wear > Shirts", "Men's Wear / Shirts"). With duplicate
+ * subcategory names, the parent in the label decides which one is meant.
+ */
+function findCategoryByLabel<T extends { id: string; name: string; parentName?: string | null }>(
+  cats: T[],
+  label: string | null | undefined
+): T | undefined {
+  const raw = (label || '').trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  const byId = cats.find((c) => c.id === raw);
+  if (byId) return byId;
+  const parts = raw.split(/\s*(?:→|->|>|\/)\s*/).filter(Boolean);
+  if (parts.length >= 2) {
+    const leaf = parts[parts.length - 1].toLowerCase();
+    const parent = parts[parts.length - 2].toLowerCase();
+    const exact = cats.find((c) => c.name.toLowerCase() === leaf && (c.parentName || '').toLowerCase() === parent);
+    if (exact) return exact;
+    const leafOnly = cats.find((c) => c.name.toLowerCase() === leaf);
+    if (leafOnly) return leafOnly;
+  }
+  return cats.find((c) => c.name.toLowerCase() === lower);
+}
+
+/** Dropdown label that tells duplicate subcategory names apart ("Men's Wear → Shirts"). */
+function categoryOptionLabel(c: { name: string; parentName?: string | null }): string {
+  return c.parentName ? `${c.parentName} → ${c.name}` : c.name;
+}
+
 const PackageBoxIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
@@ -440,6 +471,8 @@ interface Props {
   onClose: () => void;
   onImportDone: () => void;
   onOpenSupplierInvoiceConverter?: () => void;
+  initialSupplierRows?: string[][] | null;
+  initialSourceLabel?: string;
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
@@ -497,7 +530,7 @@ export function downloadExcelTemplate(): void {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export function BulkImportModal({ categories, existingItems = [], shopName, branchId, suppliers, onClose, onImportDone, onOpenSupplierInvoiceConverter }: Props) {
+export function BulkImportModal({ categories, existingItems = [], shopName, branchId, suppliers, onClose, onImportDone, onOpenSupplierInvoiceConverter, initialSupplierRows, initialSourceLabel }: Props) {
   const [step, setStep] = useState<WizardStep>('choose');
   const [importSource, setImportSource] = useState<string>('Uploaded File');
   const [activeTab, setActiveTab] = useState<'upload' | 'paste' | 'manual'>('upload');
@@ -736,24 +769,26 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           const freshActiveCats = res.categories.filter((c) => c.active !== false);
           setRawRows((prev) =>
             prev.map((r) => {
-              // 1. If restock, retain matched item's category
-              if (r.matchedItem) {
-                const matchCatName = r.matchedItem.category || r.category;
-                const foundInActive = freshActiveCats.find(
-                  (c) => c.name.toLowerCase() === matchCatName.toLowerCase()
-                );
-                return {
-                  ...r,
-                  categoryId: foundInActive ? foundInActive.id : r.categoryId,
-                  category: matchCatName,
-                };
+              // 1. If restock, retain the matched catalog item's own stored category when it is active.
+              // (Only the catalog item's category — never re-resolve the row's suggested name, because
+              // duplicate names like "Shirts" under Men's Wear and Boys' Wear would pick the wrong one.)
+              const matchedCatLabel = (r.matchedItem?.category || '').trim();
+              if (r.matchedItem && matchedCatLabel) {
+                const foundInActive = findCategoryByLabel(freshActiveCats, matchedCatLabel);
+                if (foundInActive) {
+                  return {
+                    ...r,
+                    categoryId: foundInActive.id,
+                    category: foundInActive.name,
+                  };
+                }
               }
 
-              // 2. If user manually selected a category, preserve it if still active
+              // 2. If user manually selected a category, preserve it (by id) if still active
               if (r.isCategoryManuallyEdited && (r.categoryId || r.category)) {
-                const stillActive = freshActiveCats.find(
-                  (c) => (r.categoryId && c.id === r.categoryId) || (r.category && c.name.toLowerCase() === r.category.toLowerCase())
-                );
+                const stillActive =
+                  (r.categoryId ? freshActiveCats.find((c) => c.id === r.categoryId) : undefined) ||
+                  (!r.categoryId ? findCategoryByLabel(freshActiveCats, r.category) : undefined);
                 if (stillActive) {
                   return { ...r, categoryId: stillActive.id, category: stillActive.name };
                 }
@@ -1065,6 +1100,12 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
   // Eligible to import = new products + new variants + restocks (without blocking errors)
   const eligibleRows = useMemo(() => validatedRows.filter((r) => r.status === 'NEW_PRODUCT' || r.status === 'NEW_VARIANT' || r.status === 'RESTOCK'), [validatedRows]);
 
+  // Show HSN column only when at least one row carries an HSN code
+  const showHsnColumn = useMemo(
+    () => validatedRows.some((r) => Boolean((r.hsn || '').trim())),
+    [validatedRows]
+  );
+
   // Filtered rows for the table view
   const visibleRows = useMemo(() => {
     if (filter === 'new') return newRows;
@@ -1289,9 +1330,20 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       if (matchResult.classification === 'RESTOCK' && matchResult.matchedItem) {
         matchedItem = matchResult.matchedItem;
         priceComparison = matchResult.priceComparison || compareProductPrices(price, cost, matchedItem);
-        category = matchedItem.category || '';
-        const foundActive = activeCategories.find((c) => c.name.toLowerCase() === category.toLowerCase());
-        categoryId = foundActive ? foundActive.id : '';
+        category = (matchedItem.category || '').trim();
+        const foundActive = findCategoryByLabel(activeCategories, category);
+        if (foundActive) {
+          category = foundActive.name;
+          categoryId = foundActive.id;
+        } else {
+          const suggested = suggestCategory(name, activeCategories);
+          if (suggested) {
+            category = suggested.name;
+            categoryId = suggested.id;
+          } else {
+            categoryId = '';
+          }
+        }
 
         // Matched existing catalog item: link to existing product and variant
         resolution = 'LINK';
@@ -1325,7 +1377,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         // New Product or Ambiguous: automatically generate unique SKU
         finalSku = generateUniqueSku(name, existingSkusSet, seenImportSkus);
         if (rawCategory) {
-          const found = activeCategories.find((c) => c.name.toLowerCase() === rawCategory.toLowerCase());
+          const found = findCategoryByLabel(activeCategories, rawCategory);
           if (found) {
             category = found.name;
             categoryId = found.id;
@@ -1421,6 +1473,14 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
     setFilter('all');
     setStep('review');
   };
+
+  const initialLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!initialLoadedRef.current && initialSupplierRows && initialSupplierRows.length > 0) {
+      initialLoadedRef.current = true;
+      ingestSupplierData(initialSupplierRows, initialSourceLabel || 'Supplier Invoice');
+    }
+  }, [initialSupplierRows, initialSourceLabel]);
 
   const processFile = useCallback((file: File) => {
     const isExcel = file.name.match(/\.(xlsx|xls)$/i);
@@ -1638,8 +1698,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
               }
             }
             if (matchResult.matchedItem.category) {
-              updated.category = matchResult.matchedItem.category;
-              const fCat = activeCategories.find((c) => c.name.toLowerCase() === updated.category.toLowerCase());
+              const fCat = findCategoryByLabel(activeCategories, matchResult.matchedItem.category);
+              updated.category = fCat ? fCat.name : matchResult.matchedItem.category;
               if (fCat) updated.categoryId = fCat.id;
             }
           } else {
@@ -1683,9 +1743,11 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       prev.map((r) => {
         if (r._id !== rowId) return r;
         const candidateCatName = candidate.category || r.category;
-        const candidateCat = activeCategories.find(
-          (c) => c.name.toLowerCase() === candidateCatName.toLowerCase()
-        );
+        // Keep the row's current category (by id) unless the linked product has its own category
+        const candidateCat = candidate.category
+          ? findCategoryByLabel(activeCategories, candidate.category)
+          : (r.categoryId ? activeCategories.find((c) => c.id === r.categoryId) : undefined) ||
+            findCategoryByLabel(activeCategories, r.category);
         const finalBc = candidate.barcode || r.barcode || '';
         const finalBcType = candidate.barcode
           ? (candidate.barcodeType || 'INTERNAL')
@@ -1707,7 +1769,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           barcodeType: finalBcType,
           isBarcodeAutoGenerated: false,
           additionalBarcodes: addBcs,
-          category: candidateCatName,
+          category: candidateCat ? candidateCat.name : candidateCatName,
           categoryId: candidateCat ? candidateCat.id : r.categoryId,
           unit: candidate.unit || r.unit,
           reorderLevel: r.reorderLevelModified ? r.reorderLevel : candReorder,
@@ -2705,7 +2767,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                       }}
                     >
                       <FileSpreadsheetIcon size={16} color="var(--primary)" />
-                      <span>Convert Supplier Invoice to Excel</span>
+                      <span>Import from Supplier Invoice</span>
                     </button>
                   )}
                 </div>
@@ -2846,7 +2908,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                               </div>
                               <div className="bulk-template-info">
                                 <span className="bulk-template-name" style={{ color: 'var(--primary)', fontWeight: 700 }}>
-                                  Convert Supplier Invoice to Excel
+                                  Import from Supplier Invoice
                                 </span>
                                 <span className="bulk-template-sub">
                                   Scan PDF, JPG, or PNG invoice
@@ -3810,6 +3872,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                         <th style={thStyle}>ROW</th>
                         <th style={thStyle}>STATUS</th>
                         <th style={{ ...thStyle, minWidth: 200 }}>PRODUCT / ITEM NAME *</th>
+                        {showHsnColumn && <th style={{ ...thStyle, width: 95, minWidth: 85 }}>HSN CODE</th>}
                         <th style={{ ...thStyle, width: 85, minWidth: 75 }}>SIZE</th>
                         <th style={{ ...thStyle, width: 105, minWidth: 95 }}>SKU / CODE</th>
                         <th style={{ ...thStyle, width: 145, minWidth: 140 }}>BARCODE / EAN</th>
@@ -3828,7 +3891,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                     <tbody>
                       {visibleRows.length === 0 ? (
                         <tr>
-                          <td colSpan={17} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+                          <td colSpan={showHsnColumn ? 18 : 17} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                             No rows match the selected &quot;{filter}&quot; filter.
                           </td>
                         </tr>
@@ -3942,6 +4005,24 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                     }}
                                   />
                                 </td>
+
+                                {/* HSN CODE (hidden when no rows have HSN) */}
+                                {showHsnColumn && (
+                                  <td style={{ padding: '0.45rem 0.35rem' }}>
+                                    <input
+                                      type="text"
+                                      value={row.hsn || ''}
+                                      placeholder="HSN"
+                                      onChange={(e) => updateRowField(row._id, 'hsn', e.target.value)}
+                                      style={{
+                                        ...cellInputStyle,
+                                        width: '85px',
+                                        padding: '0.3rem 0.4rem',
+                                        textAlign: 'center',
+                                      }}
+                                    />
+                                  </td>
+                                )}
 
                                 {/* SIZE */}
                                 <td style={{ padding: '0.45rem 0.35rem' }}>
@@ -4198,7 +4279,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                                   >
                                     <option value="">— Needs Category —</option>
                                     {activeCategories.map((c) => (
-                                      <option key={c.id} value={c.id}>{c.name}</option>
+                                      <option key={c.id} value={c.id}>{categoryOptionLabel(c)}</option>
                                     ))}
                                   </select>
                                 </td>
@@ -4338,7 +4419,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                               {/* INLINE NOTICE / ERROR / AMBIGUITY ROW */}
                               {(row.errors.length > 0 || row.matchedItem || (row.candidates && row.candidates.length > 1) || row.resolution) && (
                                 <tr style={{ borderBottom: '1px solid var(--border)', background: '#ffffff' }}>
-                                  <td colSpan={19} style={{ padding: '0.2rem 0.6rem 0.55rem 2.8rem', fontSize: '0.78rem' }}>
+                                  <td colSpan={showHsnColumn ? 20 : 19} style={{ padding: '0.2rem 0.6rem 0.55rem 2.8rem', fontSize: '0.78rem' }}>
                                     {/* Unified Matching & Restocking Decision Card for single-match products */}
                                     {row.matchedItem && (!row.candidates || row.candidates.length <= 1) && (() => {
                                       const isNewChosen = row.resolution === 'NEW';

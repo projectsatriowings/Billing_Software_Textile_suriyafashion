@@ -128,31 +128,74 @@ export function registerCategories(r: Router) {
       }
     }
 
-    // Fetch item counts per category (aggregating on items.category name in this branch)
-    let countSql = 'SELECT category, COUNT(*)::int AS cnt FROM items WHERE tenant_id = ? AND active = true AND category IS NOT NULL';
-    const countParams: unknown[] = [tenantId];
+    // Fetch all active items in scope so we can count by category_id, subcategory_id, and category name
+    let itemSql = 'SELECT id, category, category_id, subcategory_id FROM items WHERE tenant_id = ? AND active = true';
+    const itemParams: unknown[] = [tenantId];
     if (!scope.isSuperAdminAll && scope.branchId) {
-      countSql += ' AND branch_id = ?';
-      countParams.push(scope.branchId);
+      itemSql += ' AND (branch_id = ? OR branch_id IS NULL)';
+      itemParams.push(scope.branchId);
     }
-    countSql += ' GROUP BY category';
-    const itemCounts = await ctx.db.query<{ category: string; cnt: number }>(countSql, countParams);
-    const countMap = new Map<string, number>();
-    for (const c of itemCounts) {
-      if (c.category) countMap.set(c.category.toLowerCase(), Number(c.cnt));
+    const activeItems = await ctx.db.query<{
+      id: string;
+      category: string | null;
+      category_id?: string | null;
+      categoryId?: string | null;
+      subcategory_id?: string | null;
+      subcategoryId?: string | null;
+    }>(itemSql, itemParams);
+
+    // Build child-category IDs map for main categories so main categories also include items in their subcategories
+    const childIdsByParent = new Map<string, Set<string>>();
+    const childNamesByParent = new Map<string, Set<string>>();
+    for (const r of rows as any[]) {
+      const pid = r.parentId ?? r.parent_id;
+      if (pid) {
+        if (!childIdsByParent.has(pid)) childIdsByParent.set(pid, new Set());
+        childIdsByParent.get(pid)!.add(r.id);
+        if (!childNamesByParent.has(pid)) childNamesByParent.set(pid, new Set());
+        childNamesByParent.get(pid)!.add(String(r.name || '').trim().toLowerCase());
+      }
     }
 
     return {
       categories: rows.map((cat: any) => {
-        const nameLower = String(cat.name).toLowerCase();
-        const directCount = countMap.get(nameLower) ?? 0;
+        const nameLower = String(cat.name || '').trim().toLowerCase();
         const pName = cat.parentName ?? cat.parent_name;
-        const hierarchyCount = pName
-          ? (countMap.get(`${pName} → ${cat.name}`.toLowerCase()) ??
-             countMap.get(`${pName} -> ${cat.name}`.toLowerCase()) ??
-             countMap.get(`${pName} > ${cat.name}`.toLowerCase()) ??
-             countMap.get(`${pName} / ${cat.name}`.toLowerCase()) ?? 0)
-          : 0;
+        const pId = cat.parentId ?? cat.parent_id ?? null;
+        const childIds = !pId ? childIdsByParent.get(cat.id) : undefined;
+        const childNames = !pId ? childNamesByParent.get(cat.id) : undefined;
+
+        const hierarchyNames = pName
+          ? new Set([
+              `${pName} → ${cat.name}`.toLowerCase(),
+              `${pName} -> ${cat.name}`.toLowerCase(),
+              `${pName} > ${cat.name}`.toLowerCase(),
+              `${pName} / ${cat.name}`.toLowerCase(),
+            ])
+          : null;
+
+        let matchedCount = 0;
+        for (const it of activeItems) {
+          const itCatId = it.categoryId ?? it.category_id ?? null;
+          const itSubId = it.subcategoryId ?? it.subcategory_id ?? null;
+          const itCatName = String(it.category || '').trim().toLowerCase();
+
+          const matchesById =
+            itCatId === cat.id ||
+            itSubId === cat.id ||
+            Boolean(childIds && ((itCatId && childIds.has(itCatId)) || (itSubId && childIds.has(itSubId))));
+
+          const matchesByName =
+            Boolean(itCatName) &&
+            (itCatName === nameLower ||
+              Boolean(hierarchyNames && hierarchyNames.has(itCatName)) ||
+              Boolean(childNames && childNames.has(itCatName)));
+
+          if (matchesById || matchesByName) {
+            matchedCount++;
+          }
+        }
+
         return {
           id: cat.id,
           tenantId: cat.tenantId ?? cat.tenant_id,
@@ -160,10 +203,10 @@ export function registerCategories(r: Router) {
           name: cat.name,
           description: cat.description ?? null,
           active: Boolean(cat.active),
-          parentId: cat.parentId ?? cat.parent_id ?? null,
+          parentId: pId,
           parentName: pName ?? null,
           createdAt: cat.createdAt ?? cat.created_at,
-          itemCount: directCount + hierarchyCount,
+          itemCount: matchedCount,
         };
       }),
     };
