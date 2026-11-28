@@ -181,15 +181,30 @@ export const PosReturnExchangeModal: React.FC<PosReturnExchangeModalProps> = ({
     setSearching(true);
     setErrorMsg('');
     try {
-      const res = await searchInvoicesForReturn(q);
+      const res = await searchInvoicesForReturn(q, lookupMode);
       const invoices = res.invoices || [];
       setSearchResults(invoices);
       if (invoices.length === 0) {
-        setErrorMsg(`No posted bills found matching "${q}". Please verify barcode or mobile number.`);
+        if (lookupMode === 'invoice') {
+          setErrorMsg(`❌ Bill "${q}" not found! Please check the bill number printed on the receipt.`);
+        } else if (lookupMode === 'phone') {
+          setErrorMsg(`❌ No bills found for customer phone "${q}".`);
+        } else {
+          setErrorMsg(`❌ No posted bills found matching "${q}".`);
+        }
       } else if (invoices.length === 1) {
-        // Auto-select exact single match for high-speed POS scanning!
-        playScanBeep();
-        handleSelectInvoice(invoices[0]);
+        const inv = invoices[0];
+        const cleanQ = q.toUpperCase().replace(/\s+/g, '');
+        const cleanNum = String(inv.number || '').toUpperCase().replace(/\s+/g, '');
+        const cleanDigitsQ = q.replace(/\D/g, '');
+        const cleanDigitsNum = String(inv.number || '').replace(/\D/g, '');
+
+        // In manual Bill Number lookup mode: only auto-select if exact bill number match or exact digits match
+        const isExactMatch = cleanQ === cleanNum || (cleanDigitsQ.length >= 3 && cleanDigitsNum === cleanDigitsQ);
+        if (lookupMode === 'barcode' || isExactMatch) {
+          playScanBeep();
+          handleSelectInvoice(inv);
+        }
       }
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to search bills.');
@@ -1165,8 +1180,8 @@ export const PosReturnExchangeModal: React.FC<PosReturnExchangeModalProps> = ({
                 </div>
               )}
 
-              {/* Multiple Matching Invoices Selection List */}
-              {searchResults.length > 1 && !selectedInvoice && (
+              {/* Matching Invoices Selection List */}
+              {searchResults.length > 0 && !selectedInvoice && (
                 <div>
                   <div style={{ fontSize: '0.78rem', fontWeight: 750, color: 'var(--sidebar, #0F2D2E)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.6rem' }}>
                     Matching Invoices in Database ({searchResults.length})
@@ -1452,9 +1467,9 @@ export const PosReturnExchangeModal: React.FC<PosReturnExchangeModalProps> = ({
                                 background: '#ffffff',
                               }}
                             >
-                              <option value="resellable">Resellable (Restock to Shelf)</option>
-                              <option value="damaged">Damaged (Hold for Inspection)</option>
-                              <option value="defective">Defective (Defective Bin)</option>
+                              <option value="resellable">Resellable (Increases Stock)</option>
+                              <option value="damaged">Damaged (Sends to Damaged Stock)</option>
+                              <option value="defective">Defective (Sends to Defective Stock)</option>
                             </select>
                           </td>
                           <td style={{ padding: '0.65rem 0.75rem' }}>
@@ -1462,7 +1477,14 @@ export const PosReturnExchangeModal: React.FC<PosReturnExchangeModalProps> = ({
                               <select
                                 value={st.reason}
                                 disabled={!st.selected}
-                                onChange={(e) => updateLine(l.id, { reason: e.target.value })}
+                                onChange={(e) => {
+                                  const r = e.target.value;
+                                  const isDamaged = r === 'Damaged product' || r === 'Damaged';
+                                  updateLine(l.id, {
+                                    reason: r,
+                                    condition: isDamaged ? 'damaged' : st.condition,
+                                  });
+                                }}
                                 style={{
                                   padding: '3px 6px',
                                   borderRadius: '6px',

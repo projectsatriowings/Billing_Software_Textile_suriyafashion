@@ -397,6 +397,46 @@ ipcMain.handle('print-receipt', async (event, options = {}) => {
   });
 });
 
+ipcMain.handle('share-bill-whatsapp', async (event, { base64Data, filename, phone, message } = {}) => {
+  try {
+    const tempDir = app.getPath('temp');
+    const safeFilename = (filename || 'Bill.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = path.join(tempDir, safeFilename);
+
+    if (base64Data) {
+      const buffer = Buffer.from(base64Data, 'base64');
+      fs.writeFileSync(filePath, buffer);
+    }
+
+    const cleanPhone = String(phone || '').replace(/[^0-9]/g, '');
+    const encodedText = encodeURIComponent(message || '');
+    const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`;
+
+    await shell.openExternal(waUrl);
+
+    try {
+      if (fs.existsSync(filePath)) {
+        shell.showItemInFolder(filePath);
+      }
+    } catch (err) {
+      logToFile(`showItemInFolder error: ${err.message}`);
+    }
+
+    setTimeout(() => {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch {}
+    }, 5 * 60 * 1000);
+
+    return { success: true, filePath };
+  } catch (err) {
+    logToFile(`share-bill-whatsapp error: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.on('window-minimize', () => {
   if (mainWindow) mainWindow.minimize();
 });

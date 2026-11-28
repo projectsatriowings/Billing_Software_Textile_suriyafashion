@@ -28,6 +28,20 @@ export const BULK_LABEL_SIZES: LabelSizeOption[] = [
   { id: 'large-60-40', name: '🖨️ Thermal Roll — 60 × 40 mm (Large Roll)', widthMm: 60, heightMm: 40, isThermal: true },
 ];
 
+export interface PrintableItem {
+  id: string;
+  itemId: string;
+  variantId?: string;
+  name: string;
+  parentName: string;
+  size?: string | null;
+  sku?: string | null;
+  barcode: string;
+  priceMinor: number;
+  category?: string | null;
+  stockUnits?: number;
+}
+
 export interface BulkBarcodeModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -111,40 +125,82 @@ export function BulkBarcodeModal({ isOpen, onClose, items, shopName, shopLogoUrl
     }
   }, [isOpen]);
 
+  // Transform products into individual printable units (expanding variant items into their individual size variants)
+  const allPrintableItems = useMemo<PrintableItem[]>(() => {
+    const list: PrintableItem[] = [];
+    for (const it of items) {
+      if (it.variants && it.variants.length > 0) {
+        for (const v of it.variants) {
+          const barcode = (v.barcode || '').trim() || (it.barcode || '').trim();
+          const sizeStr = v.size ? ` (${v.size})` : '';
+          list.push({
+            id: v.id ? `var_${v.id}` : `${it.id}_${v.size || 'default'}`,
+            itemId: it.id,
+            variantId: v.id,
+            name: `${it.name}${sizeStr}`,
+            parentName: it.name,
+            size: v.size || null,
+            sku: v.sku || it.sku || null,
+            barcode: barcode,
+            priceMinor: v.priceMinor != null ? v.priceMinor : it.priceMinor,
+            category: it.category,
+            stockUnits: v.stockMilli != null ? v.stockMilli / 1000 : undefined,
+          });
+        }
+      } else {
+        list.push({
+          id: it.id,
+          itemId: it.id,
+          name: it.name,
+          parentName: it.name,
+          size: it.size || null,
+          sku: it.sku || null,
+          barcode: (it.barcode || '').trim(),
+          priceMinor: it.priceMinor,
+          category: it.category,
+          stockUnits: it.currentStockMilli != null ? it.currentStockMilli / 1000 : undefined,
+        });
+      }
+    }
+    return list;
+  }, [items]);
+
   // Unique categories for filtering
   const categories = useMemo(() => {
     const set = new Set<string>();
-    for (const it of items) {
+    for (const it of allPrintableItems) {
       if (it.category) set.add(it.category);
     }
     return Array.from(set).sort();
-  }, [items]);
+  }, [allPrintableItems]);
 
   // Filtered available items for the picker list
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return items.filter((it) => {
+    return allPrintableItems.filter((it) => {
       const matchesQ =
         !q ||
         it.name.toLowerCase().includes(q) ||
+        it.parentName.toLowerCase().includes(q) ||
         (it.sku && it.sku.toLowerCase().includes(q)) ||
         (it.barcode && it.barcode.toLowerCase().includes(q)) ||
-        (it.category && it.category.toLowerCase().includes(q));
+        (it.category && it.category.toLowerCase().includes(q)) ||
+        (it.size && it.size.toLowerCase().includes(q));
       const matchesCat = categoryFilter === 'ALL' || it.category === categoryFilter;
       return matchesQ && matchesCat;
     });
-  }, [items, searchQuery, categoryFilter]);
+  }, [allPrintableItems, searchQuery, categoryFilter]);
 
   // Lookup map for fast access
   const itemsById = useMemo(() => {
-    const map = new Map<string, Item>();
-    for (const it of items) map.set(it.id, it);
+    const map = new Map<string, PrintableItem>();
+    for (const it of allPrintableItems) map.set(it.id, it);
     return map;
-  }, [items]);
+  }, [allPrintableItems]);
 
   // Selected products list with their quantities
   const selectedEntries = useMemo(() => {
-    const entries: Array<{ item: Item; quantity: number }> = [];
+    const entries: Array<{ item: PrintableItem; quantity: number }> = [];
     for (const [id, qty] of Object.entries(selectedMap)) {
       const it = itemsById.get(id);
       if (it && qty > 0) {
@@ -161,7 +217,7 @@ export function BulkBarcodeModal({ isOpen, onClose, items, shopName, shopLogoUrl
 
   // Flattened array of labels for preview & print
   const flatLabels = useMemo(() => {
-    const list: Item[] = [];
+    const list: PrintableItem[] = [];
     for (const entry of selectedEntries) {
       for (let i = 0; i < entry.quantity; i++) {
         list.push(entry.item);
@@ -175,7 +231,7 @@ export function BulkBarcodeModal({ isOpen, onClose, items, shopName, shopLogoUrl
   const currentSize = BULK_LABEL_SIZES.find((s) => s.id === selectedSizeId) || BULK_LABEL_SIZES[0];
 
   // Handlers
-  const handleToggleItem = (item: Item) => {
+  const handleToggleItem = (item: PrintableItem) => {
     setValidationError(null);
     const barcodeTrim = (item.barcode || '').trim();
     if (!barcodeTrim) {
@@ -309,7 +365,7 @@ export function BulkBarcodeModal({ isOpen, onClose, items, shopName, shopLogoUrl
       const cols = currentSize.cols || 3;
       const rows = currentSize.rows || 10;
       const labelsPerPage = currentSize.labelsPerPage || cols * rows || 30;
-      const pageChunks: Item[][] = [];
+      const pageChunks: PrintableItem[][] = [];
       for (let i = 0; i < flatLabels.length; i += labelsPerPage) {
         pageChunks.push(flatLabels.slice(i, i + labelsPerPage));
       }
@@ -889,6 +945,11 @@ export function BulkBarcodeModal({ isOpen, onClose, items, shopName, shopLogoUrl
                             </div>
 
                             <div className="bulk-barcode-item-meta">
+                              {item.size && (
+                                <span style={{ background: '#f3e8ff', color: '#6b21a8', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem' }}>
+                                  Size: {item.size}
+                                </span>
+                              )}
                               {item.sku && <span>SKU: <strong style={{ color: 'var(--bb-text-main)' }}>{item.sku}</strong></span>}
                               {item.category && <span>• {item.category}</span>}
                             </div>
@@ -1033,6 +1094,11 @@ export function BulkBarcodeModal({ isOpen, onClose, items, shopName, shopLogoUrl
                               )}
                             </div>
                             <div className="bulk-barcode-item-meta">
+                              {item.size && (
+                                <span style={{ background: '#f3e8ff', color: '#6b21a8', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, fontSize: '0.72rem' }}>
+                                  Size: {item.size}
+                                </span>
+                              )}
                               {item.sku && <span>SKU: <strong style={{ color: 'var(--bb-text-main)' }}>{item.sku}</strong></span>}
                               <span className="bulk-barcode-barcode-code">
                                 {item.barcode}

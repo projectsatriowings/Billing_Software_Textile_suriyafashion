@@ -279,6 +279,11 @@ export function registerItemsBulk(r: Router) {
 
     // ── Supplier validation (Optional) ────────
     const supplierId = toStr(b.supplierId || b.partyId);
+    const supplierInvoiceNumber = (typeof b.supplierInvoiceNumber === 'string' && b.supplierInvoiceNumber.trim())
+      ? b.supplierInvoiceNumber.trim().toUpperCase()
+      : (typeof b.invoiceNumber === 'string' && b.invoiceNumber.trim())
+        ? b.invoiceNumber.trim().toUpperCase()
+        : null;
     let supplier: { id: string; name: string; type: string; active: boolean; gstin: string | null } | null = null;
     if (supplierId) {
       supplier = (await ctx.db.one<{ id: string; name: string; type: string; active: boolean; gstin: string | null }>(
@@ -495,7 +500,20 @@ export function registerItemsBulk(r: Router) {
             subtotal_minor, taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor,
             total_minor, paid_minor, balance_minor, note, created_by
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', 0, 0, 0, 0, 0, 0, 0, 0, 0, 'Generated from Bulk Product Import', ?)`,
-          [purchaseId, tenantId, branchId, purchaseNumber, supplier.id, importId, todayStr, todayStr, ctx.user!.id],
+          [purchaseId, tenantId, branchId, purchaseNumber, supplier.id, supplierInvoiceNumber || importId, todayStr, todayStr, ctx.user!.id],
+        );
+      }
+
+      // Fetch pending temporary sales for this supplier invoice number to reconcile
+      let pendingTempSales: any[] = [];
+      if (supplierInvoiceNumber) {
+        pendingTempSales = await q.query<any>(
+          `SELECT * FROM temporary_product_sales
+           WHERE tenant_id = ?
+             AND upper(trim(supplier_invoice_number)) = ?
+             AND reconciliation_status != 'reconciled'
+           ORDER BY created_at ASC`,
+          [tenantId, supplierInvoiceNumber],
         );
       }
 
@@ -630,6 +648,30 @@ export function registerItemsBulk(r: Router) {
           const costMinor = row.costMinor ?? 0;
           const taxRateBp = row.taxRateBp ?? 0;
 
+          // Check for pending temporary sales linked to this supplier invoice
+          let tempSaleToReconcile: any = null;
+          if (pendingTempSales.length > 0) {
+            const matchIdx = pendingTempSales.findIndex((ts: any) => {
+              const tsNorm = (ts.normalizedName || ts.normalized_name || ts.productName || ts.product_name || '')
+                .trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+              const rowNorm = normParentName.replace(/[^a-z0-9]/g, '');
+              return tsNorm === rowNorm;
+            });
+            if (matchIdx !== -1) {
+              tempSaleToReconcile = pendingTempSales[matchIdx];
+              pendingTempSales.splice(matchIdx, 1);
+            }
+          }
+
+          let effectiveStockMilli = qtyMilli;
+          if (tempSaleToReconcile) {
+            const prevSoldQty = Number(tempSaleToReconcile.remainingQuantity ?? tempSaleToReconcile.remaining_quantity ?? 0);
+            const importedQty = qtyMilli / 1000;
+            // Remaining Stock = Imported Purchase Quantity - Previously Sold Temporary Quantity
+            const netQty = Math.max(0, importedQty - prevSoldQty);
+            effectiveStockMilli = Math.round(netQty * 1000);
+          }
+
           if (existingVariant) {
             // ── Case A: Restock existing variant ──────────────────────────────
             const variantId = existingVariant.id;
@@ -652,8 +694,8 @@ export function registerItemsBulk(r: Router) {
                   row.mrpMinor ?? null,
                   row.offerPercentage ?? null,
                   row.purchaseDate || null,
-                  qtyMilli,
-                  qtyMilli,
+                  effectiveStockMilli,
+                  effectiveStockMilli,
                   finalVariantBarcode,
                   variantId,
                   tenantId,
@@ -668,7 +710,7 @@ export function registerItemsBulk(r: Router) {
                      active = true,
                      updated_at = now()
                  WHERE id = ? AND tenant_id = ?`,
-                [row.purchaseDate || null, qtyMilli, qtyMilli, finalVariantBarcode, variantId, tenantId],
+                [row.purchaseDate || null, effectiveStockMilli, effectiveStockMilli, finalVariantBarcode, variantId, tenantId],
               );
             }
 
@@ -711,11 +753,46 @@ export function registerItemsBulk(r: Router) {
                 purchaseLinesCount++;
               }
 
+              if (effectiveStockMilli > 0) {
+                await q.exec(
+                  `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, variant_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'purchase', 'purchase', ?, ?, ?, 'Bulk import restock shipment', ?, ?)`,
+                  [newId('sm'), tenantId, branchId, parentId, variantId, firstLocation, effectiveStockMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
+                );
+              }
+            }
+
+            // Reconcile temporary product sale if matched
+            if (tempSaleToReconcile) {
+              const prevSoldQty = Number(tempSaleToReconcile.remainingQuantity ?? tempSaleToReconcile.remaining_quantity ?? 0);
+              const importedQty = qtyMilli / 1000;
+              const reconciledQty = Math.min(importedQty, prevSoldQty);
+              const remainingUnreconciled = Math.max(0, prevSoldQty - importedQty);
+              const newStatus = remainingUnreconciled <= 0 ? 'reconciled' : 'partially_reconciled';
+
               await q.exec(
-                `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, variant_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'purchase', 'purchase', ?, ?, ?, 'Bulk import restock shipment', ?, ?)`,
-                [newId('sm'), tenantId, branchId, parentId, variantId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
+                `UPDATE temporary_product_sales
+                 SET reconciled_quantity = reconciled_quantity + ?,
+                     remaining_quantity = ?,
+                     reconciliation_status = ?,
+                     matched_item_id = ?,
+                     matched_variant_id = ?,
+                     reconciled_purchase_id = COALESCE(?, reconciled_purchase_id),
+                     reconciled_at = now(),
+                     updated_at = now()
+                 WHERE id = ? AND tenant_id = ?`,
+                [reconciledQty, remainingUnreconciled, newStatus, parentId, variantId, purchaseId, tempSaleToReconcile.id, tenantId],
               );
+
+              if (tempSaleToReconcile.invoiceLineId || tempSaleToReconcile.invoice_line_id) {
+                await q.exec(
+                  `UPDATE invoice_lines
+                   SET item_id = COALESCE(item_id, ?),
+                       variant_id = COALESCE(variant_id, ?)
+                   WHERE id = ? AND tenant_id = ?`,
+                  [parentId, variantId, tempSaleToReconcile.invoiceLineId ?? tempSaleToReconcile.invoice_line_id, tenantId],
+                );
+              }
             }
 
             await q.exec('RELEASE SAVEPOINT sp_bulk_variant_row');
@@ -757,7 +834,7 @@ export function registerItemsBulk(r: Router) {
                 costMinor,
                 row.mrpMinor ?? row.priceMinor,
                 row.offerPercentage ?? 0,
-                qtyMilli,
+                effectiveStockMilli,
                 row.reorderMilli ?? 0,
                 row.purchaseDate || new Date().toISOString().slice(0, 10),
                 row.unit || 'pcs',
@@ -817,11 +894,46 @@ export function registerItemsBulk(r: Router) {
                 purchaseLinesCount++;
               }
 
+              if (effectiveStockMilli > 0) {
+                await q.exec(
+                  `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, variant_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'opening', 'purchase', ?, ?, ?, 'Bulk import opening stock', ?, ?)`,
+                  [newId('sm'), tenantId, branchId, parentId, variantId, firstLocation, effectiveStockMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
+                );
+              }
+            }
+
+            // Reconcile temporary product sale if matched
+            if (tempSaleToReconcile) {
+              const prevSoldQty = Number(tempSaleToReconcile.remainingQuantity ?? tempSaleToReconcile.remaining_quantity ?? 0);
+              const importedQty = qtyMilli / 1000;
+              const reconciledQty = Math.min(importedQty, prevSoldQty);
+              const remainingUnreconciled = Math.max(0, prevSoldQty - importedQty);
+              const newStatus = remainingUnreconciled <= 0 ? 'reconciled' : 'partially_reconciled';
+
               await q.exec(
-                `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, variant_id, location, qty_milli, kind, ref_type, ref_id, ref_line_id, unit_cost_minor, reason, notes, user_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'opening', 'purchase', ?, ?, ?, 'Bulk import opening stock', ?, ?)`,
-                [newId('sm'), tenantId, branchId, parentId, variantId, firstLocation, qtyMilli, purchaseId || importId, lineId, costMinor, supplier ? `Supplier: ${supplier.name}` : 'Direct Stock Import', ctx.user!.id],
+                `UPDATE temporary_product_sales
+                 SET reconciled_quantity = reconciled_quantity + ?,
+                     remaining_quantity = ?,
+                     reconciliation_status = ?,
+                     matched_item_id = ?,
+                     matched_variant_id = ?,
+                     reconciled_purchase_id = COALESCE(?, reconciled_purchase_id),
+                     reconciled_at = now(),
+                     updated_at = now()
+                 WHERE id = ? AND tenant_id = ?`,
+                [reconciledQty, remainingUnreconciled, newStatus, parentId, variantId, purchaseId, tempSaleToReconcile.id, tenantId],
               );
+
+              if (tempSaleToReconcile.invoiceLineId || tempSaleToReconcile.invoice_line_id) {
+                await q.exec(
+                  `UPDATE invoice_lines
+                   SET item_id = COALESCE(item_id, ?),
+                       variant_id = COALESCE(variant_id, ?)
+                   WHERE id = ? AND tenant_id = ?`,
+                  [parentId, variantId, tempSaleToReconcile.invoiceLineId ?? tempSaleToReconcile.invoice_line_id, tenantId],
+                );
+              }
             }
 
             await q.exec('RELEASE SAVEPOINT sp_bulk_variant_row');

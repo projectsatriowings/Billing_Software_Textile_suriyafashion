@@ -1,5 +1,5 @@
 import { requirePerm, requireUser } from '../auth.ts';
-import { bad, notFound, HtmlResponse, FileResponse, V, type Router } from '../http.ts';
+import { bad, forbidden, notFound, HtmlResponse, FileResponse, V, type Router } from '../http.ts';
 import { newId } from '../security.ts';
 import { j } from '../db/index.ts';
 import { calcBill } from '../../../shared/tax.ts';
@@ -439,7 +439,9 @@ export function registerInvoices(r: Router) {
       const inclusive = false;
       const itemId = V.optStr(l.itemId, 'Item ID', 50);
       const unit = V.optStr(l.unit, 'Unit', 20);
-      return { name, qtyMilli, priceMinor, discountMinor, taxRateBp, inclusive, itemId, unit, hsn, variantId, lineType, decimalQty };
+      const isTemporary = Boolean(l.isTemporary ?? l.is_temporary ?? (lineType === 'temporary'));
+      const supplierInvoiceNumber = V.optStr(l.supplierInvoiceNumber ?? l.supplier_invoice_number, 'Supplier invoice number', 100);
+      return { name, qtyMilli, priceMinor, discountMinor, taxRateBp, inclusive, itemId, unit, hsn, variantId, lineType, decimalQty, isTemporary, supplierInvoiceNumber };
     });
 
     const calculated = calcBill(
@@ -846,8 +848,8 @@ export function registerInvoices(r: Router) {
             id, tenant_id, branch_id, invoice_id, pos, item_id, name, hsn, unit,
             qty_milli, price_minor, discount_minor, tax_rate_bp, inclusive,
             taxable_minor, cgst_minor, sgst_minor, igst_minor, total_minor,
-            variant_id, line_type, decimal_qty
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            variant_id, line_type, decimal_qty, is_temporary, supplier_invoice_number
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             lineId,
             tenantId,
@@ -871,8 +873,39 @@ export function registerInvoices(r: Router) {
             item.variantId || null,
             item.lineType || 'item',
             item.decimalQty != null ? item.decimalQty : (item.qtyMilli / 1000),
+            Boolean(item.isTemporary),
+            item.supplierInvoiceNumber || null,
           ],
         );
+
+        // Record temporary product sale line for later supplier invoice reconciliation
+        if (item.isTemporary && item.supplierInvoiceNumber) {
+          const tpsId = newId('tps');
+          const soldQty = item.decimalQty != null ? Number(item.decimalQty) : (item.qtyMilli / 1000);
+          const normalizedName = item.name.trim().toLowerCase().replace(/\s+/g, ' ');
+          await q.exec(
+            `INSERT INTO temporary_product_sales (
+              id, tenant_id, branch_id, invoice_id, invoice_line_id,
+              supplier_invoice_number, product_name, normalized_name,
+              selling_price_minor, sold_qty_milli, sold_quantity, reconciled_quantity, remaining_quantity,
+              reconciliation_status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'pending', now(), now())`,
+            [
+              tpsId,
+              tenantId,
+              invoiceBranchId,
+              invoiceId,
+              lineId,
+              String(item.supplierInvoiceNumber).trim().toUpperCase(),
+              item.name.trim(),
+              normalizedName,
+              item.priceMinor,
+              item.qtyMilli,
+              soldQty,
+              soldQty,
+            ],
+          );
+        }
 
         // Deduct variant stock if variantId is set
         if (item.variantId) {
@@ -1251,10 +1284,13 @@ export function registerInvoices(r: Router) {
 
   // Dedicated Invoice PDF Download Endpoint (Authenticated via requireUser)
   r.get('/api/invoices/:id/download-pdf', requireUser, async (ctx) => {
-    const { printable, isWholesale } = await loadPrintableInvoice(ctx.db, ctx.params.id, ctx.query.paper);
+    const { printable, isWholesale, inv } = await loadPrintableInvoice(ctx.db, ctx.params.id, ctx.query.paper);
+    if ((inv.tenantId ?? inv.tenant_id) !== ctx.user!.tenantId) {
+      throw forbidden('You cannot access this invoice');
+    }
     const pdfBuffer = await generateInvoicePdf(printable);
     const safeNumber = (printable.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Invoice_${safeNumber}.pdf`;
+    const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Bill_${safeNumber}.pdf`;
     return new FileResponse(pdfBuffer, 'application/pdf', filename);
   });
 
@@ -1321,170 +1357,20 @@ export function registerInvoices(r: Router) {
     };
   });
 
-  // Public Hosted Bill Link (/b/:token)
+  // Public Hosted Bill Link (/b/:token and /b/:token.pdf)
   r.get('/b/:token', async (ctx) => {
-    const inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [ctx.params.token]);
+    const rawToken = ctx.params.token.replace(/\.pdf$/i, '');
+    const inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [rawToken]);
     if (!inv) throw notFound('Bill not found or link has expired.');
 
-    const shop = await ctx.db.one('SELECT * FROM tenants WHERE id = ?', [inv.tenantId ?? inv.tenant_id]);
-    if (!shop) throw notFound('Shop');
+    const { printable, isWholesale, paper, shop } = await loadPrintableInvoice(ctx.db, inv.id, ctx.query.paper);
+    const pdfBuffer = await generateInvoicePdf(printable);
+    const safeNumber = (printable.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Bill_${safeNumber}.pdf`;
 
-    const lines = await ctx.db.query(
-      `SELECT il.*, it.custom AS item_custom
-       FROM invoice_lines il
-       LEFT JOIN items it ON it.id = il.item_id
-       WHERE il.invoice_id = ?
-       ORDER BY il.pos ASC`,
-      [inv.id],
-    );
-    const payments = await ctx.db.query('SELECT * FROM payments WHERE invoice_id = ? ORDER BY created_at ASC', [inv.id]);
-
-    const custName = inv.customerName ?? inv.customer_name;
-    const custPhone = inv.customerPhone ?? inv.customer_phone;
-    const createdAt = inv.createdAt ?? inv.created_at;
-    const customObj = typeof inv.custom === 'string' ? JSON.parse(inv.custom || '{}') : (inv.custom || {});
-    const tender = customObj?.tender || null;
-
-    const pId = inv.partyId ?? inv.party_id;
-    let partyRow: any = null;
-    if (pId) {
-      partyRow = await ctx.db.one(
-        'SELECT name, phone, email, loyalty_points, gstin, address, state_code, custom FROM parties WHERE id = ?',
-        [pId]
-      );
+    if (ctx.query.format !== 'html') {
+      return new FileResponse(pdfBuffer, 'application/pdf', filename, 'inline');
     }
-    const wcId = inv.wholesaleCustomerId ?? inv.wholesale_customer_id;
-    let wholesaleCustomerRow: any = null;
-    if (wcId) {
-      wholesaleCustomerRow = await ctx.db.one(
-        'SELECT name, company_name, phone, email, gstin, state_code, billing_address, shipping_address, contact_person, custom FROM wholesale_customers WHERE id = ?',
-        [wcId]
-      );
-    }
-    const partyCustom = (partyRow?.custom && typeof partyRow.custom === 'object') ? partyRow.custom : {};
-    const finalCustName = (wholesaleCustomerRow?.name || wholesaleCustomerRow?.company_name || custName || partyRow?.name || customObj?.customerName || '').trim();
-    const finalCustPhone = (wholesaleCustomerRow?.phone || custPhone || partyRow?.phone || customObj?.customerPhone || '').trim();
-    const finalCustGstin = (wholesaleCustomerRow?.gstin || inv.customerGstin || inv.customer_gstin || partyRow?.gstin || customObj?.customerGstin || '').trim().toUpperCase();
-    const finalCustAddress = (wholesaleCustomerRow?.billing_address || customObj?.billingAddress || partyRow?.address || '').trim();
-    const finalCustShipping = (wholesaleCustomerRow?.shipping_address || customObj?.shippingAddress || finalCustAddress).trim();
-    const finalContactPerson = (wholesaleCustomerRow?.contact_person || customObj?.contactPerson || partyCustom?.contactPerson || '').trim();
-    const finalStateCode = (customObj?.customerStateCode || partyRow?.state_code || partyRow?.stateCode || (finalCustGstin ? finalCustGstin.slice(0, 2) : '') || inv.place_state || inv.placeState || '').trim();
-    const finalStateName = (customObj?.customerState || (finalStateCode ? stateName(finalStateCode) : '') || '').trim();
-
-    const isWholesale = (inv.invoice_type === 'wholesale' || inv.invoiceType === 'wholesale');
-    const rawShopProfiles = shop.invoiceProfiles ?? shop.invoice_profiles;
-    const shopProfiles = typeof rawShopProfiles === 'string' ? JSON.parse(rawShopProfiles) : (rawShopProfiles || null);
-    const wholesaleProfile = shopProfiles?.wholesale;
-    const retailProfile = shopProfiles?.retail;
-    const wholesaleDisplayName = (
-      wholesaleProfile?.displayName ||
-      shop.wholesaleBusinessName ||
-      shop.wholesale_business_name ||
-      ''
-    ).trim();
-    const wholesaleLegalName = (wholesaleProfile?.legalName || '').trim();
-
-    const wholesaleMeta = isWholesale ? {
-      invoiceType: 'wholesale' as const,
-      displayName: wholesaleDisplayName || wholesaleLegalName || shop.wholesaleBusinessName || shop.wholesale_business_name || shop.name,
-      legalName: wholesaleLegalName || null,
-      logoUrl: wholesaleProfile?.logoUrl || null,
-      phone: wholesaleProfile?.phone || shop.phone || null,
-      email: wholesaleProfile?.email || null,
-      gstin: wholesaleProfile?.gstin || shop.gstin || null,
-      address: wholesaleProfile?.address || shop.address || null,
-      paymentTerms: customObj?.paymentTerms || 'Due on Receipt',
-      billingAddress: finalCustAddress || null,
-      shippingAddress: finalCustShipping || null,
-      contactPerson: finalContactPerson || null,
-      customerState: finalStateName || null,
-      customerStateCode: finalStateCode || null,
-      terms: wholesaleProfile?.terms || null,
-      jurisdiction: wholesaleProfile?.jurisdiction || null,
-    } : null;
-
-    const printable: PrintableBill = {
-      number: inv.number,
-      kind: 'sale',
-      invoiceType: isWholesale ? 'wholesale' : 'retail',
-      dateText: new Date(createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }),
-      shop: {
-        name: isWholesale
-          ? (wholesaleDisplayName || wholesaleLegalName || shop.wholesaleBusinessName || shop.wholesale_business_name || shop.name)
-          : shop.name,
-        address: isWholesale ? (wholesaleProfile?.address || shop.address) : shop.address,
-        phone: isWholesale ? (wholesaleProfile?.phone || shop.phone) : shop.phone,
-        gstin: isWholesale ? (wholesaleProfile?.gstin || shop.gstin) : shop.gstin,
-        upiId: shop.upiId ?? shop.upi_id,
-        logoUrl: shop.logoUrl ?? shop.logo_url ?? null,
-      },
-      customer: finalCustName ? {
-        name: finalCustName,
-        phone: finalCustPhone || null,
-        gstin: finalCustGstin || null,
-        address: finalCustAddress || null,
-        shippingAddress: finalCustShipping || null,
-        contactPerson: finalContactPerson || null,
-        stateCode: finalStateCode || null,
-        stateName: finalStateName || null,
-      } : null,
-      lines: lines.map((l: any) => {
-        let mrpMinor = 0;
-        try {
-          const itemCustom = typeof l.itemCustom === 'string' ? JSON.parse(l.itemCustom) : (l.itemCustom || {});
-          if (typeof itemCustom.mrpMinor === 'number' && itemCustom.mrpMinor > 0) {
-            mrpMinor = itemCustom.mrpMinor;
-          } else if (typeof itemCustom.mrp_minor === 'number' && itemCustom.mrp_minor > 0) {
-            mrpMinor = itemCustom.mrp_minor;
-          }
-        } catch { }
-
-        const priceMinor = Number(l.priceMinor ?? l.price_minor);
-        const discountMinor = Number(l.discountMinor ?? l.discount_minor);
-        const qtyMilli = Number(l.qtyMilli ?? l.qty_milli);
-        const discountPerUnit = qtyMilli > 0 ? Math.round((discountMinor * 1000) / qtyMilli) : 0;
-        if (!mrpMinor || mrpMinor <= priceMinor) {
-          if (discountPerUnit > 0) {
-            mrpMinor = priceMinor + discountPerUnit;
-          } else {
-            mrpMinor = Math.max(priceMinor, Math.ceil((priceMinor * 1.15) / 100) * 100);
-          }
-        }
-
-        return {
-          name: l.name,
-          hsn: l.hsn,
-          unit: l.unit,
-          qtyMilli,
-          priceMinor,
-          mrpMinor,
-          discountMinor,
-          taxRateBp: Number(l.taxRateBp ?? l.tax_rate_bp),
-          taxableMinor: Number(l.taxableMinor ?? l.taxable_minor),
-          cgstMinor: Number(l.cgstMinor ?? l.cgst_minor),
-          sgstMinor: Number(l.sgstMinor ?? l.sgst_minor),
-          igstMinor: Number(l.igstMinor ?? l.igst_minor),
-          totalMinor: Number(l.totalMinor ?? l.total_minor),
-        };
-      }),
-      totals: {
-        subtotalMinor: Number(inv.subtotalMinor ?? inv.subtotal_minor),
-        discountMinor: Number(inv.discountMinor ?? inv.discount_minor),
-        taxableMinor: Number(inv.taxableMinor ?? inv.taxable_minor),
-        cgstMinor: Number(inv.cgstMinor ?? inv.cgst_minor),
-        sgstMinor: Number(inv.sgstMinor ?? inv.sgst_minor),
-        igstMinor: Number(inv.igstMinor ?? inv.igst_minor),
-        roundOffMinor: Number(inv.roundOffMinor ?? inv.round_off_minor),
-        totalMinor: Number(inv.totalMinor ?? inv.total_minor),
-        paidMinor: Number(inv.paidMinor ?? inv.paid_minor),
-        balanceMinor: Number(inv.balanceMinor ?? inv.balance_minor),
-      },
-      payments: payments.map((p: any) => ({ method: p.method, amountMinor: Number(p.amountMinor ?? p.amount_minor) })),
-      tender,
-      customFields: [],
-      intra: Boolean(inv.intra !== false),
-      wholesale: wholesaleMeta,
-    };
 
     let qrSvgMarkup = '';
     const upiId = shop.upiId ?? shop.upi_id;
@@ -1493,8 +1379,23 @@ export function registerInvoices(r: Router) {
       qrSvgMarkup = qrSvg(upi, { size: 120 });
     }
 
-    const paper = isWholesale ? 'wholesale_a4' : ((retailProfile?.paper === 'thermal58') ? 'thermal58' : 'thermal80');
-    const html = renderBillDoc(printable, { ...DEFAULT_CONFIG.template, paper }, { qrSvg: qrSvgMarkup, qrCaption: 'Scan UPI to pay balance', autoPrint: false });
+    let html = renderBillDoc(printable, { ...DEFAULT_CONFIG.template, paper: paper as any }, { qrSvg: qrSvgMarkup, qrCaption: 'Scan UPI to pay balance', autoPrint: false });
+    const safeInvNum = String(inv.number || 'INV').replace(/[&<>"']/g, '');
+    const downloadBanner = `
+<div class="public-bill-header" style="position:sticky;top:0;background:#0f172a;color:#ffffff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.18);z-index:9999;font-family:system-ui,-apple-system,sans-serif;">
+  <div style="font-weight:700;font-size:14px;letter-spacing:0.3px;">Bill #${safeInvNum}</div>
+  <div style="display:flex;gap:8px;">
+    <a href="?download=pdf" style="background:#2563eb;color:#ffffff;padding:6px 14px;border-radius:6px;text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(37,99,235,0.4);">
+      <span>📥 Download PDF</span>
+    </a>
+    <button onclick="window.print()" style="background:#334155;color:#ffffff;padding:6px 12px;border-radius:6px;border:none;font-weight:600;font-size:13px;cursor:pointer;">
+      <span>🖨️ Print</span>
+    </button>
+  </div>
+</div>
+<style>@media print { .public-bill-header { display: none !important; } }</style>
+`;
+    html = html.replace('<body>', '<body>' + downloadBanner);
     return new HtmlResponse(html);
   });
 }
