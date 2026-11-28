@@ -63,4 +63,15 @@ export const env = {
     template: process.env.WHATSAPP_TEMPLATE ?? '',
     lang: process.env.WHATSAPP_TEMPLATE_LANG ?? 'en',
   },
+  ai: {
+    geminiApiKey: process.env.GEMINI_API_KEY ?? '',
+    geminiModel: process.env.GEMINI_MODEL ?? 'gemini-3.8-flash',
+  },
+  documentAi: {
+    projectId: process.env.GOOGLE_DOCUMENT_AI_PROJECT_ID ?? '',
+    location: process.env.GOOGLE_DOCUMENT_AI_LOCATION ?? 'us',
+    processorId: process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID ?? '',
+    accessToken: process.env.GOOGLE_DOCUMENT_AI_ACCESS_TOKEN ?? '',
+  },
+  invoiceRetentionDays: Number(process.env.INVOICE_RETENTION_DAYS ?? 30),
 };

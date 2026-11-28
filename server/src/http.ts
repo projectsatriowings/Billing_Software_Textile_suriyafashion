@@ -46,7 +46,7 @@ export interface Ctx {
 export type Handler = (ctx: Ctx) => unknown | Promise<unknown>;
 
 /** Non-JSON responses. */
-export class FileResponse { constructor(public data: Buffer | string, public contentType: string, public filename?: string) { } }
+export class FileResponse { constructor(public data: Buffer | string, public contentType: string, public filename?: string, public disposition: 'attachment' | 'inline' = 'attachment') { } }
 export class HtmlResponse { constructor(public html: string, public status = 200) { } }
 
 interface Route { method: string; re: RegExp; keys: string[]; handlers: Handler[] }
@@ -256,7 +256,7 @@ export function createHandler(opts: ServerOptions): http.RequestListener {
         if (res.writableEnded || res.headersSent) return;
         if (result instanceof FileResponse) {
           const h: Record<string, string | number> = { 'Content-Type': result.contentType, 'Content-Length': Buffer.byteLength(result.data), 'Cache-Control': 'no-store' };
-          if (result.filename) h['Content-Disposition'] = `attachment; filename="${result.filename.replace(/[^\w.\-]/g, '_')}"`;
+          if (result.filename) h['Content-Disposition'] = `${result.disposition || 'attachment'}; filename="${result.filename.replace(/[^\w.\-]/g, '_')}"`;
           send(200, h, typeof result.data === 'string' ? Buffer.from(result.data) : result.data);
         } else if (result instanceof HtmlResponse) {
           send(result.status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, result.html);

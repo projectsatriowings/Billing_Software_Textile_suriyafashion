@@ -15,12 +15,19 @@ import {
   createCounter,
   updateCounter,
   fetchBranches,
-  createBranch,
-  updateBranch,
+  fetchBranchCashiers,
+  createBranchCashier,
+  updateBranchCashier,
+  resetBranchUserPassword,
+  updateBranchUserStatus,
+  checkUserUsernameAvailability,
+  checkUserEmailAvailability,
   type UserManagementSummary,
   type StoreManager,
   type CounterItem,
   type ManagerInput,
+  type BranchCashierItem,
+  type BranchCashierInput,
 } from '../../api.ts';
 import type { Branch } from '../../api.ts';
 import { DeleteConfirmModal, type DeleteEntityType } from './DeleteConfirmModal.tsx';
@@ -225,14 +232,14 @@ interface ToastMessage {
 }
 
 export const UserManagementView: React.FC = () => {
-  // Navigation Tabs: 'managers' | 'branches' | 'counters'
-  const [activeTab, setActiveTab] = useState<'managers' | 'branches' | 'counters'>('managers');
+  // Navigation Tabs: 'managers' | 'cashiers' | 'counters'
+  const [activeTab, setActiveTab] = useState<'managers' | 'cashiers' | 'counters'>('managers');
 
-  // Sync tab with URL query parameter (?tab=managers|branches|counters)
+  // Sync tab with URL query parameter (?tab=managers|cashiers|counters)
   useEffect(() => {
     try {
       const p = new URLSearchParams(window.location.search).get('tab');
-      if (p === 'managers' || p === 'branches' || p === 'counters') {
+      if (p === 'managers' || p === 'cashiers' || p === 'counters') {
         setActiveTab(p);
       }
     } catch {}
@@ -240,7 +247,7 @@ export const UserManagementView: React.FC = () => {
     const onPop = () => {
       try {
         const p = new URLSearchParams(window.location.search).get('tab');
-        if (p === 'managers' || p === 'branches' || p === 'counters') {
+        if (p === 'managers' || p === 'cashiers' || p === 'counters') {
           setActiveTab(p);
         }
       } catch {}
@@ -249,7 +256,7 @@ export const UserManagementView: React.FC = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  const handleTabSwitch = (tab: 'managers' | 'branches' | 'counters') => {
+  const handleTabSwitch = (tab: 'managers' | 'cashiers' | 'counters') => {
     setActiveTab(tab);
     try {
       const url = new URL(window.location.href);
@@ -268,6 +275,7 @@ export const UserManagementView: React.FC = () => {
   });
 
   const [managers, setManagers] = useState<StoreManager[]>([]);
+  const [cashiers, setCashiers] = useState<BranchCashierItem[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [counters, setCounters] = useState<CounterItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -276,6 +284,9 @@ export const UserManagementView: React.FC = () => {
   const [mgrSearch, setMgrSearch] = useState('');
   const [mgrBranchFilter, setMgrBranchFilter] = useState('ALL');
   const [mgrStatusFilter, setMgrStatusFilter] = useState('ALL');
+
+  const [cshSearch, setCshSearch] = useState('');
+  const [cshStatusFilter, setCshStatusFilter] = useState('ALL');
 
   const [cntSearch, setCntSearch] = useState('');
   const [cntBranchFilter, setCntBranchFilter] = useState('ALL');
@@ -292,14 +303,6 @@ export const UserManagementView: React.FC = () => {
   const computedManagersAssigned = managers.filter((m) => Boolean(m.branchId && activeBranchIds.has(m.branchId))).length;
   const computedManagersUnassigned = computedManagersTotal - computedManagersAssigned;
 
-  // A branch is without a manager if no manager is assigned to its branchId and branch.managerId is empty
-  const assignedBranchIds = new Set(
-    managers.filter((m) => Boolean(m.branchId)).map((m) => m.branchId as string)
-  );
-  const computedBranchesWithoutManager = branches.filter(
-    (b) => !assignedBranchIds.has(b.id) && !b.managerId
-  ).length;
-
   const computedCounterTotal = counters.length;
   const computedCounterActive = counters.filter((c) => c.status === 'ACTIVE').length;
   const computedCounterBranches = new Set(counters.map((c) => c.branch.id)).size;
@@ -313,11 +316,13 @@ export const UserManagementView: React.FC = () => {
   const displayManagersAssigned = managers.length > 0 ? computedManagersAssigned : summary.managers.assigned;
   const displayManagersUnassigned = managers.length > 0 ? computedManagersUnassigned : summary.managers.unassigned;
 
+  const displayCashiersTotal = cashiers.length;
+  const displayCashiersActive = cashiers.filter((c) => c.status === 'ACTIVE').length;
+  const displayCashiersInactive = cashiers.filter((c) => c.status === 'DISABLED').length;
+
   const displayCountersTotal = counters.length > 0 ? computedCounterTotal : summary.counters.total;
   const displayCountersActive = counters.length > 0 ? computedCounterActive : summary.counters.active;
   const displayCounterBranches = counters.length > 0 ? computedCounterBranches : summary.counters.branches;
-
-  const displayBranchesWithoutManager = branches.length > 0 ? computedBranchesWithoutManager : summary.branchesWithoutManager;
 
   // Toast
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -346,10 +351,8 @@ export const UserManagementView: React.FC = () => {
     if (deleteModal.type === 'manager') {
       setManagers((prev) => prev.filter((m) => m.id !== id));
       setBranches((prev) => prev.map((b) => (b.managerId === id ? { ...b, managerId: null, managerName: null } : b)));
-    } else if (deleteModal.type === 'branch') {
-      setBranches((prev) => prev.filter((b) => b.id !== id));
-      setManagers((prev) => prev.map((m) => (m.branchId === id ? { ...m, branchId: null, branchName: null, branchCode: null } : m)));
-      setCounters((prev) => prev.filter((c) => c.branch.id !== id));
+    } else if (deleteModal.type === 'cashier') {
+      setCashiers((prev) => prev.filter((c) => c.id !== id));
     } else if (deleteModal.type === 'counter') {
       setCounters((prev) => prev.filter((c) => c.id !== id));
     }
@@ -362,6 +365,11 @@ export const UserManagementView: React.FC = () => {
       const mgr = managers.find((m) => m.id === id);
       if (mgr && mgr.status !== 'DISABLED') {
         await handleToggleManagerStatus(mgr);
+      }
+    } else if (deleteModal.type === 'cashier') {
+      const csh = cashiers.find((c) => c.id === id);
+      if (csh && csh.status !== 'DISABLED') {
+        await handleToggleCashierStatus(csh);
       }
     } else if (deleteModal.type === 'counter') {
       const cnt = counters.find((c) => c.id === id);
@@ -440,16 +448,18 @@ export const UserManagementView: React.FC = () => {
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [sumRes, mgrRes, brRes, cntRes] = await Promise.all([
+      const [sumRes, mgrRes, brRes, cntRes, cshRes] = await Promise.all([
         fetchUserManagementSummary(),
         fetchManagers(),
         fetchBranches(),
         fetchCounters(),
+        fetchBranchCashiers(),
       ]);
       setSummary(sumRes);
       setManagers(mgrRes.managers || []);
       setBranches(brRes.branches || []);
       setCounters(cntRes.counters || []);
+      setCashiers(cshRes.cashiers || []);
     } catch (err: any) {
       console.error('Failed to load user management data', err);
       showToast(err.message || 'Failed to load data');
@@ -908,98 +918,224 @@ export const UserManagementView: React.FC = () => {
   };
 
   // --------------------------------------------------------------------------
-  // BRANCH MODAL (Create / Edit) & VIEW BRANCH MODAL
+  // CASHIER DRAWER & HANDLERS (Super Admin Cashier Management)
   // --------------------------------------------------------------------------
-  const [branchModal, setBranchModal] = useState<{
+  const [cashierDrawer, setCashierDrawer] = useState<{
     open: boolean;
     mode: 'create' | 'edit';
-    branchId?: string;
+    cashierId?: string;
     name: string;
-    code: string;
-    address: string;
-    phone: string;
-    active: boolean;
-    managerId: string;
+    username: string;
+    email: string;
+    password?: string;
   }>({
     open: false,
     mode: 'create',
     name: '',
-    code: '',
-    address: '',
-    phone: '',
-    active: true,
-    managerId: '',
+    username: '',
+    email: '',
+    password: '',
   });
 
-  const [viewBranchModal, setViewBranchModal] = useState<{
-    open: boolean;
-    branch: Branch | null;
-  }>({
-    open: false,
-    branch: null,
+  const [cshUsernameAvail, setCshUsernameAvail] = useState<{ checked: boolean; available: boolean; error?: string }>({
+    checked: false,
+    available: true,
   });
+  const [cshEmailAvail, setCshEmailAvail] = useState<{ checked: boolean; available: boolean; error?: string }>({
+    checked: false,
+    available: true,
+  });
+  const [cshShowPassword, setCshShowPassword] = useState(false);
+  const [cshDrawerError, setCshDrawerError] = useState<string | null>(null);
+  const [isSubmittingCashier, setIsSubmittingCashier] = useState(false);
 
-  const openCreateBranchModal = () => {
-    setBranchModal({
+  const openAddCashierDrawer = () => {
+    setCashierDrawer({
       open: true,
       mode: 'create',
       name: '',
-      code: '',
-      address: '',
-      phone: '',
-      active: true,
-      managerId: '',
+      username: '',
+      email: '',
+      password: generateClientPassword(),
     });
+    setCshShowPassword(false);
+    setCshDrawerError(null);
+    setCshUsernameAvail({ checked: false, available: true });
+    setCshEmailAvail({ checked: false, available: true });
   };
 
-  const openEditBranchModal = (br: Branch) => {
-    setBranchModal({
+  const openEditCashierDrawer = (csh: BranchCashierItem) => {
+    setCashierDrawer({
       open: true,
       mode: 'edit',
-      branchId: br.id,
-      name: br.name,
-      code: br.code,
-      address: br.address || '',
-      phone: br.phone || '',
-      active: br.active,
-      managerId: br.managerId || '',
+      cashierId: csh.id,
+      name: csh.name,
+      username: csh.username || '',
+      email: csh.email || '',
+      password: '',
     });
+    setCshShowPassword(false);
+    setCshDrawerError(null);
+    setCshUsernameAvail({ checked: false, available: true });
+    setCshEmailAvail({ checked: false, available: true });
   };
 
-  const handleSaveBranch = async (e: React.FormEvent) => {
+  const handleToggleCashierStatus = async (csh: BranchCashierItem) => {
+    const nextStatus = csh.status === 'DISABLED' ? 'ACTIVE' : 'DISABLED';
+    try {
+      await updateBranchUserStatus(csh.id, nextStatus);
+      showToast(`Cashier ${nextStatus === 'ACTIVE' ? 'enabled' : 'disabled'}`);
+      await loadAllData();
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update cashier status');
+    }
+  };
+
+  const handleResetCashierPassword = async (id: string, name: string, email: string | null) => {
+    try {
+      const res = await resetBranchUserPassword(id);
+      setResetModalData({
+        open: true,
+        managerName: name,
+        temporaryPassword: res.temporaryPassword,
+        managerEmail: email,
+      });
+      showToast('Temporary password generated');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reset password');
+    }
+  };
+
+  const handleSaveCashier = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!branchModal.name.trim() || !branchModal.code.trim()) {
-      alert('Branch name and code are required.');
+    setCshDrawerError(null);
+    if (!cashierDrawer.name.trim() || cashierDrawer.name.trim().length < 2) {
+      setCshDrawerError('Full name must be at least 2 characters.');
+      return;
+    }
+    const u = cashierDrawer.username.trim().toLowerCase();
+    const em = cashierDrawer.email.trim().toLowerCase();
+    if (!u && !em) {
+      setCshDrawerError('Add a username or email for sign in.');
       return;
     }
     try {
-      if (branchModal.mode === 'create') {
-        await createBranch({
-          name: branchModal.name.trim(),
-          code: branchModal.code.trim().toUpperCase(),
-          address: branchModal.address.trim() || null,
-          phone: branchModal.phone.trim() || null,
-          active: branchModal.active,
-          managerId: branchModal.managerId || null,
+      setIsSubmittingCashier(true);
+      if (cashierDrawer.mode === 'create') {
+        await createBranchCashier({
+          name: cashierDrawer.name.trim(),
+          username: u || null,
+          email: em || null,
+          password: cashierDrawer.password || generateClientPassword(),
         });
-        showToast(`Branch ${branchModal.name} created successfully`);
-      } else if (branchModal.branchId) {
-        await updateBranch(branchModal.branchId, {
-          name: branchModal.name.trim(),
-          code: branchModal.code.trim().toUpperCase(),
-          address: branchModal.address.trim() || null,
-          phone: branchModal.phone.trim() || null,
-          active: branchModal.active,
-          managerId: branchModal.managerId || null,
+        showToast(`Cashier ${cashierDrawer.name} created successfully`);
+      } else if (cashierDrawer.cashierId) {
+        await updateBranchCashier(cashierDrawer.cashierId, {
+          name: cashierDrawer.name.trim(),
+          username: u || null,
+          email: em || null,
         });
-        showToast(`Branch ${branchModal.name} updated successfully`);
+        showToast(`Cashier ${cashierDrawer.name} updated successfully`);
       }
-      setBranchModal((b) => ({ ...b, open: false }));
+      setCashierDrawer((c) => ({ ...c, open: false }));
       await loadAllData();
     } catch (err: any) {
-      alert(err.message || 'Failed to save branch');
+      setCshDrawerError(err.message || 'Failed to save cashier');
+    } finally {
+      setIsSubmittingCashier(false);
     }
   };
+
+  useEffect(() => {
+    if (!cashierDrawer.open) return;
+    const trimmed = cashierDrawer.username.trim().toLowerCase();
+    if (!trimmed) {
+      setCshUsernameAvail({ checked: false, available: true });
+      return;
+    }
+    if (trimmed.length < 4 || trimmed.length > 20 || !/^[a-z0-9._]+$/.test(trimmed) || trimmed.startsWith('.') || trimmed.startsWith('_') || trimmed.endsWith('.') || trimmed.endsWith('_')) {
+      setCshUsernameAvail({
+        checked: true,
+        available: false,
+        error: 'Use 4–20 letters, numbers, dot or underscore.',
+      });
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkUserUsernameAvailability(trimmed, cashierDrawer.cashierId || undefined);
+        setCshUsernameAvail({ checked: true, available: res.available, error: res.error });
+      } catch (err: any) {
+        setCshUsernameAvail({ checked: true, available: false, error: err.message || 'Error checking username' });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [cashierDrawer.username, cashierDrawer.open, cashierDrawer.cashierId]);
+
+  useEffect(() => {
+    if (!cashierDrawer.open) return;
+    const trimmed = cashierDrawer.email.trim().toLowerCase();
+    if (!trimmed) {
+      setCshEmailAvail({ checked: false, available: true });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setCshEmailAvail({ checked: true, available: false, error: 'Enter a valid email.' });
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await checkUserEmailAvailability(trimmed, cashierDrawer.cashierId || undefined);
+        setCshEmailAvail({ checked: true, available: res.available, error: res.error });
+      } catch (err: any) {
+        setCshEmailAvail({ checked: true, available: false, error: err.message || 'Error checking email' });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [cashierDrawer.email, cashierDrawer.open, cashierDrawer.cashierId]);
+
+  const cshPwRules = useMemo(() => {
+    const pw = cashierDrawer.password || '';
+    return {
+      length: pw.length >= 8,
+      casing: /[a-z]/.test(pw) && /[A-Z]/.test(pw),
+      number: /[0-9]/.test(pw),
+      symbol: /[#@!$%&*]/.test(pw),
+    };
+  }, [cashierDrawer.password]);
+
+  const cshPwStrength = useMemo(() => {
+    if (!cashierDrawer.password) return { score: 0, label: 'None', color: '#E6E4F0' };
+    let score = 0;
+    if (cshPwRules.length) score++;
+    if (cshPwRules.casing) score++;
+    if (cshPwRules.number) score++;
+    if (cshPwRules.symbol) score++;
+
+    if (score <= 1) return { score: 1, label: 'Weak', color: '#B42318' };
+    if (score === 2) return { score: 2, label: 'Fair', color: '#C27A0E' };
+    if (score === 3) return { score: 3, label: 'Good', color: '#1F4FD1' };
+    return { score: 4, label: 'Strong', color: '#11683F' };
+  }, [cashierDrawer.password, cshPwRules]);
+
+  const cshSigninBoxStatus = useMemo(() => {
+    const hasU = Boolean(cashierDrawer.username.trim());
+    const hasE = Boolean(cashierDrawer.email.trim());
+    if (!hasU && !hasE) {
+      return { ok: false, type: 'amber', message: 'Add a username or email ID to continue.' };
+    }
+    if (hasU && (!cshUsernameAvail.available || cshUsernameAvail.error)) {
+      return { ok: false, type: 'red', message: 'Fix the highlighted username to continue.' };
+    }
+    if (hasE && (!cshEmailAvail.available || cshEmailAvail.error)) {
+      return { ok: false, type: 'red', message: 'Fix the highlighted email to continue.' };
+    }
+    return {
+      ok: true,
+      type: 'green',
+      message: `Sign in with ${hasU ? `@${cashierDrawer.username.trim()}` : ''}${hasU && hasE ? ' or ' : ''}${hasE ? cashierDrawer.email.trim() : ''}`,
+    };
+  }, [cashierDrawer.username, cashierDrawer.email, cshUsernameAvail, cshEmailAvail]);
 
   // --------------------------------------------------------------------------
   // COUNTER MODAL (Create / Edit) & VIEW COUNTER MODAL
@@ -1118,6 +1254,20 @@ export const UserManagementView: React.FC = () => {
     });
   }, [counters, cntSearch, cntBranchFilter, cntStatusFilter]);
 
+  const filteredCashiers = useMemo(() => {
+    return cashiers.filter((c) => {
+      if (cshStatusFilter !== 'ALL' && c.status !== cshStatusFilter) return false;
+      if (cshSearch.trim()) {
+        const q = cshSearch.toLowerCase();
+        const mName = c.name.toLowerCase().includes(q);
+        const mUser = c.username ? c.username.toLowerCase().includes(q) : false;
+        const mEmail = c.email ? c.email.toLowerCase().includes(q) : false;
+        return mName || mUser || mEmail;
+      }
+      return true;
+    });
+  }, [cashiers, cshSearch, cshStatusFilter]);
+
   return (
     <div className="um-page-wrapper">
       <div className="um-container">
@@ -1127,17 +1277,17 @@ export const UserManagementView: React.FC = () => {
         <header className="um-header-row">
           <div className="um-header-titles">
             <h1>User Management</h1>
-            <p>Manage branches, store managers and their sign-in access.</p>
+            <p>Manage store managers, cashiers, and checkout counters.</p>
           </div>
           <div className="um-header-actions">
             <button
               type="button"
               className="um-btn-base um-btn-secondary"
-              onClick={openCreateBranchModal}
-              aria-label="Create branch"
+              onClick={openAddCashierDrawer}
+              aria-label="Add cashier"
             >
-              <Icons.Building />
-              <span>Create branch</span>
+              <Icons.UserPlus />
+              <span>Add cashier</span>
             </button>
             <button
               type="button"
@@ -1152,24 +1302,10 @@ export const UserManagementView: React.FC = () => {
         </header>
 
         {/* ==================================================================
-            B) FOUR STAT CARDS
+            B) THREE STAT CARDS
             ================================================================== */}
-        <div className="um-stats-grid">
-          {/* 1. Branches */}
-          <div className="um-stat-card">
-            <div className="um-stat-card-header">
-              <div className="um-stat-icon-tile purple">
-                <Icons.Building />
-              </div>
-              <span className="um-stat-label">Branches</span>
-            </div>
-            <div className="um-stat-value">{displayBranchesTotal}</div>
-            <div className="um-stat-hint">
-              {displayBranchesActive} active · {displayBranchesInactive} inactive
-            </div>
-          </div>
-
-          {/* 2. Store Managers */}
+        <div className="um-stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          {/* 1. Store Managers */}
           <div className="um-stat-card">
             <div className="um-stat-card-header">
               <div className="um-stat-icon-tile blue">
@@ -1179,7 +1315,21 @@ export const UserManagementView: React.FC = () => {
             </div>
             <div className="um-stat-value">{displayManagersTotal}</div>
             <div className="um-stat-hint">
-              {displayManagersAssigned} assigned · {displayManagersUnassigned} not assigned
+              {displayManagersAssigned} active
+            </div>
+          </div>
+
+          {/* 2. Cashiers */}
+          <div className="um-stat-card">
+            <div className="um-stat-card-header">
+              <div className="um-stat-icon-tile purple">
+                <Icons.UserPlus />
+              </div>
+              <span className="um-stat-label">Cashiers</span>
+            </div>
+            <div className="um-stat-value">{displayCashiersTotal}</div>
+            <div className="um-stat-hint">
+              {displayCashiersActive} active · {displayCashiersInactive} inactive
             </div>
           </div>
 
@@ -1193,20 +1343,8 @@ export const UserManagementView: React.FC = () => {
             </div>
             <div className="um-stat-value">{displayCountersTotal}</div>
             <div className="um-stat-hint">
-              {displayCountersActive} active · {displayCounterBranches === 1 ? 'across 1 branch' : `across ${displayCounterBranches} branches`}
+              {displayCountersActive} active
             </div>
-          </div>
-
-          {/* 4. Branches Without Manager */}
-          <div className="um-stat-card">
-            <div className="um-stat-card-header">
-              <div className="um-stat-icon-tile amber">
-                <Icons.AlertTriangle />
-              </div>
-              <span className="um-stat-label">Branches Without Manager</span>
-            </div>
-            <div className="um-stat-value">{displayBranchesWithoutManager}</div>
-            <div className="um-stat-hint">Assign one so the branch can be run</div>
           </div>
         </div>
 
@@ -1228,12 +1366,12 @@ export const UserManagementView: React.FC = () => {
           <button
             type="button"
             role="tab"
-            aria-selected={activeTab === 'branches'}
-            className={`um-tab-btn ${activeTab === 'branches' ? 'active' : ''}`}
-            onClick={() => handleTabSwitch('branches')}
+            aria-selected={activeTab === 'cashiers'}
+            className={`um-tab-btn ${activeTab === 'cashiers' ? 'active' : ''}`}
+            onClick={() => handleTabSwitch('cashiers')}
           >
-            <span>Branches</span>
-            <span className="um-tab-badge">{displayBranchesTotal}</span>
+            <span>Cashiers</span>
+            <span className="um-tab-badge">{displayCashiersTotal}</span>
           </button>
 
           <button
@@ -1243,7 +1381,7 @@ export const UserManagementView: React.FC = () => {
             className={`um-tab-btn ${activeTab === 'counters' ? 'active' : ''}`}
             onClick={() => handleTabSwitch('counters')}
           >
-            <span>All counters</span>
+            <span>Counters</span>
             <span className="um-tab-badge">{displayCountersTotal}</span>
           </button>
         </div>
@@ -1464,87 +1602,114 @@ export const UserManagementView: React.FC = () => {
         )}
 
         {/* ==================================================================
-            TAB 2: BRANCHES
+            TAB 2: CASHIERS
             ================================================================== */}
-        {activeTab === 'branches' && (
+        {activeTab === 'cashiers' && (
           <div className="um-card">
+            {/* Toolbar */}
+            <div className="um-toolbar">
+              <div className="um-search-wrap">
+                <span className="um-search-icon">
+                  <Icons.Search />
+                </span>
+                <input
+                  type="text"
+                  className="um-search-input"
+                  placeholder="Search cashiers by name, username or email"
+                  value={cshSearch}
+                  onChange={(e) => setCshSearch(e.target.value)}
+                  aria-label="Search cashiers"
+                />
+              </div>
+
+              <select
+                className="um-select"
+                value={cshStatusFilter}
+                onChange={(e) => setCshStatusFilter(e.target.value)}
+                aria-label="Filter cashiers by status"
+              >
+                <option value="ALL">All statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INVITED">Invited</option>
+                <option value="DISABLED">Inactive</option>
+              </select>
+
+              <button
+                type="button"
+                className="um-btn-base um-btn-primary"
+                onClick={openAddCashierDrawer}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icons.UserPlus />
+                <span>Add cashier</span>
+              </button>
+            </div>
+
             <div className="um-table-container">
               <table className="um-table">
                 <thead>
                   <tr>
-                    <th>Branch</th>
-                    <th>Code</th>
-                    <th>Store Manager</th>
-                    <th>Counters</th>
+                    <th>Cashier</th>
                     <th>Status</th>
+                    <th>Last Sign-In</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {branches.length === 0 ? (
+                  {filteredCashiers.length === 0 ? (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={4}>
                         <div className="um-empty-state">
-                          <h3 className="um-empty-title">No branches found</h3>
-                          <p className="um-empty-sub">Click "Create branch" to add your first branch.</p>
+                          <h3 className="um-empty-title">No cashiers found</h3>
+                          <p className="um-empty-sub">Add a cashier to get started.</p>
                         </div>
                       </td>
                     </tr>
                   ) : (
-                    branches.map((br) => {
-                      const countersTotal = br.countersTotal ?? (Array.isArray(br.counters) ? br.counters.length : 1);
-                      const countersActive = br.countersActive ?? (br.active ? countersTotal : 0);
+                    filteredCashiers.map((csh) => {
+                      const hasUser = Boolean(csh.username);
+                      const hasEmail = Boolean(csh.email);
 
                       return (
-                        <tr key={br.id}>
-                          {/* Branch name + Created date */}
+                        <tr key={csh.id}>
+                          {/* Cashier: Avatar initials + name + username/email */}
                           <td>
-                            <div className="um-branch-cell">
-                              <span className="um-branch-name">{br.name}</span>
-                              <span style={{ fontSize: '13px', color: '#5F5B76' }}>
-                                {formatCreatedDate(br.createdAt)}
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* Code */}
-                          <td>
-                            <span className="um-mono-chip">{br.code}</span>
-                          </td>
-
-                          {/* Store Manager */}
-                          <td>
-                            {br.managerName ? (
-                              <div className="um-user-col">
-                                <div className="um-avatar-initials sm">{getInitials(br.managerName)}</div>
-                                <div className="um-user-info">
-                                  <span className="um-user-name" style={{ fontSize: '13.5px' }}>{br.managerName}</span>
-                                  <span className="um-user-sub" style={{ fontSize: '12.5px' }}>
-                                    {br.managerEmail || (br.managerUsername ? `@${br.managerUsername}` : '')}
-                                  </span>
-                                </div>
+                            <div className="um-user-col">
+                              <div className="um-avatar-initials" style={{ backgroundColor: '#E6EEFF', color: '#1F4FD1' }}>
+                                {getInitials(csh.name)}
                               </div>
-                            ) : (
-                              <span className="um-warning-text">
-                                <Icons.AlertCircle />
-                                <span>Not assigned</span>
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Counters count */}
-                          <td>
-                            <span style={{ color: '#1A1830', fontWeight: 500 }}>
-                              {countersTotal} total · {countersActive} active
-                            </span>
+                              <div className="um-user-info">
+                                <span className="um-user-name">{csh.name}</span>
+                                <span className="um-user-sub">
+                                  {hasUser && <span className="um-user-handle">@{csh.username}</span>}
+                                  {hasUser && hasEmail && <span> · </span>}
+                                  {hasEmail && (
+                                    <span className="um-email-with-status">
+                                      <span>{csh.email}</span>
+                                      <MailStatusBadge
+                                        status={csh.lastEmailStatus}
+                                        error={csh.lastEmailError}
+                                        sentAt={csh.lastEmailSentAt}
+                                        onRetry={() => handleResend(csh)}
+                                      />
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            </div>
                           </td>
 
                           {/* Status */}
                           <td>
-                            <span className={`um-status-pill ${br.active ? 'active' : 'inactive'}`}>
+                            <span className={`um-status-pill ${csh.status.toLowerCase()}`}>
                               <span className="um-status-dot" />
-                              <span>{br.active ? 'Active' : 'Inactive'}</span>
+                              <span>{csh.status === 'ACTIVE' ? 'Active' : csh.status === 'INVITED' ? 'Invited' : 'Disabled'}</span>
                             </span>
+                          </td>
+
+                          {/* Last Sign-in */}
+                          <td>
+                            <span style={{ color: '#5F5B76' }}>{formatDate(csh.lastLoginAt)}</span>
                           </td>
 
                           {/* Actions */}
@@ -1552,43 +1717,68 @@ export const UserManagementView: React.FC = () => {
                             <div className="um-row-actions">
                               <button
                                 type="button"
-                                className="um-action-btn view"
-                                onClick={() => setViewBranchModal({ open: true, branch: br })}
-                                aria-label="View branch"
-                                title="View branch"
-                              >
-                                <Icons.Eye />
-                                <span className="um-tooltip">View branch</span>
-                              </button>
-                              <button
-                                type="button"
                                 className="um-action-btn edit"
-                                onClick={() => openEditBranchModal(br)}
-                                aria-label="Edit branch"
-                                title="Edit branch"
+                                onClick={() => openEditCashierDrawer(csh)}
+                                aria-label="Edit cashier"
+                                title="Edit cashier"
                               >
                                 <Icons.Pencil />
-                                <span className="um-tooltip">Edit branch</span>
+                                <span className="um-tooltip">Edit</span>
                               </button>
                               <button
                                 type="button"
-                                className="um-action-btn manager"
-                                onClick={() => openAddManagerDrawer(br.id)}
-                                aria-label={br.managerName ? `Change manager (${br.managerName})` : 'Assign manager'}
-                                title={br.managerName ? `Change manager (${br.managerName})` : 'Assign manager'}
+                                className="um-action-btn key"
+                                onClick={() => handleResetCashierPassword(csh.id, csh.name, csh.email)}
+                                aria-label="Reset password"
+                                title="Reset password"
                               >
-                                <Icons.UserPlus />
-                                <span className="um-tooltip">{br.managerName ? 'Change manager' : 'Assign manager'}</span>
+                                <Icons.Key />
+                                <span className="um-tooltip">Reset password</span>
                               </button>
+                              {csh.email && (
+                                <button
+                                  type="button"
+                                  className="um-action-btn mail"
+                                  onClick={() => handleResend(csh)}
+                                  aria-label="Resend sign-in details"
+                                  title="Resend sign-in details"
+                                >
+                                  <Icons.Send />
+                                  <span className="um-tooltip">Resend email</span>
+                                </button>
+                              )}
+                              {csh.status === 'DISABLED' ? (
+                                <button
+                                  type="button"
+                                  className="um-action-btn enable"
+                                  onClick={() => handleToggleCashierStatus(csh)}
+                                  aria-label="Enable cashier"
+                                  title="Enable cashier"
+                                >
+                                  <Icons.Power />
+                                  <span className="um-tooltip">Enable cashier</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="um-action-btn disable"
+                                  onClick={() => handleToggleCashierStatus(csh)}
+                                  aria-label="Disable cashier"
+                                  title="Disable cashier"
+                                >
+                                  <Icons.Power />
+                                  <span className="um-tooltip">Disable cashier</span>
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="um-action-btn delete"
-                                onClick={() => handleOpenDelete('branch', br.id, br.name, br.code)}
-                                aria-label={`Delete ${br.name}`}
-                                title="Delete branch"
+                                onClick={() => handleOpenDelete('cashier', csh.id, csh.name)}
+                                aria-label={`Delete ${csh.name}`}
+                                title="Delete cashier"
                               >
                                 <Icons.Trash />
-                                <span className="um-tooltip">Delete branch</span>
+                                <span className="um-tooltip">Delete cashier</span>
                               </button>
                             </div>
                           </td>
@@ -1601,7 +1791,7 @@ export const UserManagementView: React.FC = () => {
             </div>
 
             <div className="um-footer-strip">
-              <span>Showing {branches.length} branches</span>
+              <span>Showing {filteredCashiers.length} of {cashiers.length} cashiers</span>
             </div>
           </div>
         )}
@@ -2305,185 +2495,249 @@ export const UserManagementView: React.FC = () => {
         )}
 
         {/* ==================================================================
-            MODAL: CREATE / EDIT BRANCH
+            DRAWER: ADD / EDIT CASHIER
             ================================================================== */}
-        {branchModal.open && (
-          <div className="um-modal-overlay" role="presentation">
-            <div className="um-modal-card" role="dialog" aria-modal="true">
-              <div className="um-modal-header">
-                <h3 className="um-modal-title">
-                  {branchModal.mode === 'create' ? 'Create branch' : 'Edit branch'}
-                </h3>
+        {cashierDrawer.open && (
+          <div
+            className="um-drawer-overlay"
+            role="presentation"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setCashierDrawer((c) => ({ ...c, open: false }));
+            }}
+          >
+            <div className="um-drawer" role="dialog" aria-modal="true" aria-labelledby="csh-drawer-title">
+              <div className="um-drawer-header">
+                <div className="um-drawer-title-group">
+                  <h2 id="csh-drawer-title">
+                    {cashierDrawer.mode === 'create' ? 'Add cashier' : 'Edit cashier'}
+                  </h2>
+                  <p>
+                    {cashierDrawer.mode === 'create'
+                      ? 'Cashiers sign in with their username or email ID, plus password.'
+                      : 'Update cashier details or sign-in credentials.'}
+                  </p>
+                </div>
                 <button
                   type="button"
                   className="um-drawer-close-btn"
-                  onClick={() => setBranchModal((b) => ({ ...b, open: false }))}
+                  onClick={() => setCashierDrawer((c) => ({ ...c, open: false }))}
+                  aria-label="Close drawer"
                 >
                   <Icons.Close />
                 </button>
               </div>
-              <form onSubmit={handleSaveBranch}>
-                <div className="um-modal-body">
-                  <div className="um-form-group">
-                    <label className="um-form-label">Branch Name *</label>
-                    <input
-                      type="text"
-                      className="um-form-input"
-                      placeholder="e.g. Shree Krishna–PORUR"
-                      value={branchModal.name}
-                      onChange={(e) => setBranchModal({ ...branchModal, name: e.target.value })}
-                      required
-                    />
-                  </div>
 
-                  <div className="um-form-group">
-                    <label className="um-form-label">Branch Code *</label>
-                    <input
-                      type="text"
-                      className="um-form-input mono"
-                      placeholder="e.g. SKS_POR"
-                      value={branchModal.code}
-                      onChange={(e) => setBranchModal({ ...branchModal, code: e.target.value.toUpperCase() })}
-                      required
-                    />
-                  </div>
+              <form onSubmit={handleSaveCashier} className="um-drawer-body">
+                {cshDrawerError && <div className="um-error-banner">{cshDrawerError}</div>}
 
-                  <div className="um-form-group">
-                    <label className="um-form-label">Store Manager</label>
-                    <select
-                      className="um-select"
-                      value={branchModal.managerId}
-                      onChange={(e) => setBranchModal({ ...branchModal, managerId: e.target.value })}
-                    >
-                      <option value="">No manager (unassigned)</option>
-                      {managers.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} ({m.username ? `@${m.username}` : m.email})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="um-form-group">
-                    <label className="um-form-label">Address</label>
-                    <input
-                      type="text"
-                      className="um-form-input"
-                      placeholder="Street, locality, city"
-                      value={branchModal.address}
-                      onChange={(e) => setBranchModal({ ...branchModal, address: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="um-form-group">
-                    <label className="um-form-label">Phone</label>
-                    <input
-                      type="tel"
-                      className="um-form-input"
-                      placeholder="+91 98765 43210"
-                      value={branchModal.phone}
-                      onChange={(e) => setBranchModal({ ...branchModal, phone: e.target.value })}
-                    />
-                  </div>
-
-                  <label className="um-checkbox-label">
-                    <input
-                      type="checkbox"
-                      className="um-checkbox-input"
-                      checked={branchModal.active}
-                      onChange={(e) => setBranchModal({ ...branchModal, active: e.target.checked })}
-                    />
-                    <div className="um-checkbox-text">
-                      <span className="um-checkbox-title">Active branch</span>
-                      <span className="um-checkbox-hint">Inactive branches cannot process transactions.</span>
-                    </div>
-                  </label>
+                {/* Name */}
+                <div className="um-form-group">
+                  <label className="um-form-label" htmlFor="um-csh-name">Cashier full name *</label>
+                  <input
+                    id="um-csh-name"
+                    type="text"
+                    className="um-form-input"
+                    placeholder="e.g. Lakshmi Prakash"
+                    value={cashierDrawer.name}
+                    onChange={(e) => setCashierDrawer({ ...cashierDrawer, name: e.target.value })}
+                    required
+                    minLength={2}
+                  />
                 </div>
-                <div className="um-modal-footer">
+
+                {/* Sign-in Group Box */}
+                <div className={`um-signin-group-box ${cshSigninBoxStatus.ok ? 'valid' : ''}`}>
+                  <h3 className="um-signin-group-title">Sign-in ID *</h3>
+                  <p className="um-signin-group-sub">
+                    Add a username, an email ID, or both. Whichever you add can be used to sign in; the other is optional.
+                  </p>
+
+                  {/* Username */}
+                  <div className="um-form-group">
+                    <label className="um-form-label" htmlFor="um-csh-username">
+                      <span>Username {Boolean(cashierDrawer.email.trim()) && <span style={{ color: '#5F5B76', fontWeight: 400 }}>(optional)</span>}</span>
+                    </label>
+                    <div className="um-input-prefix-wrap">
+                      <span className="um-input-prefix">@</span>
+                      <input
+                        id="um-csh-username"
+                        type="text"
+                        className="um-form-input has-prefix"
+                        placeholder="username"
+                        value={cashierDrawer.username}
+                        autoCapitalize="none"
+                        autoComplete="off"
+                        spellCheck="false"
+                        onChange={(e) => {
+                          const val = e.target.value.toLowerCase().replace(/\s+/g, '');
+                          setCashierDrawer({ ...cashierDrawer, username: val });
+                        }}
+                      />
+                    </div>
+                    {cashierDrawer.username.trim() ? (
+                      cshUsernameAvail.error ? (
+                        <div className="um-field-helper error">{cshUsernameAvail.error}</div>
+                      ) : cshUsernameAvail.available && cshUsernameAvail.checked ? (
+                        <div className="um-field-helper success">@{cashierDrawer.username.trim()} is available.</div>
+                      ) : null
+                    ) : (
+                      <div className="um-field-helper">Letters, numbers, dot or underscore · 4–20 characters.</div>
+                    )}
+                  </div>
+
+                  <div className="um-or-divider">—— OR ——</div>
+
+                  {/* Email */}
+                  <div className="um-form-group">
+                    <label className="um-form-label" htmlFor="um-csh-email">
+                      <span>Email ID {Boolean(cashierDrawer.username.trim()) && <span style={{ color: '#5F5B76', fontWeight: 400 }}>(optional)</span>}</span>
+                    </label>
+                    <input
+                      id="um-csh-email"
+                      type="email"
+                      className="um-form-input"
+                      placeholder="name@yourstore.com"
+                      value={cashierDrawer.email}
+                      onChange={(e) => setCashierDrawer({ ...cashierDrawer, email: e.target.value })}
+                    />
+                    {cashierDrawer.email.trim() ? (
+                      cshEmailAvail.error ? (
+                        <div className="um-field-helper error">{cshEmailAvail.error}</div>
+                      ) : (
+                        <div className="um-field-helper success">Email is available.</div>
+                      )
+                    ) : (
+                      <div className="um-field-helper">Needed if you want to email sign-in details.</div>
+                    )}
+                  </div>
+
+                  <div className={`um-signin-status-bar ${cshSigninBoxStatus.type}`}>
+                    {cshSigninBoxStatus.ok && <Icons.Check />}
+                    <span>{cshSigninBoxStatus.message}</span>
+                  </div>
+                </div>
+
+                {/* Password (Create mode) */}
+                {cashierDrawer.mode === 'create' && (
+                  <div className="um-form-group">
+                    <div className="um-form-label">
+                      <span>Password *</span>
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#5B3BE8',
+                          cursor: 'pointer',
+                          fontSize: '12.5px',
+                          fontWeight: 600,
+                          padding: 0,
+                        }}
+                        onClick={() => {
+                          const newP = generateClientPassword();
+                          setCashierDrawer((c) => ({ ...c, password: newP }));
+                        }}
+                      >
+                        Generate strong password
+                      </button>
+                    </div>
+
+                    <div className="um-pw-wrap">
+                      <input
+                        type={cshShowPassword ? 'text' : 'password'}
+                        className="um-form-input mono"
+                        placeholder="••••••••••••"
+                        value={cashierDrawer.password || ''}
+                        onChange={(e) => setCashierDrawer({ ...cashierDrawer, password: e.target.value })}
+                        required
+                      />
+                      <div className="um-pw-actions">
+                        <button
+                          type="button"
+                          className="um-pw-btn"
+                          onClick={() => setCshShowPassword(!cshShowPassword)}
+                          aria-label={cshShowPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {cshShowPassword ? <Icons.EyeOff /> : <Icons.Eye />}
+                        </button>
+                        {cashierDrawer.password && (
+                          <button
+                            type="button"
+                            className="um-pw-btn"
+                            onClick={() => {
+                              navigator.clipboard.writeText(cashierDrawer.password || '');
+                              showToast('Password copied');
+                            }}
+                            aria-label="Copy password"
+                          >
+                            <Icons.Copy />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {cashierDrawer.password && (
+                      <>
+                        <div className="um-pw-strength-bar">
+                          {[1, 2, 3, 4].map((step) => (
+                            <div
+                              key={step}
+                              className="um-pw-strength-segment"
+                              style={{
+                                backgroundColor: step <= cshPwStrength.score ? cshPwStrength.color : '#E6E4F0',
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <div className="um-pw-strength-label" style={{ color: cshPwStrength.color }}>
+                          Strength: {cshPwStrength.label}
+                        </div>
+
+                        <div className="um-pw-checklist">
+                          <div className={`um-pw-check-item ${cshPwRules.length ? 'met' : ''}`}>
+                            <Icons.Check />
+                            <span>At least 8 characters</span>
+                          </div>
+                          <div className={`um-pw-check-item ${cshPwRules.casing ? 'met' : ''}`}>
+                            <Icons.Check />
+                            <span>Upper and lower case letters</span>
+                          </div>
+                          <div className={`um-pw-check-item ${cshPwRules.number ? 'met' : ''}`}>
+                            <Icons.Check />
+                            <span>At least one number</span>
+                          </div>
+                          <div className={`um-pw-check-item ${cshPwRules.symbol ? 'met' : ''}`}>
+                            <Icons.Check />
+                            <span>At least one symbol (e.g. # @ !)</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="um-drawer-footer">
                   <button
                     type="button"
                     className="um-btn-base um-btn-secondary"
-                    onClick={() => setBranchModal((b) => ({ ...b, open: false }))}
+                    onClick={() => setCashierDrawer((c) => ({ ...c, open: false }))}
+                    disabled={isSubmittingCashier}
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="um-btn-base um-btn-primary">
-                    {branchModal.mode === 'create' ? 'Create branch' : 'Save branch'}
+                  <button
+                    type="submit"
+                    className="um-btn-base um-btn-primary"
+                    disabled={isSubmittingCashier || !cshSigninBoxStatus.ok}
+                  >
+                    {isSubmittingCashier
+                      ? 'Saving...'
+                      : cashierDrawer.mode === 'create'
+                      ? 'Create cashier'
+                      : 'Save changes'}
                   </button>
                 </div>
               </form>
-            </div>
-          </div>
-        )}
-
-        {/* ==================================================================
-            MODAL: VIEW BRANCH DETAILS
-            ================================================================== */}
-        {viewBranchModal.open && viewBranchModal.branch && (
-          <div className="um-modal-overlay" role="presentation">
-            <div className="um-modal-card" role="dialog" aria-modal="true">
-              <div className="um-modal-header">
-                <h3 className="um-modal-title">{viewBranchModal.branch.name}</h3>
-                <button
-                  type="button"
-                  className="um-drawer-close-btn"
-                  onClick={() => setViewBranchModal({ open: false, branch: null })}
-                >
-                  <Icons.Close />
-                </button>
-              </div>
-              <div className="um-modal-body">
-                <div>
-                  <span style={{ fontSize: '12px', color: '#5F5B76', fontWeight: 600 }}>CODE</span>
-                  <div><span className="um-mono-chip">{viewBranchModal.branch.code}</span></div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '12px', color: '#5F5B76', fontWeight: 600 }}>STATUS</span>
-                  <div>
-                    <span className={`um-status-pill ${viewBranchModal.branch.active ? 'active' : 'inactive'}`}>
-                      <span className="um-status-dot" />
-                      <span>{viewBranchModal.branch.active ? 'Active' : 'Inactive'}</span>
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <span style={{ fontSize: '12px', color: '#5F5B76', fontWeight: 600 }}>STORE MANAGER</span>
-                  <div>
-                    {viewBranchModal.branch.managerName ? (
-                      <span style={{ fontWeight: 600 }}>{viewBranchModal.branch.managerName}</span>
-                    ) : (
-                      <span className="um-warning-text"><Icons.AlertCircle /> Not assigned</span>
-                    )}
-                  </div>
-                </div>
-                {viewBranchModal.branch.address && (
-                  <div>
-                    <span style={{ fontSize: '12px', color: '#5F5B76', fontWeight: 600 }}>ADDRESS</span>
-                    <div style={{ color: '#1A1830' }}>{viewBranchModal.branch.address}</div>
-                  </div>
-                )}
-                {viewBranchModal.branch.phone && (
-                  <div>
-                    <span style={{ fontSize: '12px', color: '#5F5B76', fontWeight: 600 }}>PHONE</span>
-                    <div style={{ color: '#1A1830' }}>{viewBranchModal.branch.phone}</div>
-                  </div>
-                )}
-                <div>
-                  <span style={{ fontSize: '12px', color: '#5F5B76', fontWeight: 600 }}>COUNTERS</span>
-                  <div style={{ color: '#1A1830' }}>
-                    {viewBranchModal.branch.countersTotal ?? 1} total · {viewBranchModal.branch.countersActive ?? 1} active
-                  </div>
-                </div>
-              </div>
-              <div className="um-modal-footer">
-                <button
-                  type="button"
-                  className="um-btn-base um-btn-primary"
-                  onClick={() => setViewBranchModal({ open: false, branch: null })}
-                >
-                  Close
-                </button>
-              </div>
             </div>
           </div>
         )}

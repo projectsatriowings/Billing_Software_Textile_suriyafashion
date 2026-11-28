@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveServerUrl: (url) => ipcRenderer.invoke('save-server-url', url),
   getPrinters: () => ipcRenderer.invoke('get-printers'),
   printReceipt: (options) => ipcRenderer.invoke('print-receipt', options),
+  shareBillWhatsApp: (options) => ipcRenderer.invoke('share-bill-whatsapp', options),
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   maximizeWindow: () => ipcRenderer.send('window-maximize'),
   closeWindow: () => ipcRenderer.send('window-close'),

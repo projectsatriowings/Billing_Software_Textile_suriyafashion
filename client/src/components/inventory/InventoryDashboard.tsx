@@ -22,6 +22,9 @@ import { StockLedgerView } from './StockLedgerView.tsx';
 import { StockAdjustmentModal } from './StockAdjustmentModal.tsx';
 import { PhysicalStockCountView } from './PhysicalStockCountView.tsx';
 import { ReorderConfigModal } from './ReorderConfigModal.tsx';
+import { DamagedDefectiveStockView } from './DamagedDefectiveStockView.tsx';
+import { SupplierReturnsView } from './SupplierReturnsView.tsx';
+import { SupplierReplacementsView } from './SupplierReplacementsView.tsx';
 import { Skeleton } from '../common/Skeleton.tsx';
 import { TableSkeleton, type TableSkeletonColumn } from '../common/TableSkeleton.tsx';
 import { CardSkeleton } from '../common/CardSkeleton.tsx';
@@ -67,7 +70,7 @@ interface InventoryDashboardProps {
   userRole?: Role;
   businessType?: string;
   allowNegativeStock?: boolean;
-  initialTab?: 'overview' | 'ledger' | 'counts' | 'replenish' | 'insights';
+  initialTab?: 'overview' | 'ledger' | 'counts' | 'replenish' | 'insights' | 'damaged' | 'returns' | 'replacements';
   onNavigateToPurchases?: (supplierId?: string, itemId?: string) => void;
   onNavigateToCategories?: () => void;
   onNavigateToProductAnalysis?: () => void;
@@ -95,7 +98,7 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
   showToast,
   onReloadItems,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'ledger' | 'counts' | 'replenish' | 'insights'>(initialTab);
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'ledger' | 'counts' | 'replenish' | 'insights' | 'damaged' | 'returns' | 'replacements'>(initialTab);
 
   const isSuperAdmin = userRole === 'owner' || String(userRole).toUpperCase() === 'SUPER_ADMIN';
   const isOwnerOrManager = can(userRole, 'stock.adjust');
@@ -1218,6 +1221,30 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
               {(insights.stockoutRisks?.length || 0) + (insights.batchWarnings?.length || 0)}
             </span>
           ) : null}
+        </button>
+        <button
+          type="button"
+          className={`inv-tab-btn ${activeSubTab === 'damaged' ? 'active' : ''}`}
+          onClick={() => handleSwitchTab('damaged' as any)}
+        >
+          <AlertOctagonIcon size={16} />
+          <span>Damaged & Defective Stock</span>
+        </button>
+        <button
+          type="button"
+          className={`inv-tab-btn ${activeSubTab === 'returns' ? 'active' : ''}`}
+          onClick={() => handleSwitchTab('returns' as any)}
+        >
+          <ArrowRightIcon size={16} />
+          <span>Supplier Returns</span>
+        </button>
+        <button
+          type="button"
+          className={`inv-tab-btn ${activeSubTab === 'replacements' ? 'active' : ''}`}
+          onClick={() => handleSwitchTab('replacements' as any)}
+        >
+          <RefreshCwIcon size={16} />
+          <span>Supplier Replacements</span>
         </button>
       </div>
 
@@ -2655,7 +2682,43 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
         </div>
       )}
 
-      {/* Stock Adjustment Modal */}
+      {/* SUB-VIEW 6: Damaged & Defective Stock */}
+      {activeSubTab === 'damaged' && (
+        <div className="inv-subview-content">
+          <DamagedDefectiveStockView
+            items={items}
+            suppliers={suppliers}
+            userRole={userRole}
+            onInventoryUpdated={handleRefreshAll}
+            showToast={showToast}
+            onNavigateToReturns={() => setActiveSubTab('returns')}
+          />
+        </div>
+      )}
+
+      {/* SUB-VIEW 7: Supplier Returns */}
+      {activeSubTab === 'returns' && (
+        <div className="inv-subview-content">
+          <SupplierReturnsView
+            items={items}
+            suppliers={suppliers}
+            userRole={userRole}
+            onInventoryUpdated={handleRefreshAll}
+            showToast={showToast}
+          />
+        </div>
+      )}
+
+      {/* SUB-VIEW 8: Supplier Replacements */}
+      {activeSubTab === 'replacements' && (
+        <div className="inv-subview-content">
+          <SupplierReplacementsView
+            userRole={userRole}
+            showToast={showToast}
+            onNavigateToReturns={() => setActiveSubTab('returns')}
+          />
+        </div>
+      )}
       {showAdjustmentModal && (
         <StockAdjustmentModal
           isOpen={showAdjustmentModal}
