@@ -9353,170 +9353,6 @@ export function App() {
               </button>
             </div>
 
-            {/* Rail Divider visible in collapsed mode */}
-            <div className="sidebar-rail-divider" aria-hidden="true" />
-
-            {/* Interactive Multi-Business Switcher & Store Profile */}
-            <div className="sidebar-store-wrapper">
-              <button
-                type="button"
-                className="sidebar-store-btn"
-                onClick={() => {
-                  setShowBusinessDropdown(!showBusinessDropdown);
-                }}
-                title={shop?.name || 'Store Profile'}
-              >
-                <div className="sidebar-store-icon-tile">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                  </svg>
-                </div>
-                <div className="sidebar-store-info">
-                  <span className="sidebar-store-name">
-                    {shop?.name || 'Shree Krishna Supermarket'}
-                  </span>
-                  <span className="sidebar-store-badge">
-                    {getBusinessLabel(shop?.businessType)}
-                  </span>
-                </div>
-                <span className="sidebar-store-chevron" aria-hidden="true">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </span>
-              </button>
-
-              {showBusinessDropdown && (
-                <>
-                  <div
-                    className="dropdown-backdrop"
-                    onClick={() => setShowBusinessDropdown(false)}
-                  />
-                  <div className="business-dropdown-menu sidebar-dropdown-flyout">
-                    <div className="dropdown-header">
-                      <span>Store Profile</span>
-                      <span className="store-isolation-badge">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', verticalAlign: '-1px' }}>
-                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                        Isolated Partition
-                      </span>
-                    </div>
-
-                    <div style={{ padding: '0.65rem' }}>
-                      {/* Active Store Identity Card */}
-                      <div className="store-profile-card">
-                        <div className="store-profile-header">
-                          <span className="store-profile-name">{shop?.name || 'Your Store'}</span>
-                          <span className={`biz-badge biz-${shop?.businessType || 'retail'}`}>
-                            {getBusinessIcon(shop?.businessType)} {getBusinessLabel(shop?.businessType)}
-                          </span>
-                        </div>
-
-                        <div className="store-profile-meta-grid">
-                          <div className="store-meta-item">
-                            <span className="store-meta-label">GSTIN</span>
-                            <span className="store-meta-val">{shop?.gstin || 'Unregistered B2C'}</span>
-                          </div>
-                          <div className="store-meta-item">
-                            <span className="store-meta-label">Phone</span>
-                            <span className="store-meta-val">{shop?.phone || 'Not configured'}</span>
-                          </div>
-                          <div className="store-meta-item">
-                            <span className="store-meta-label">Address</span>
-                            <span className="store-meta-val">{shop?.address || 'Store location not specified'}</span>
-                          </div>
-                        </div>
-
-                        {/* Quick navigation actions */}
-                        <div className="store-quick-actions">
-                          {user?.role !== 'cashier' && (
-                            <button
-                              type="button"
-                              className="store-quick-action-btn"
-                              onClick={() => {
-                                setActiveTab('settings');
-                                setShowBusinessDropdown(false);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '5px', verticalAlign: '-2px' }}>
-                                <circle cx="12" cy="12" r="3" />
-                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                              </svg>
-                              Store Profile &amp; Settings
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="store-quick-action-btn"
-                            onClick={() => {
-                              setActiveTab('pos');
-                              setShowBusinessDropdown(false);
-                            }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '5px', verticalAlign: '-2px' }}>
-                              <circle cx="9" cy="21" r="1" />
-                              <circle cx="20" cy="21" r="1" />
-                              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                            </svg>
-                            Open POS Quick Billing
-                          </button>
-                          {user?.role !== 'cashier' && (
-                            <button
-                              type="button"
-                              className="store-quick-action-btn"
-                              onClick={() => {
-                                setActiveTab('reports');
-                                setShowBusinessDropdown(false);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '5px', verticalAlign: '-2px' }}>
-                                <line x1="18" y1="20" x2="18" y2="10" />
-                                <line x1="12" y1="20" x2="12" y2="4" />
-                                <line x1="6" y1="20" x2="6" y2="14" />
-                                <line x1="2" y1="20" x2="22" y2="20" />
-                              </svg>
-                              Sales Reports &amp; Analytics
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="store-single-tenant-note">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                        </svg>
-                        <span>
-                          <strong>Single-Business License Active:</strong> Your store data is strictly private to your account. No cross-store data leaks.
-                        </span>
-                      </div>
-                    </div>
-
-                    {user?.role !== 'cashier' && (
-                      <div className="dropdown-footer">
-                        <button
-                          className="btn btn-secondary"
-                          style={{ width: '100%', padding: '0.45rem', fontSize: '0.8rem', justifyContent: 'center' }}
-                          onClick={() => {
-                            setShowBusinessDropdown(false);
-                            setActiveTab('settings');
-                          }}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                          </svg>
-                          Store Profile &amp; Tax Settings
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
             {/* Navigation Links - Strictly Tailored per Role */}
             <nav className="sidebar-nav">
               {/* 1. Dashboard Tab - Strictly hidden for Cashier */}
@@ -9849,7 +9685,7 @@ export function App() {
                     <span className="nav-icon">
                       <Briefcase size={20} strokeWidth={2.2} />
                     </span>
-                    <span className="nav-text">Accounts &amp; Finance</span>
+                    <span className="nav-text">Accounts</span>
                     <span className="nav-right-slot">
                       <span className={`sidebar-chevron ${isAccountsOpen ? 'open' : ''}`} aria-hidden="true">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -9895,7 +9731,7 @@ export function App() {
                               <line x1="12" y1="15" x2="12" y2="3" />
                             </svg>
                           </span>
-                          <span className="nav-text">Purchases &amp; Payables</span>
+                          <span className="nav-text">Purchases</span>
                           <span className="nav-count-badge">{purchases.length}</span>
                         </button>
                       )}
@@ -9961,7 +9797,7 @@ export function App() {
                               <polyline points="17 6 23 6 23 12" />
                             </svg>
                           </span>
-                          <span className="nav-text">Returns &amp; Profit Report</span>
+                          <span className="nav-text">Returns</span>
                         </button>
                       )}
 
@@ -17207,31 +17043,6 @@ export function App() {
                         <KeyRound size={12} strokeWidth={2.4} />
                       </span>
                       Module Management
-                    </button>
-                  )}
-                  {isSuperAdminUser && !isDeveloperMode && (
-                    <button
-                      type="button"
-                      title="Developer Access (Ctrl+Shift+D)"
-                      onClick={() => setShowDevModeModal(true)}
-                      style={{
-                        marginLeft: 'auto',
-                        background: 'transparent',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: '#94a3b8',
-                        padding: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        fontSize: '0.75rem',
-                        transition: 'color 0.2s',
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.color = '#d97706')}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
-                    >
-                      <Lock size={13} />
-                      <span style={{ fontSize: '0.72rem', fontWeight: 600 }}>Developer Access</span>
                     </button>
                   )}
                 </div>

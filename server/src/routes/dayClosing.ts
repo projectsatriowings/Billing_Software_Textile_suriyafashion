@@ -1423,7 +1423,7 @@ export function registerDayClosing(r: Router) {
   });
 
   // --------------------------------------------------------------------------
-  // 1a. Closed Business Dates for Late Sale Entry (Post-Day-Close Sale)
+  // 1a. Closed Business Dates list for Late Sale Entry (Compact for Calendar)
   // --------------------------------------------------------------------------
   r.get('/api/day-closing/closed-dates', requireUser, async (ctx) => {
     const tenantId = ctx.user!.tenantId;
@@ -1460,7 +1460,7 @@ export function registerDayClosing(r: Router) {
        WHERE dc.tenant_id = ? AND (dc.branch_id = ? OR dc.branch_id = ? OR dc.branch_id = ?)
          AND dc.status IN ('closed', 'approved', 'submitted')
        ORDER BY dc.bdate DESC, dc.created_at DESC
-       LIMIT 30`,
+       LIMIT 365`,
       [branchId, branchCode, branchId, branchCode, tenantId, branchId, branchCode, rawBranch],
     );
 
@@ -1486,6 +1486,105 @@ export function registerDayClosing(r: Router) {
     return {
       closedDates: Array.from(dateMap.values()),
     };
+  });
+
+  // --------------------------------------------------------------------------
+  // 1b. Detailed Day Close information for a single selected business date
+  // --------------------------------------------------------------------------
+  r.get('/api/day-closing/closed-date-detail', requireUser, async (ctx) => {
+    const tenantId = ctx.user!.tenantId;
+    const scope = await resolveBranchScope(ctx);
+    const rawBranch = String(ctx.query.branchId || ctx.query.branch || (scope.branchId ?? 'MAIN')).trim();
+    const bdate = String(ctx.query.bdate || '').trim();
+
+    if (!bdate) {
+      throw bad('bdate query parameter is required');
+    }
+
+    const branchRecord = await ctx.db.one<any>(
+      `SELECT id, code FROM branches
+       WHERE tenant_id = ? AND (id = ? OR UPPER(code) = UPPER(?)) AND (deleted_at IS NULL OR active = true)
+       LIMIT 1`,
+      [tenantId, rawBranch, rawBranch],
+    );
+    const branchId = branchRecord?.id || scope.branchId || rawBranch;
+    const branchCode = branchRecord?.code || rawBranch;
+
+    const dc = await ctx.db.one<any>(
+      `SELECT dc.*, u.name AS closed_by_name
+       FROM day_closings dc
+       LEFT JOIN users u ON u.id = dc.closed_by
+       WHERE dc.tenant_id = ? AND dc.bdate = ? AND (dc.branch_id = ? OR dc.branch_id = ? OR dc.branch_id = ?)
+         AND dc.status IN ('closed', 'approved', 'submitted')
+       ORDER BY dc.created_at DESC
+       LIMIT 1`,
+      [tenantId, bdate, branchId, branchCode, rawBranch],
+    );
+
+    if (!dc) {
+      return { detail: null };
+    }
+
+    // Query late sales count & total
+    const lateRow = await ctx.db.one<any>(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(total_minor), 0)::bigint AS total_minor
+       FROM invoices
+       WHERE tenant_id = ? AND (branch_id = ? OR branch_id = ?)
+         AND bdate = ? AND status = 'posted' AND kind = 'sale'
+         AND (is_late_sale = TRUE OR created_at > ?)`,
+      [tenantId, branchId, branchCode, bdate, dc.created_at],
+    );
+
+    // Calculate UPI sales from collections_summary or payments
+    let upiSalesMinor = 0;
+    try {
+      const summary = typeof dc.collections_summary === 'string'
+        ? JSON.parse(dc.collections_summary)
+        : (dc.collections_summary || {});
+      if (typeof summary.upi === 'number') {
+        upiSalesMinor = summary.upi;
+      } else if (typeof summary.UPI === 'number') {
+        upiSalesMinor = summary.UPI;
+      }
+    } catch { }
+
+    if (upiSalesMinor === 0) {
+      const upiRow = await ctx.db.one<any>(
+        `SELECT COALESCE(SUM(p.amount_minor), 0)::bigint AS upi_total
+         FROM payments p
+         JOIN invoices i ON i.id = p.invoice_id
+         WHERE i.tenant_id = ? AND i.bdate = ? AND (i.branch_id = ? OR i.branch_id = ?)
+           AND LOWER(p.method) = 'upi' AND (i.is_late_sale IS NOT TRUE AND i.created_at <= ?)`,
+        [tenantId, bdate, branchId, branchCode, dc.created_at],
+      );
+      upiSalesMinor = Number(upiRow?.upi_total || 0);
+    }
+
+    const grossSalesMinor = Number(dc.gross_sales_minor ?? dc.grossSalesMinor ?? 0);
+    const lateSalesCount = Number(lateRow?.count || 0);
+    const lateSalesTotalMinor = Number(lateRow?.total_minor || 0);
+
+    const detail = {
+      bdate: dc.bdate,
+      dayClosingId: dc.id,
+      status: dc.status,
+      closedAt: dc.closed_at || dc.closedAt || dc.created_at,
+      closedByName: dc.closed_by_name || dc.closedByName || 'Staff',
+      originalSalesTotalMinor: grossSalesMinor,
+      originalNetSalesMinor: Number(dc.net_sales_minor ?? dc.netSalesMinor ?? 0),
+      originalCashMinor: Number(dc.actual_cash_minor ?? dc.actualCashMinor ?? 0),
+      invoicesCount: Number(dc.invoices_count ?? dc.invoicesCount ?? 0),
+      cashSalesMinor: Number(dc.cash_sales_minor ?? dc.cashSalesMinor ?? 0),
+      upiSalesMinor,
+      cashExpensesMinor: Number(dc.cash_expenses_minor ?? dc.cashExpensesMinor ?? 0),
+      expectedCashMinor: Number(dc.expected_cash_minor ?? dc.expectedCashMinor ?? 0),
+      actualCashMinor: Number(dc.actual_cash_minor ?? dc.actualCashMinor ?? 0),
+      lateSalesCount,
+      lateSalesTotalMinor,
+      revisedSalesTotalMinor: grossSalesMinor + lateSalesTotalMinor,
+    };
+
+    return { detail };
   });
 
   // --------------------------------------------------------------------------

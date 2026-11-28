@@ -2872,12 +2872,25 @@ export interface ClosedBusinessDate {
   invoicesCount: number;
   lateSalesCount: number;
   lateSalesTotalMinor: number;
+  cashSalesMinor?: number;
+  upiSalesMinor?: number;
+  cashExpensesMinor?: number;
+  expectedCashMinor?: number;
+  actualCashMinor?: number;
+  revisedSalesTotalMinor?: number;
 }
 
 export const getClosedBusinessDates = (branchId?: string) => {
   const q = new URLSearchParams();
   if (branchId) q.set('branchId', branchId);
   return api<{ closedDates: ClosedBusinessDate[] }>(`/api/day-closing/closed-dates?${q.toString()}`);
+};
+
+export const getClosedDateDetail = (bdate: string, branchId?: string) => {
+  const q = new URLSearchParams();
+  q.set('bdate', bdate);
+  if (branchId) q.set('branchId', branchId);
+  return api<{ detail: ClosedBusinessDate | null }>(`/api/day-closing/closed-date-detail?${q.toString()}`);
 };
 
 export const submitDayClosing = (data: {
