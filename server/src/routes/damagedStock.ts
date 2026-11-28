@@ -254,13 +254,11 @@ export function registerDamagedStock(r: Router): void {
       await syncItemStockStatus(q, tenantId, [itemId], branchId);
 
       // 7. Audit log
-      await audit(q, {
-        tenantId,
-        userId: ctx.user!.id,
+      await audit(q, ctx, {
         action: 'stock.damaged',
-        targetType: 'damaged_stock',
-        targetId: damageId,
-        details: { damageNumber, itemId, qtyMilli, classification, damageReason },
+        entity: 'damaged_stock',
+        entityId: damageId,
+        detail: { damageNumber, itemId, qtyMilli, classification, damageReason },
       });
 
       const created = await q.one('SELECT * FROM damaged_stock WHERE id = ?', [damageId]);
@@ -292,13 +290,11 @@ export function registerDamagedStock(r: Router): void {
       );
 
       const dmgNum = existing.damageNumber ?? existing.damage_number;
-      await audit(q, {
-        tenantId,
-        userId: ctx.user!.id,
+      await audit(q, ctx, {
         action: 'stock.scrapped',
-        targetType: 'damaged_stock',
-        targetId: id,
-        details: { damageNumber: dmgNum, reason },
+        entity: 'damaged_stock',
+        entityId: id,
+        detail: { damageNumber: dmgNum, reason },
       });
 
       return { success: true, message: `Damaged stock ${dmgNum} successfully written off.` };
@@ -536,13 +532,11 @@ export function registerDamagedStock(r: Router): void {
       }
 
       // Audit log
-      await audit(q, {
-        tenantId,
-        userId: ctx.user!.id,
+      await audit(q, ctx, {
         action: 'supplier_return.created',
-        targetType: 'supplier_returns',
-        targetId: returnId,
-        details: { returnNumber, supplierId, totalItems, totalQtyMilli },
+        entity: 'supplier_returns',
+        entityId: returnId,
+        detail: { returnNumber, supplierId, totalItems, totalQtyMilli },
       });
 
       const created = await q.one('SELECT * FROM supplier_returns WHERE id = ?', [returnId]);
@@ -587,13 +581,11 @@ export function registerDamagedStock(r: Router): void {
         [id, tenantId],
       );
 
-      await audit(q, {
-        tenantId,
-        userId: ctx.user!.id,
+      await audit(q, ctx, {
         action: 'supplier_return.dispatched',
-        targetType: 'supplier_returns',
-        targetId: id,
-        details: { returnNumber: ret.return_number, dispatchDate, dispatchRef },
+        entity: 'supplier_returns',
+        entityId: id,
+        detail: { returnNumber: ret.return_number, dispatchDate, dispatchRef },
       });
 
       return { success: true, message: `Supplier return ${ret.return_number} marked as dispatched to supplier.` };
@@ -863,13 +855,11 @@ export function registerDamagedStock(r: Router): void {
       }
 
       // 10. Audit log
-      await audit(q, {
-        tenantId,
-        userId: ctx.user!.id,
+      await audit(q, ctx, {
         action: 'supplier_replacement.received',
-        targetType: 'supplier_replacements',
-        targetId: replacementId,
-        details: { replacementNumber, returnNumber: line.return_number, qtyMilli, condition },
+        entity: 'supplier_replacements',
+        entityId: replacementId,
+        detail: { replacementNumber, returnNumber: line.return_number, qtyMilli, condition },
       });
 
       const created = await q.one('SELECT * FROM supplier_replacements WHERE id = ?', [replacementId]);
