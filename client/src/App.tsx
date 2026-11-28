@@ -227,6 +227,8 @@ import { TemporaryProductModal } from './components/pos/TemporaryProductModal.ts
 import { TailoringModal } from './components/tailoring/TailoringModal.tsx';
 import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
 import { getItemVariants, saveItemVariants, type ProductVariant, type TailoringOrder } from './api.ts';
+import { LateSaleModal } from './components/pos/LateSaleModal.tsx';
+import { LateSaleConfirmModal } from './components/pos/LateSaleConfirmModal.tsx';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -2445,6 +2447,67 @@ export function App() {
 
   // Size-Ratio Purchase Inward Modal State
   const [showSizeRatioModal, setShowSizeRatioModal] = useState(false);
+
+  // Late Sale Entry (Post-Day-Close Sale) State
+  const [lateSaleMode, setLateSaleMode] = useState<{
+    active: boolean;
+    businessDate: string;
+    reason?: string;
+  } | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('pos_late_sale_mode');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [showLateSaleModal, setShowLateSaleModal] = useState<boolean>(false);
+  const [showLateSaleConfirmModal, setShowLateSaleConfirmModal] = useState<boolean>(false);
+  const [lateSaleInitialDate, setLateSaleInitialDate] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    try {
+      if (lateSaleMode?.active) {
+        sessionStorage.setItem('pos_late_sale_mode', JSON.stringify(lateSaleMode));
+      } else {
+        sessionStorage.removeItem('pos_late_sale_mode');
+      }
+    } catch { }
+  }, [lateSaleMode]);
+
+  const canAccessLateSale = ['owner', 'super_admin', 'store_manager', 'manager', 'admin'].includes(
+    String(user?.role || '').toLowerCase()
+  );
+
+  const handleStartLateSale = (businessDate: string, reason?: string) => {
+    setLateSaleMode({
+      active: true,
+      businessDate,
+      reason,
+    });
+    setShowLateSaleModal(false);
+    setActiveTab('pos');
+    showToast(`🕒 Late Sale Mode ACTIVE: Transactions will be recorded under closed business date ${businessDate}`, 'info');
+  };
+
+  const handleExitLateSale = () => {
+    if (cart.length > 0) {
+      askConfirmation({
+        title: 'Exit Late Sale Mode?',
+        message: "You have items in your cart. Exiting Late Sale mode will clear the cart or revert to today's sales. Do you want to continue?",
+        confirmText: 'Exit Late Sale',
+        variant: 'danger',
+        onConfirm: () => {
+          setLateSaleMode(null);
+          showToast('Exited Late Sale Entry mode. System reverted to current date billing.', 'info');
+        },
+      });
+      return;
+    }
+    setLateSaleMode(null);
+    showToast('Exited Late Sale Entry mode. System reverted to current date billing.', 'info');
+  };
 
   const handleItemImageFileSelect = async (file: File) => {
     if (!file) return;
@@ -6367,7 +6430,7 @@ export function App() {
     showToast('✓ Added return item(s) to cart. You can now scan replacement products.');
   };
 
-  const handleCheckout = async (isKot = false) => {
+  const handleCheckout = async (isKot = false, confirmedLateSale = false) => {
     if (cart.length === 0) return;
 
     if (!selectedCounter) {
@@ -6405,6 +6468,12 @@ export function App() {
       } else {
         setShowCustomerPickerModal(true);
       }
+      return;
+    }
+
+    // If in Late Sale mode and not yet confirmed via verification modal, prompt confirmation
+    if (lateSaleMode?.active && !confirmedLateSale) {
+      setShowLateSaleConfirmModal(true);
       return;
     }
 
@@ -6637,6 +6706,9 @@ export function App() {
         body: JSON.stringify({
           lines,
           invoiceType: 'retail',
+          isLateSale: Boolean(lateSaleMode?.active),
+          businessDate: lateSaleMode?.active ? lateSaleMode.businessDate : undefined,
+          lateSaleReason: lateSaleMode?.active ? lateSaleMode.reason : undefined,
           location: user?.assignedLocation || currentBranchCode || undefined,
           counter: selectedCounter,
           counterId: checkoutCounterId || selectedCounterId || undefined,
@@ -6683,6 +6755,13 @@ export function App() {
       loadItems(); // refresh stock
       const smsSuffix = res.sms?.sent ? ' • 📲 SMS Sent!' : '';
       showToast(isKot ? `KOT & Bill Generated: ${res.number}` : `Invoice ${res.number} generated!${smsSuffix}`);
+
+      if (lateSaleMode?.active) {
+        const recordedDate = lateSaleMode.businessDate;
+        setLateSaleMode(null);
+        setShowLateSaleConfirmModal(false);
+        showToast(`🕒 Late Sale Bill #${res.number} recorded for closed business date ${recordedDate}! Stock deducted & Day Close reconciled.`, 'success');
+      }
       window.dispatchEvent(new CustomEvent('bill_completed', { detail: res }));
 
       // Trigger Checkout Success Modal for final bill (Section 4.1: Restaurant flow triggers after final bill, not KOT)
@@ -11065,6 +11144,81 @@ export function App() {
             {/* TAB 1: BENTO POS BILLING TERMINAL */}
             {displayTab === 'pos' && (
               <div className="bento-pos-root" key={`pos-${selectedBranchScope}`}>
+                {/* Late Sale Entry Mode Banner (Post-Day-Close) */}
+                {lateSaleMode?.active ? (
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                      border: '1.5px solid #f59e0b',
+                      borderRadius: '12px',
+                      padding: '10px 14px',
+                      marginBottom: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      boxShadow: '0 4px 12px rgba(245, 158, 11, 0.12)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          background: '#f59e0b',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '1rem',
+                        }}
+                      >
+                        🕒
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 800, color: '#92400e', fontSize: '0.88rem' }}>
+                            POST-DAY-CLOSE LATE SALE MODE ACTIVE
+                          </span>
+                          <span
+                            style={{
+                              background: '#fde68a',
+                              color: '#92400e',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.74rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            Business Date: {lateSaleMode.businessDate}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: '2px' }}>
+                          Sales will be attributed to <strong>{lateSaleMode.businessDate}</strong> • Real-time entry timestamp and stock movement are recorded for audit • Reason: &quot;{lateSaleMode.reason}&quot;
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleExitLateSale}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #d97706',
+                        color: '#b45309',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        fontWeight: 700,
+                        fontSize: '0.78rem',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Exit Late Sale Mode
+                    </button>
+                  </div>
+                ) : null}
                 {/* Shift Closed Banner Warning */}
                 {!activeShiftNumber && (
                   <div className="bento-shift-warning-banner">
@@ -11177,6 +11331,66 @@ export function App() {
                           >
                             📦 + Non-Inventory Product
                           </button>
+                          {canAccessLateSale && (
+                            <button
+                              type="button"
+                              style={{
+                                background: lateSaleMode?.active ? '#fef3c7' : '#ffffff',
+                                border: lateSaleMode?.active ? '1.5px solid #d97706' : '1px solid #cbd5e1',
+                                color: lateSaleMode?.active ? '#92400e' : '#334155',
+                                padding: '0 0.65rem',
+                                height: '28px',
+                                boxSizing: 'border-box',
+                                borderRadius: '8px',
+                                fontSize: '0.76rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                whiteSpace: 'nowrap',
+                              }}
+                              onClick={() => {
+                                if (lateSaleMode?.active) {
+                                  handleExitLateSale();
+                                } else {
+                                  setLateSaleInitialDate(undefined);
+                                  setShowLateSaleModal(true);
+                                }
+                              }}
+                              title={lateSaleMode?.active ? 'Click to exit Late Sale Entry mode' : 'Enter a sale for a previously closed business date after day close'}
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                              </svg>
+                              {lateSaleMode?.active ? (
+                                <>
+                                  <span>Late Sale ({lateSaleMode.businessDate})</span>
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: '15px',
+                                      height: '15px',
+                                      borderRadius: '50%',
+                                      background: '#fde68a',
+                                      color: '#92400e',
+                                      fontSize: '0.7rem',
+                                      fontWeight: 800,
+                                      marginLeft: '2px',
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    ✕
+                                  </span>
+                                </>
+                              ) : (
+                                <span>Late Sale Entry</span>
+                              )}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="bento-clear-cart-btn"
@@ -27403,6 +27617,37 @@ export function App() {
           isOpen={showTemporaryProductModal}
           onClose={() => setShowTemporaryProductModal(false)}
           onAddProducts={handleAddTemporaryProducts}
+        />
+
+        {/* Late Sale Entry (Post-Day-Close) Modal */}
+        <LateSaleModal
+          isOpen={showLateSaleModal}
+          onClose={() => setShowLateSaleModal(false)}
+          onStartLateSale={handleStartLateSale}
+          branchId={activeBranch?.id || user?.branchId || undefined}
+          formatRupees={formatRupees}
+          initialBusinessDate={lateSaleInitialDate}
+        />
+
+        {/* Late Sale Confirmation Summary Modal */}
+        <LateSaleConfirmModal
+          isOpen={showLateSaleConfirmModal}
+          onClose={() => setShowLateSaleConfirmModal(false)}
+          onConfirm={() => handleCheckout(false, true)}
+          isSaving={isCheckingOut}
+          businessDate={lateSaleMode?.businessDate || ''}
+          reason={lateSaleMode?.reason || ''}
+          customerName={parties.find((p) => p.id === selectedPartyId)?.name || quickCustomerName || 'Walk-in Customer'}
+          customerPhone={parties.find((p) => p.id === selectedPartyId)?.phone || customerSearch || undefined}
+          items={cart.map((c) => ({
+            name: c.item.name,
+            variantSize: c.variant?.size,
+            variantColour: c.variant?.colour,
+            qty: c.qty,
+            priceMinor: c.item.priceMinor,
+            totalMinor: Math.round(c.item.priceMinor * c.qty),
+          }))}
+          totalMinor={cartTotalMinor}
         />
       </div>
     </BranchProvider>
