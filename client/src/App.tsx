@@ -7488,7 +7488,7 @@ export function App() {
 
   const handleToggleItemActive = async (item: Item, skipConfirm: boolean = false) => {
     if (!can(user?.role as any, 'items.write')) {
-      alert("You don't have permission to change product status");
+      showToast("You don't have permission to change product status", 'error');
       return;
     }
     if (togglingItemId === item.id) return;
@@ -7534,7 +7534,7 @@ export function App() {
       setItems((prevItems) =>
         prevItems.map((it) => (it.id === item.id ? { ...it, active: prevActive } : it))
       );
-      alert(err.message || 'Failed to change item status');
+      showToast(err.message || 'Failed to change item status', 'error');
     } finally {
       setTogglingItemId(null);
     }

@@ -1420,7 +1420,7 @@ export function registerItems(r: Router) {
           const branchFilterParams: unknown[] = branchId
             ? [branchId, branchId, targetBranch?.code || branchId]
             : [];
-          const itemStockRow = await ctx.db.one<{ stock_milli: string | number }>(
+          const itemStockRow = await ctx.db.one<{ stockMilli?: string | number; stock_milli?: string | number }>(
             `SELECT COALESCE((
                SELECT SUM(sm.qty_milli)
                FROM stock_moves sm
@@ -1431,7 +1431,7 @@ export function registerItems(r: Router) {
              ), 0)::bigint AS stock_milli`,
             [item.id, tenantId, ...branchFilterParams],
           );
-          const stockMilli = Number(itemStockRow?.stock_milli || 0);
+          const stockMilli = Number(itemStockRow?.stockMilli ?? itemStockRow?.stock_milli ?? 0);
           if (stockMilli <= 0) {
             throw bad('Cannot activate product with 0 stock. Please restock the product first.', 'VALIDATION', { field: 'active' });
           }
