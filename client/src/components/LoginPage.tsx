@@ -93,18 +93,48 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onRequirePasswordChange,
 }) => {
   const detectInitialRole = (): 'super_admin' | 'store_manager' | 'cashier' | 'cashier2' => {
-    if (initialRole) return initialRole as any;
+    const isSmDisabled = typeof window !== 'undefined' && localStorage.getItem('feature_store_manager_enabled') === 'false';
+    if (initialRole) {
+      if (initialRole === 'store_manager' && isSmDisabled) return 'super_admin';
+      return initialRole as any;
+    }
     try {
       const hash = (typeof window !== 'undefined' ? window.location.hash : '').toLowerCase();
       const search = (typeof window !== 'undefined' ? window.location.search : '').toLowerCase();
       if (hash.includes('cashier2') || search.includes('cashier2')) return 'cashier2';
       if (hash.includes('cashier') || search.includes('cashier')) return 'cashier';
-      if (hash.includes('manager') || search.includes('manager')) return 'store_manager';
+      if (!isSmDisabled && (hash.includes('manager') || search.includes('manager'))) return 'store_manager';
     } catch { }
     return 'super_admin';
   };
 
   const [selectedRole, setSelectedRole] = useState<'super_admin' | 'store_manager' | 'cashier' | 'cashier2'>(detectInitialRole);
+  const [isStoreManagerEnabled, setIsStoreManagerEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('feature_store_manager_enabled');
+      if (stored !== null) return stored === 'true';
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    let active = true;
+    api<{ success: boolean; storeManagerEnabled: boolean }>('/api/auth/features')
+      .then((res) => {
+        if (active && res && typeof res.storeManagerEnabled === 'boolean') {
+          setIsStoreManagerEnabled(res.storeManagerEnabled);
+          localStorage.setItem('feature_store_manager_enabled', String(res.storeManagerEnabled));
+          if (!res.storeManagerEnabled && selectedRole === 'store_manager') {
+            setSelectedRole('super_admin');
+            setEmail('demo@billing.local');
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [selectedRole]);
   const [email, setEmail] = useState(() => {
     const role = detectInitialRole();
     if (role === 'cashier') return 'cashier@billing.local';
@@ -437,15 +467,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <span className="role-pill-full">Super Admin</span>
                   <span className="role-pill-short">Admin</span>
                 </button>
-                <button
-                  type="button"
-                  className={`felix-role-pill ${selectedRole === 'store_manager' ? 'active' : ''}`}
-                  onClick={() => handleRoleTabChange('store_manager')}
-                >
-                  <StoreIcon size={13} />
-                  <span className="role-pill-full">Store Manager</span>
-                  <span className="role-pill-short">Manager</span>
-                </button>
+                {isStoreManagerEnabled && (
+                  <button
+                    type="button"
+                    className={`felix-role-pill ${selectedRole === 'store_manager' ? 'active' : ''}`}
+                    onClick={() => handleRoleTabChange('store_manager')}
+                  >
+                    <StoreIcon size={13} />
+                    <span className="role-pill-full">Store Manager</span>
+                    <span className="role-pill-short">Manager</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className={`felix-role-pill ${isCashier ? 'active' : ''}`}

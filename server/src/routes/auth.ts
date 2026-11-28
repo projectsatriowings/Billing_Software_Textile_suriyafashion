@@ -131,6 +131,20 @@ export function registerAuth(r: Router, tokens: { secret: string; ttlSeconds: nu
       throw new HttpError(403, 'ACCOUNT_OFF', 'This account has been switched off. Please contact your Super Admin.');
     }
 
+    if (u.role === 'manager' || u.role === 'store_manager') {
+      try {
+        const row = await ctx.db.one(
+          "SELECT enabled FROM role_module_access WHERE tenant_id = ? AND role = 'owner' AND module_key = 'store_manager' LIMIT 1",
+          [u.tenant_id ?? u.tenantId]
+        );
+        if (row && !row.enabled) {
+          throw new HttpError(403, 'MODULE_DISABLED', 'Store Manager module is currently disabled in Developer settings.');
+        }
+      } catch (err: any) {
+        if (err instanceof HttpError) throw err;
+      }
+    }
+
     const mustChange = Boolean(u.mustChangePassword ?? u.must_change_password);
     if (mustChange) {
       const changeToken = signToken(
@@ -353,6 +367,19 @@ export function registerAuth(r: Router, tokens: { secret: string; ttlSeconds: nu
     });
 
     return { ok: true, message: 'Password reset. Sign in with your new password.' };
+  });
+
+  // Return public feature flags (e.g. whether store manager module/role is enabled)
+  r.get('/api/auth/features', async (ctx) => {
+    try {
+      const row = await ctx.db.one(
+        "SELECT enabled FROM role_module_access WHERE role = 'owner' AND module_key = 'store_manager' ORDER BY updated_at DESC LIMIT 1"
+      );
+      const storeManagerEnabled = row ? Boolean(row.enabled) : true;
+      return { success: true, storeManagerEnabled };
+    } catch {
+      return { success: true, storeManagerEnabled: true };
+    }
   });
 
   // Return ONLY public demo businesses (t_demo_*) for preview and sandbox exploration.

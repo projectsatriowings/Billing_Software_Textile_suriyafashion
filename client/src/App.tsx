@@ -1453,6 +1453,9 @@ export function App() {
                 .then((res) => {
                     if (active && res?.access) {
                         setModuleAccessConfig(res.access);
+                        if (res.access.owner?.store_manager !== undefined) {
+                            localStorage.setItem('feature_store_manager_enabled', String(Boolean(res.access.owner.store_manager)));
+                        }
                     }
                 })
                 .catch((err) => {
@@ -1463,6 +1466,12 @@ export function App() {
             active = false;
         };
     }, [user]);
+
+    useEffect(() => {
+        if (moduleAccessConfig?.owner?.store_manager !== undefined) {
+            localStorage.setItem('feature_store_manager_enabled', String(Boolean(moduleAccessConfig.owner.store_manager)));
+        }
+    }, [moduleAccessConfig]);
 
     const [selectedBranchScope, setSelectedBranchScope] = useState<string>(() => {
         if (user && user.role !== 'owner' && String(user.role).toUpperCase() !== 'SUPER_ADMIN') {
@@ -16270,9 +16279,17 @@ export function App() {
                             (() => {
                                 const roleUpper = String(user?.role || '').toUpperCase();
                                 if (roleUpper === 'OWNER' || roleUpper === 'SUPER_ADMIN') {
-                                    return <UserManagementView key={`users-${selectedBranchScope}`} />;
+                                    return <UserManagementView key={`users-${selectedBranchScope}`} isStoreManagerEnabled={isModuleVisible('store_manager')} />;
                                 }
                                 if (roleUpper === 'MANAGER' || roleUpper === 'STORE_MANAGER') {
+                                    if (!isModuleVisible('store_manager')) {
+                                        return (
+                                            <div style={{ padding: '60px 24px', textAlign: 'center', color: '#5F5B76' }}>
+                                                <p style={{ fontSize: '16px', fontWeight: 600 }}>Store Manager module is currently disabled.</p>
+                                                <p style={{ fontSize: '13px', color: '#8C88A2', marginTop: '8px' }}>Please contact your Super Admin to enable the Store Manager role in Developer settings.</p>
+                                            </div>
+                                        );
+                                    }
                                     return <BranchUserManagementView key={`users-${selectedBranchScope}`} user={user} />;
                                 }
                                 return (

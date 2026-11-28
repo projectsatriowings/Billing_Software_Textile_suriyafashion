@@ -21,6 +21,13 @@ export interface AppModule {
 
 export const APP_MODULES: AppModule[] = [
   {
+    key: 'store_manager',
+    name: 'Store Manager Module & Role',
+    description: 'Store Manager role, branch manager dashboard, and login portal (turn off for small single-store shops)',
+    icon: 'Warehouse',
+    route: 'dashboard',
+  },
+  {
     key: 'dashboard',
     name: 'Dashboard',
     description: 'Executive revenue overview, sales analytics & live store metrics',
@@ -267,6 +274,7 @@ export const DEFAULT_ROLE_MODULE_ACCESS: RoleModuleAccessConfig = {
     'gst.hsn': true,
     'user-management': true,
     settings: true,
+    store_manager: true,
   },
   manager: {
     dashboard: true,
@@ -300,6 +308,7 @@ export const DEFAULT_ROLE_MODULE_ACCESS: RoleModuleAccessConfig = {
     'gst.hsn': true,
     'user-management': true,
     settings: true,
+    store_manager: true,
   },
   cashier: {
     dashboard: false,
@@ -336,6 +345,7 @@ export const DEFAULT_ROLE_MODULE_ACCESS: RoleModuleAccessConfig = {
     'gst.hsn': false,
     'user-management': false,
     settings: false,
+    store_manager: false,
   },
 };
 

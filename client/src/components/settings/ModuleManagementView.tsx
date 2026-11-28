@@ -150,6 +150,22 @@ export const ModuleManagementView: React.FC<ModuleManagementViewProps> = ({
   }, [unsavedCount]);
 
   // Toggle module for a specific role (Super Admin or Store Manager)
+  const isStoreManagerActive = draftConfig.owner?.store_manager ?? true;
+  const handleToggleStoreManagerModule = () => {
+    const nextVal = !isStoreManagerActive;
+    setDraftConfig((prev) => ({
+      ...prev,
+      owner: {
+        ...prev.owner,
+        store_manager: nextVal,
+      },
+      manager: {
+        ...prev.manager,
+        store_manager: nextVal,
+      },
+    }));
+  };
+
   const handleToggle = useCallback(
     (role: 'owner' | 'manager', key: string) => {
       // Super Admin Settings is locked and non-modifiable
@@ -254,6 +270,9 @@ export const ModuleManagementView: React.FC<ModuleManagementViewProps> = ({
         const updated = res.access || fullAccess;
         setSavedConfig(updated);
         setDraftConfig(updated);
+        const smEnabled = updated.owner?.store_manager !== false;
+        localStorage.setItem('feature_store_manager_enabled', String(smEnabled));
+        window.dispatchEvent(new CustomEvent('store_manager_toggle', { detail: { enabled: smEnabled } }));
         showToast('Module access permissions saved successfully!', 'success');
         if (onModuleAccessUpdated) {
           onModuleAccessUpdated(updated);
@@ -427,6 +446,94 @@ export const ModuleManagementView: React.FC<ModuleManagementViewProps> = ({
             )}
           </button>
         </div>
+      </div>
+
+      {/* Store Manager Module (Single Shop / Small Business Mode) */}
+      <div
+        className="mm-config-card"
+        style={{
+          marginBottom: '1.25rem',
+          padding: '1.25rem 1.5rem',
+          background: isStoreManagerActive ? '#ffffff' : '#f8fafc',
+          border: isStoreManagerActive ? '1px solid #e2e8f0' : '1px solid #cbd5e1',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '1rem',
+          borderRadius: '12px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: isStoreManagerActive ? '#eff6ff' : '#f1f5f9',
+              color: isStoreManagerActive ? '#2563eb' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <Warehouse size={22} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#0f172a' }}>
+                Store Manager Module &amp; Login Portal
+              </h3>
+              <span
+                style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  padding: '2px 8px',
+                  borderRadius: '999px',
+                  background: isStoreManagerActive ? '#dcfce7' : '#f1f5f9',
+                  color: isStoreManagerActive ? '#15803d' : '#64748b',
+                }}
+              >
+                {isStoreManagerActive ? 'Active' : 'Disabled (Single Shop Mode)'}
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#64748b', lineHeight: 1.45 }}>
+              Turn OFF for small shops. When disabled, the Store Manager login tab is hidden and Super Admin directly manages Cashiers and Counters.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleToggleStoreManagerModule}
+          style={{
+            position: 'relative',
+            width: '48px',
+            height: '26px',
+            borderRadius: '999px',
+            background: isStoreManagerActive ? '#16a34a' : '#cbd5e1',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '2px',
+            transition: 'background-color 0.2s',
+            flexShrink: 0,
+          }}
+          title={isStoreManagerActive ? 'Click to turn off Store Manager module' : 'Click to turn on Store Manager module'}
+        >
+          <span
+            style={{
+              display: 'block',
+              width: '22px',
+              height: '22px',
+              borderRadius: '50%',
+              background: '#ffffff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              transform: isStoreManagerActive ? 'translateX(22px)' : 'translateX(0)',
+              transition: 'transform 0.2s',
+            }}
+          />
+        </button>
       </div>
 
       {/* Module Access Configuration Card */}

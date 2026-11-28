@@ -231,9 +231,34 @@ interface ToastMessage {
   retryFn?: () => void;
 }
 
-export const UserManagementView: React.FC = () => {
+interface UserManagementViewProps {
+  isStoreManagerEnabled?: boolean;
+}
+
+export const UserManagementView: React.FC<UserManagementViewProps> = ({
+  isStoreManagerEnabled: propStoreManagerEnabled,
+}) => {
+  const isStoreManagerEnabled = useMemo(() => {
+    if (propStoreManagerEnabled !== undefined) return propStoreManagerEnabled;
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('feature_store_manager_enabled');
+      if (stored !== null) return stored === 'true';
+    }
+    return true;
+  }, [propStoreManagerEnabled]);
+
   // Navigation Tabs: 'managers' | 'cashiers' | 'counters'
-  const [activeTab, setActiveTab] = useState<'managers' | 'cashiers' | 'counters'>('managers');
+  const [activeTab, setActiveTab] = useState<'managers' | 'cashiers' | 'counters'>(() => {
+    const isSmDisabled = typeof window !== 'undefined' && localStorage.getItem('feature_store_manager_enabled') === 'false';
+    if (propStoreManagerEnabled === false || isSmDisabled) return 'cashiers';
+    return 'managers';
+  });
+
+  useEffect(() => {
+    if (!isStoreManagerEnabled && activeTab === 'managers') {
+      setActiveTab('cashiers');
+    }
+  }, [isStoreManagerEnabled, activeTab]);
 
   // Sync tab with URL query parameter (?tab=managers|cashiers|counters)
   useEffect(() => {
@@ -1165,6 +1190,18 @@ export const UserManagementView: React.FC = () => {
     counter: null,
   });
 
+  const openCreateCounterModal = () => {
+    const defaultBranchId = branches.length > 0 ? branches[0].id : '';
+    setCounterModal({
+      open: true,
+      mode: 'create',
+      name: '',
+      code: '',
+      branchId: defaultBranchId,
+      loginUsername: '',
+    });
+  };
+
   const openEditCounterModal = (c: CounterItem) => {
     setCounterModal({
       open: true,
@@ -1185,10 +1222,15 @@ export const UserManagementView: React.FC = () => {
     }
     try {
       if (counterModal.mode === 'create') {
+        const branchIdToUse = counterModal.branchId || (branches.length > 0 ? branches[0].id : '');
+        if (!branchIdToUse) {
+          alert('A valid branch is required to create a counter.');
+          return;
+        }
         await createCounter({
           name: counterModal.name.trim(),
           code: counterModal.code.trim().toUpperCase(),
-          branchId: counterModal.branchId,
+          branchId: branchIdToUse,
           loginUsername: counterModal.loginUsername.trim().toLowerCase() || undefined,
         });
         showToast(`Counter ${counterModal.name} created successfully`);
@@ -1291,33 +1333,46 @@ export const UserManagementView: React.FC = () => {
             </button>
             <button
               type="button"
-              className="um-btn-base um-btn-primary"
-              onClick={() => openAddManagerDrawer()}
-              aria-label="Add store manager"
+              className="um-btn-base um-btn-secondary"
+              onClick={openCreateCounterModal}
+              aria-label="Add counter"
             >
-              <Icons.UserPlus />
-              <span>Add store manager</span>
+              <Icons.Monitor />
+              <span>Add counter</span>
             </button>
+            {isStoreManagerEnabled && (
+              <button
+                type="button"
+                className="um-btn-base um-btn-primary"
+                onClick={() => openAddManagerDrawer()}
+                aria-label="Add store manager"
+              >
+                <Icons.UserPlus />
+                <span>Add store manager</span>
+              </button>
+            )}
           </div>
         </header>
 
         {/* ==================================================================
             B) THREE STAT CARDS
             ================================================================== */}
-        <div className="um-stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="um-stats-grid" style={{ gridTemplateColumns: isStoreManagerEnabled ? 'repeat(3, 1fr)' : 'repeat(2, 1fr)' }}>
           {/* 1. Store Managers */}
-          <div className="um-stat-card">
-            <div className="um-stat-card-header">
-              <div className="um-stat-icon-tile blue">
-                <Icons.Users />
+          {isStoreManagerEnabled && (
+            <div className="um-stat-card">
+              <div className="um-stat-card-header">
+                <div className="um-stat-icon-tile blue">
+                  <Icons.Users />
+                </div>
+                <span className="um-stat-label">Store Managers</span>
               </div>
-              <span className="um-stat-label">Store Managers</span>
+              <div className="um-stat-value">{displayManagersTotal}</div>
+              <div className="um-stat-hint">
+                {displayManagersAssigned} active
+              </div>
             </div>
-            <div className="um-stat-value">{displayManagersTotal}</div>
-            <div className="um-stat-hint">
-              {displayManagersAssigned} active
-            </div>
-          </div>
+          )}
 
           {/* 2. Cashiers */}
           <div className="um-stat-card">
@@ -1352,16 +1407,18 @@ export const UserManagementView: React.FC = () => {
             C) TABS (Underline style)
             ================================================================== */}
         <div className="um-tabs-row" role="tablist" aria-label="User Management Sections">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'managers'}
-            className={`um-tab-btn ${activeTab === 'managers' ? 'active' : ''}`}
-            onClick={() => handleTabSwitch('managers')}
-          >
-            <span>Store managers</span>
-            <span className="um-tab-badge">{displayManagersTotal}</span>
-          </button>
+          {isStoreManagerEnabled && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'managers'}
+              className={`um-tab-btn ${activeTab === 'managers' ? 'active' : ''}`}
+              onClick={() => handleTabSwitch('managers')}
+            >
+              <span>Store managers</span>
+              <span className="um-tab-badge">{displayManagersTotal}</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -1840,6 +1897,16 @@ export const UserManagementView: React.FC = () => {
                 <option value="ACTIVE">Active</option>
                 <option value="DISABLED">Disabled</option>
               </select>
+
+              <button
+                type="button"
+                className="um-btn-base um-btn-primary"
+                onClick={openCreateCounterModal}
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Icons.Monitor />
+                <span>Add counter</span>
+              </button>
             </div>
 
             <div className="um-table-container">
@@ -1860,7 +1927,16 @@ export const UserManagementView: React.FC = () => {
                       <td colSpan={6}>
                         <div className="um-empty-state">
                           <h3 className="um-empty-title">No counters found</h3>
-                          <p className="um-empty-sub">Try a different search or filter.</p>
+                          <p className="um-empty-sub">Create your checkout counters to start billing.</p>
+                          <button
+                            type="button"
+                            className="um-btn-base um-btn-primary"
+                            onClick={openCreateCounterModal}
+                            style={{ marginTop: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          >
+                            <Icons.Monitor />
+                            <span>Create counter</span>
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -2762,6 +2838,24 @@ export const UserManagementView: React.FC = () => {
               </div>
               <form onSubmit={handleSaveCounter}>
                 <div className="um-modal-body">
+                  {branches.length > 1 && (
+                    <div className="um-form-group">
+                      <label className="um-form-label">Branch *</label>
+                      <select
+                        className="um-form-input"
+                        value={counterModal.branchId}
+                        onChange={(e) => setCounterModal({ ...counterModal, branchId: e.target.value })}
+                        required
+                      >
+                        {branches.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name} ({b.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   <div className="um-form-group">
                     <label className="um-form-label">Counter Name *</label>
                     <input
