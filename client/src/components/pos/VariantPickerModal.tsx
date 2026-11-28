@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { Item, ProductVariant } from '../../api.ts';
 import { getItemVariants } from '../../api.ts';
 
@@ -24,7 +25,6 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSize, setSelectedSize] = useState<string>('all');
-  const [selectedColour, setSelectedColour] = useState<string>('all');
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
 
   useEffect(() => {
@@ -48,13 +48,11 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Extract unique sizes and colours for filtering
+  // Extract unique sizes for filtering
   const sizes = Array.from(new Set(variants.map((v) => v.size).filter(Boolean))) as string[];
-  const colours = Array.from(new Set(variants.map((v) => v.colour).filter(Boolean))) as string[];
 
   const filteredVariants = variants.filter((v) => {
     if (selectedSize !== 'all' && v.size !== selectedSize) return false;
-    if (selectedColour !== 'all' && v.colour !== selectedColour) return false;
     return true;
   });
 
@@ -75,14 +73,14 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
     onClose();
   };
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
         backdropFilter: 'blur(4px)',
-        zIndex: 99999,
+        zIndex: 100050,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -95,11 +93,11 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
           background: '#ffffff',
           borderRadius: '16px',
           width: '100%',
-          maxWidth: '680px',
+          maxWidth: '640px',
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
           overflow: 'hidden',
           animation: 'modalSlideUp 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
@@ -130,7 +128,7 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
                   letterSpacing: '0.04em',
                 }}
               >
-                {mode === 'exchange' ? 'One-Tap Exchange' : 'Select Size & Colour'}
+                {mode === 'exchange' ? 'One-Tap Exchange' : 'Select Size'}
               </span>
               <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
                 {item.name}
@@ -138,8 +136,8 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
             </div>
             <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '4px' }}>
               {mode === 'exchange'
-                ? 'Swap size or colour with automatic price-difference settlement'
-                : 'Choose the variant to add to current bill'}
+                ? 'Swap size with automatic price-difference settlement'
+                : 'Choose size to add to current bill'}
             </div>
           </div>
           <button
@@ -159,22 +157,41 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
           </button>
         </div>
 
-        {/* Filters */}
-        <div
-          style={{
-            padding: '0.85rem 1.5rem',
-            background: '#ffffff',
-            borderBottom: '1px solid #f1f5f9',
-            display: 'flex',
-            gap: '1rem',
-            flexWrap: 'wrap',
-          }}
-        >
-          {sizes.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Size:</span>
-              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+        {/* Filters - Sizes Only */}
+        {sizes.length > 1 && (
+          <div
+            style={{
+              padding: '0.85rem 1.5rem',
+              background: '#ffffff',
+              borderBottom: '1px solid #f1f5f9',
+              display: 'flex',
+              gap: '1rem',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Size:</span>
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                style={{
+                  padding: '0.25rem 0.6rem',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  border: '1px solid',
+                  borderColor: selectedSize === 'all' ? '#4f46e5' : '#cbd5e1',
+                  background: selectedSize === 'all' ? '#4f46e5' : '#ffffff',
+                  color: selectedSize === 'all' ? '#ffffff' : '#475569',
+                  cursor: 'pointer',
+                }}
+                onClick={() => setSelectedSize('all')}
+              >
+                All
+              </button>
+              {sizes.map((s) => (
                 <button
+                  key={s}
                   type="button"
                   style={{
                     padding: '0.25rem 0.6rem',
@@ -182,100 +199,35 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
                     fontSize: '0.78rem',
                     fontWeight: 600,
                     border: '1px solid',
-                    borderColor: selectedSize === 'all' ? '#4f46e5' : '#cbd5e1',
-                    background: selectedSize === 'all' ? '#4f46e5' : '#ffffff',
-                    color: selectedSize === 'all' ? '#ffffff' : '#475569',
+                    borderColor: selectedSize === s ? '#4f46e5' : '#cbd5e1',
+                    background: selectedSize === s ? '#4f46e5' : '#ffffff',
+                    color: selectedSize === s ? '#ffffff' : '#475569',
                     cursor: 'pointer',
                   }}
-                  onClick={() => setSelectedSize('all')}
+                  onClick={() => setSelectedSize(s)}
                 >
-                  All
+                  {s}
                 </button>
-                {sizes.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    style={{
-                      padding: '0.25rem 0.6rem',
-                      borderRadius: '6px',
-                      fontSize: '0.78rem',
-                      fontWeight: 600,
-                      border: '1px solid',
-                      borderColor: selectedSize === s ? '#4f46e5' : '#cbd5e1',
-                      background: selectedSize === s ? '#4f46e5' : '#ffffff',
-                      color: selectedSize === s ? '#ffffff' : '#475569',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => setSelectedSize(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
+              ))}
             </div>
-          )}
-
-          {colours.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Colour:</span>
-              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  style={{
-                    padding: '0.25rem 0.6rem',
-                    borderRadius: '6px',
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    border: '1px solid',
-                    borderColor: selectedColour === 'all' ? '#4f46e5' : '#cbd5e1',
-                    background: selectedColour === 'all' ? '#4f46e5' : '#ffffff',
-                    color: selectedColour === 'all' ? '#ffffff' : '#475569',
-                    cursor: 'pointer',
-                  }}
-                  onClick={() => setSelectedColour('all')}
-                >
-                  All
-                </button>
-                {colours.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    style={{
-                      padding: '0.25rem 0.6rem',
-                      borderRadius: '6px',
-                      fontSize: '0.78rem',
-                      fontWeight: 600,
-                      border: '1px solid',
-                      borderColor: selectedColour === c ? '#4f46e5' : '#cbd5e1',
-                      background: selectedColour === c ? '#4f46e5' : '#ffffff',
-                      color: selectedColour === c ? '#ffffff' : '#475569',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => setSelectedColour(c)}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Variant Cards Grid */}
-        <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1, minHeight: '220px' }}>
+        <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1, minHeight: '200px' }}>
           {loading ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-              Loading sizes and colours...
+              Loading sizes...
             </div>
           ) : filteredVariants.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-              No variants match the selected filters.
+              No variants available.
             </div>
           ) : (
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
                 gap: '0.75rem',
               }}
             >
@@ -288,6 +240,16 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
                   <div
                     key={v.id}
                     onClick={() => inStock && setSelectedVariant(v)}
+                    onDoubleClick={() => {
+                      if (!inStock) return;
+                      setSelectedVariant(v);
+                      if (mode === 'exchange' && onExchangeVariant) {
+                        onExchangeVariant(currentVariantId || null, v);
+                      } else {
+                        onSelectVariant(v);
+                      }
+                      onClose();
+                    }}
                     style={{
                       border: '2px solid',
                       borderColor: isSelected ? '#4f46e5' : isCurrent ? '#16a34a' : '#e2e8f0',
@@ -331,27 +293,12 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
                             background: '#1e293b',
                             color: '#ffffff',
                             fontWeight: 800,
-                            fontSize: '0.8rem',
-                            padding: '2px 8px',
-                            borderRadius: '4px',
+                            fontSize: '0.85rem',
+                            padding: '3px 10px',
+                            borderRadius: '5px',
                           }}
                         >
                           {v.size}
-                        </span>
-                      )}
-                      {v.colour && (
-                        <span
-                          style={{
-                            background: '#f1f5f9',
-                            color: '#334155',
-                            fontWeight: 600,
-                            fontSize: '0.78rem',
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            border: '1px solid #cbd5e1',
-                          }}
-                        >
-                          {v.colour}
                         </span>
                       )}
                     </div>
@@ -453,10 +400,11 @@ export const VariantPickerModal: React.FC<VariantPickerModalProps> = ({
               background: mode === 'exchange' ? '#16a34a' : '#4f46e5',
             }}
           >
-            {mode === 'exchange' ? 'Confirm Size Exchange' : 'Add Variant to Bill'}
+            {mode === 'exchange' ? 'Confirm Size Exchange' : 'Add to Bill'}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

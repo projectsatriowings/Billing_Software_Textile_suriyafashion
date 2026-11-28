@@ -58,7 +58,28 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
   const widthMm = selectedSizeId === 'custom' ? customWidthMm : currentSizeOption.widthMm;
   const heightMm = selectedSizeId === 'custom' ? customHeightMm : currentSizeOption.heightMm;
 
-  const barcodeTrim = (item.barcode || '').trim();
+  const hasVariants = Boolean(item.variants && item.variants.length > 0);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(() => {
+    if (item.variants && item.variants.length > 0) {
+      const withBarcode = item.variants.find((v) => v.barcode && v.barcode.trim());
+      return withBarcode ? withBarcode.id : item.variants[0].id;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (item?.variants && item.variants.length > 0) {
+      const withBarcode = item.variants.find((v) => v.barcode && v.barcode.trim());
+      setSelectedVariantId(withBarcode ? withBarcode.id : item.variants[0].id);
+    } else {
+      setSelectedVariantId(null);
+    }
+  }, [item]);
+
+  const activeVariant = hasVariants ? item.variants?.find((v) => v.id === selectedVariantId) || item.variants?.[0] : null;
+  const barcodeTrim = (activeVariant?.barcode || item.barcode || '').trim();
+  const effectivePriceMinor = activeVariant?.priceMinor != null ? activeVariant.priceMinor : item.priceMinor;
+  const effectiveName = activeVariant?.size ? `${item.name} (${activeVariant.size})` : item.name;
   const hasBarcode = Boolean(barcodeTrim);
 
   const isNumeric1213 = /^\d{12,13}$/.test(barcodeTrim);
@@ -157,7 +178,7 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
         ctx.fillStyle = '#000000';
         ctx.font = `bold ${Math.round(canvas.height * 0.12)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText(item.name, centerX, curY);
+        ctx.fillText(effectiveName, centerX, curY);
         curY += Math.round(canvas.height * 0.08);
       }
 
@@ -178,17 +199,17 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
       }
 
       // 5. Selling price
-      if (showPrice && item.priceMinor != null) {
+      if (showPrice && effectivePriceMinor != null) {
         ctx.fillStyle = '#000000';
         ctx.font = `900 ${Math.round(canvas.height * 0.14)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText(formatPrice(item.priceMinor), centerX, curY);
+        ctx.fillText(formatPrice(effectivePriceMinor), centerX, curY);
       }
 
       // Trigger download
       const dataUrl = canvas.toDataURL('image/png');
       const downloadLink = document.createElement('a');
-      const safeName = item.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+      const safeName = effectiveName.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
       downloadLink.download = `${safeName}_barcode_${barcodeTrim}.png`;
       downloadLink.href = dataUrl;
       document.body.appendChild(downloadLink);
@@ -214,10 +235,10 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
       <div class="print-label-page">
         ${showShopLogo && shopLogoUrl ? `<img src="${escapeHtml(shopLogoUrl)}" class="label-logo" alt="Logo" />` : ''}
         ${showShopName && shopName ? `<div class="label-shop">${escapeHtml(shopName)}</div>` : ''}
-        ${showProductName ? `<div class="label-name">${escapeHtml(item.name)}</div>` : ''}
+        ${showProductName ? `<div class="label-name">${escapeHtml(effectiveName)}</div>` : ''}
         <div class="label-barcode-svg">${barcodeSvgBarsOnly}</div>
         ${showBarcodeNumber ? `<div class="label-barcode-num">${escapeHtml(barcodeTrim)}</div>` : ''}
-        ${showPrice && item.priceMinor != null ? `<div class="label-price">${formatPrice(item.priceMinor)}</div>` : ''}
+        ${showPrice && effectivePriceMinor != null ? `<div class="label-price">${formatPrice(effectivePriceMinor)}</div>` : ''}
       </div>
     `;
 
@@ -247,7 +268,7 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Print Barcode Label - ${escapeHtml(item.name)}</title>
+          <title>Print Barcode Label - ${escapeHtml(effectiveName)}</title>
           <style>
             @page {
               size: ${widthMm}mm ${heightMm}mm;
@@ -415,7 +436,7 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
               </h2>
             </div>
             <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '3px', fontWeight: 500 }}>
-              {item.name} • EAN-13 or Code 128, sized for your label stock
+              {effectiveName} • EAN-13 or Code 128, sized for your label stock
             </div>
           </div>
           <button
@@ -450,6 +471,34 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
         >
           {/* Left Column: Label Configuration */}
           <div>
+            {/* If product has variants, allow picking size variant */}
+            {hasVariants && (
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
+                  Select Size Variant
+                </label>
+                <select
+                  className="form-input"
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.65rem',
+                    fontSize: '0.85rem',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#ffffff',
+                  }}
+                  value={selectedVariantId || ''}
+                  onChange={(e) => setSelectedVariantId(e.target.value)}
+                >
+                  {item.variants!.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      Size: {v.size || 'Default'} {v.barcode ? `• Barcode: ${v.barcode}` : '• (No barcode)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Label size */}
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.4rem' }}>
@@ -673,7 +722,7 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
                         wordBreak: 'break-word',
                       }}
                     >
-                      {item.name}
+                      {effectiveName}
                     </div>
                   )}
 
@@ -708,7 +757,7 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
                   )}
 
                   {/* Selling price */}
-                  {showPrice && item.priceMinor != null && (
+                  {showPrice && effectivePriceMinor != null && (
                     <div
                       style={{
                         fontSize: '17px',
@@ -718,7 +767,7 @@ export function PrintBarcodeModal({ isOpen, onClose, item, shopName, shopLogoUrl
                         marginTop: '4px',
                       }}
                     >
-                      {formatPrice(item.priceMinor)}
+                      {formatPrice(effectivePriceMinor)}
                     </div>
                   )}
                 </div>
