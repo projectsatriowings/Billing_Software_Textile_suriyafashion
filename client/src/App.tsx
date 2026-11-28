@@ -7101,7 +7101,7 @@ export function App() {
     showProductCatalogDrawer,
   ]);
 
-  const handleSendWhatsAppFromSuccessModal = async (shareMode: 'direct' | 'native' = 'direct') => {
+  const handleSendWhatsAppFromSuccessModal = async () => {
     if (isSendingWhatsApp || !checkoutSuccess) return;
     const check = validateIndianPhone(successPhone);
     if (!check.valid || !check.normalized) {
@@ -7141,7 +7141,7 @@ export function App() {
         includeLink: true,
       });
 
-      // 3. Share flow: Electron Windows EXE vs Native OS Share vs Direct WhatsApp
+      // 3. Share flow: Electron Windows EXE vs Direct Browser WhatsApp
       const electronApi = (window as any).electronAPI;
       if (electronApi && typeof electronApi.shareBillWhatsApp === 'function') {
         setSuccessSendState('opening');
@@ -7167,36 +7167,6 @@ export function App() {
 
         setSuccessSendState('awaiting_send');
         setSuccessShareNote(`PDF ready in folder. WhatsApp opened for ${check.normalized}.`);
-      } else if (shareMode === 'native') {
-        // Native OS Share (Windows 11 Share flyout to pass physical PDF file directly)
-        const pdfFile = new File([blob], filename, { type: 'application/pdf' });
-        const canWebShareFile = typeof navigator !== 'undefined' &&
-          !!navigator.share &&
-          !!navigator.canShare &&
-          navigator.canShare({ files: [pdfFile] });
-
-        if (canWebShareFile) {
-          setSuccessSendState('opening');
-          setSuccessShareNote('Opening Windows share...');
-          try {
-            await navigator.share({
-              files: [pdfFile],
-              title: `Bill #${checkoutSuccess.number}`,
-              text: msg,
-            });
-            setSuccessSendState('awaiting_send');
-            setSuccessShareNote('Awaiting WhatsApp Send...');
-          } catch (shareErr: any) {
-            if (shareErr.name === 'AbortError') {
-              setSuccessSendState('cancelled');
-              setSuccessShareNote('Sharing Cancelled.');
-              return;
-            }
-            throw shareErr;
-          }
-        } else {
-          throw new Error('Native file sharing is not supported by this browser.');
-        }
       } else {
         // Direct WhatsApp Flow (no Windows dialog) + Auto-download PDF + Prefilled message with Bill PDF Link
         setSuccessSendState('opening');
@@ -24466,39 +24436,6 @@ export function App() {
                           {(successSendState === 'idle' || successSendState === 'sent') && 'Send Bill on WhatsApp'}
                         </span>
                       </button>
-
-                      {/* Native OS Share button for attaching PDF file directly via Windows */}
-                      {typeof navigator !== 'undefined' && !!navigator.share && (
-                        <button
-                          type="button"
-                          disabled={!validateIndianPhone(successPhone).valid || isSendingWhatsApp}
-                          onClick={() => handleSendWhatsAppFromSuccessModal('native')}
-                          style={{
-                            width: '100%',
-                            marginTop: '6px',
-                            padding: '0.38rem 0.65rem',
-                            borderRadius: '6px',
-                            border: '1px solid #cbd5e1',
-                            background: '#f8fafc',
-                            color: '#475569',
-                            fontWeight: 600,
-                            fontSize: '0.78rem',
-                            cursor: validateIndianPhone(successPhone).valid ? 'pointer' : 'not-allowed',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '0.35rem',
-                          }}
-                          title="Share actual PDF file directly via Windows Share menu"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
-                            <polyline points="16 6 12 2 8 6"></polyline>
-                            <line x1="12" y1="2" x2="12" y2="15"></line>
-                          </svg>
-                          <span>Attach PDF File via Windows Share</span>
-                        </button>
-                      )}
 
                       {/* Internal Sharing Feedback */}
                       {successShareNote && (
