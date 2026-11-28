@@ -201,28 +201,53 @@ export function registerExchanges(r: Router) {
       exchangeId = 'EXC-' + Date.now().toString(36).toUpperCase() + '-' + Math.floor(Math.random() * 900 + 100);
 
       // 4. Generate Numbers from series
-      // Next Credit Note number
-      const cnSeriesRow = await q.one<any>(
-        `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
-         VALUES (?, ?, 'CN', 2)
-         ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
-         RETURNING (next_no - 1) AS assigned_no`,
-        [tenantId, branchId],
-      );
-      const cnSeqNo = Number(cnSeriesRow?.assignedNo ?? cnSeriesRow?.assigned_no ?? 1);
-      savedCnNumber = `CN-${1000 + cnSeqNo}`;
+      // Next Credit Note number with collision check
+      while (true) {
+        const cnSeriesRow = await q.one<any>(
+          `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
+           VALUES (?, ?, 'CN', 2)
+           ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
+           RETURNING (next_no - 1) AS assigned_no`,
+          [tenantId, branchId],
+        );
+        const cnSeqNo = Number(cnSeriesRow?.assignedNo ?? cnSeriesRow?.assigned_no ?? 1);
+        const candidateCn = `CN-${1000 + cnSeqNo}`;
+        const collision = await q.one<{ id: string }>('SELECT id FROM invoices WHERE tenant_id = ? AND number = ? LIMIT 1', [tenantId, candidateCn]);
+        if (!collision) {
+          savedCnNumber = candidateCn;
+          break;
+        }
+      }
 
-      // Next Invoice number
-      const invPrefix = primaryOrigInv?.invoice_prefix || primaryOrigInv?.invoicePrefix || 'INV';
-      const invSeriesRow = await q.one<any>(
-        `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
-         VALUES (?, ?, ?, 2)
-         ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
-         RETURNING (next_no - 1) AS assigned_no`,
-        [tenantId, branchId, invPrefix],
-      );
-      const invSeqNo = Number(invSeriesRow?.assignedNo ?? invSeriesRow?.assigned_no ?? 1);
-      savedSaleNumber = `${invPrefix}-${1000 + invSeqNo}`;
+      // Next Invoice number: inherit prefix from original invoice (e.g. 'SKS-1016' -> 'SKS') or active series
+      let invPrefix = '';
+      if (primaryOrigInv?.number && primaryOrigInv.number.includes('-')) {
+        invPrefix = primaryOrigInv.number.split('-')[0].trim().toUpperCase();
+      }
+      if (!invPrefix) {
+        const branchSeriesRow = await q.one<{ series: string }>(
+          "SELECT series FROM number_series WHERE tenant_id = ? AND branch_id = ? AND series NOT IN ('SHF', 'TRF', 'EXP', 'PUR', 'STC', 'ADJ', 'CNT', 'DMG', 'SR', 'SRP', 'CN') ORDER BY (series != 'INV') DESC LIMIT 1",
+          [tenantId, branchId],
+        );
+        invPrefix = (branchSeriesRow?.series || 'INV').trim().toUpperCase();
+      }
+
+      while (true) {
+        const invSeriesRow = await q.one<any>(
+          `INSERT INTO number_series (tenant_id, branch_id, series, next_no)
+           VALUES (?, ?, ?, 2)
+           ON CONFLICT (tenant_id, branch_id, series) DO UPDATE SET next_no = number_series.next_no + 1
+           RETURNING (next_no - 1) AS assigned_no`,
+          [tenantId, branchId, invPrefix],
+        );
+        const invSeqNo = Number(invSeriesRow?.assignedNo ?? invSeriesRow?.assigned_no ?? 1);
+        const candidateSale = `${invPrefix}-${1000 + invSeqNo}`;
+        const collision = await q.one<{ id: string }>('SELECT id FROM invoices WHERE tenant_id = ? AND number = ? LIMIT 1', [tenantId, candidateSale]);
+        if (!collision) {
+          savedSaleNumber = candidateSale;
+          break;
+        }
+      }
 
       savedCnId = newId('inv');
       savedSaleId = newId('inv');

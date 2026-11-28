@@ -14,9 +14,52 @@ export function registerCreditNotes(r: Router) {
   r.get('/api/invoices/search-for-return', requireUser, async (ctx) => {
     const tenantId = ctx.user!.tenantId;
     const qStr = String(ctx.query.q || '').trim();
+    const mode = String(ctx.query.mode || '').trim().toLowerCase();
     if (!qStr) return { invoices: [] };
 
-    const searchPattern = `%${qStr.toLowerCase()}%`;
+    let whereClause = '';
+    const params: unknown[] = [tenantId];
+
+    if (mode === 'invoice') {
+      // Search STRICTLY by invoice/bill number. Do NOT match customer name/phone when cashier requested bill number.
+      const rawDigits = qStr.replace(/\D/g, '');
+      whereClause = `
+        AND (
+          lower(i.number) = lower(?)
+          OR lower(i.number) LIKE lower(?)
+          ${rawDigits.length >= 2 ? "OR i.number LIKE ?" : ''}
+        )
+      `;
+      params.push(qStr, `%${qStr}%`);
+      if (rawDigits.length >= 2) {
+        params.push(`%-${rawDigits}`);
+      }
+    } else if (mode === 'phone') {
+      // Search STRICTLY by customer phone
+      const rawDigits = qStr.replace(/\D/g, '');
+      const cleanPhone = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+      whereClause = `
+        AND (
+          i.customer_phone LIKE ?
+          OR i.customer_phone LIKE ?
+        )
+      `;
+      params.push(`%${cleanPhone}%`, `%${qStr}%`);
+    } else {
+      // Barcode / general search: exact number, share_token, customer phone, or name
+      const searchPattern = `%${qStr.toLowerCase()}%`;
+      whereClause = `
+        AND (
+          lower(i.number) = lower(?)
+          OR lower(i.number) LIKE ?
+          OR i.share_token = ?
+          OR i.customer_phone LIKE ?
+          OR lower(COALESCE(i.customer_name, '')) LIKE ?
+        )
+      `;
+      params.push(qStr, searchPattern, qStr, `%${qStr}%`, searchPattern);
+    }
+
     const invoices = await ctx.db.query(
       `SELECT i.id, i.number, i.bdate, i.total_minor, i.paid_minor, i.balance_minor,
               i.customer_name, i.customer_phone, i.status, i.kind, i.created_at,
@@ -28,14 +71,10 @@ export function registerCreditNotes(r: Router) {
        WHERE i.tenant_id = ?
          AND i.kind = 'sale'
          AND i.status = 'posted'
-         AND (
-           lower(i.number) LIKE ?
-           OR i.customer_phone LIKE ?
-           OR lower(COALESCE(i.customer_name, '')) LIKE ?
-         )
+         ${whereClause}
        ORDER BY i.created_at DESC
        LIMIT 15`,
-      [tenantId, searchPattern, `%${qStr}%`, searchPattern],
+      params,
     );
 
     return { invoices };

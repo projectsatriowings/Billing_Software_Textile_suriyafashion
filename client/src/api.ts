@@ -2723,8 +2723,8 @@ export const retrySms = (id: string) =>
 // RETURN, EXCHANGE & DAY CLOSING APIS
 // =========================================================================
 
-export const searchInvoicesForReturn = (q: string) =>
-  api<{ invoices: any[] }>(`/api/invoices/search-for-return?q=${encodeURIComponent(q)}`);
+export const searchInvoicesForReturn = (q: string, mode?: string) =>
+  api<{ invoices: any[] }>(`/api/invoices/search-for-return?q=${encodeURIComponent(q)}${mode ? `&mode=${encodeURIComponent(mode)}` : ''}`);
 
 export const fetchInvoiceReturnInfo = (invoiceId: string) =>
   api<ReturnInfo>(`/api/invoices/${encodeURIComponent(invoiceId)}/return-info`);
