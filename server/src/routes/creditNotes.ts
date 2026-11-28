@@ -1089,10 +1089,17 @@ export function registerCreditNotes(r: Router) {
 
   // 5. Public hosted credit note page (/c/:token)
   r.get('/c/:token', async (ctx) => {
-    const cn = await ctx.db.one(
+    const rawToken = ctx.params.token.replace(/\.pdf$/i, '');
+    let cn = await ctx.db.one(
       `SELECT * FROM invoices WHERE share_token = ? AND kind = 'credit_note'`,
-      [ctx.params.token],
+      [rawToken],
     );
+    if (!cn && rawToken.length >= 8) {
+      cn = await ctx.db.one(
+        `SELECT * FROM invoices WHERE LOWER(share_token) = LOWER(?) AND kind = 'credit_note'`,
+        [rawToken],
+      );
+    }
     if (!cn) throw notFound('Credit Note not found or link has expired.');
 
     const shopTenantId = cn.tenantId ?? cn.tenant_id;

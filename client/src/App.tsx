@@ -629,6 +629,28 @@ export const validateIndianPhone = (raw: string): { valid: boolean; normalized: 
   return { valid: false, normalized: null };
 };
 
+export const getPublicBaseUrl = (configuredUrl?: string | null): string => {
+  if (configuredUrl && typeof configuredUrl === 'string' && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname;
+    const isLocal =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host.startsWith('192.168.') ||
+      host.startsWith('10.') ||
+      host.startsWith('172.') ||
+      host.endsWith('.local') ||
+      window.location.protocol === 'file:';
+    if (!isLocal && host.includes('.')) {
+      return window.location.origin.replace(/\/+$/, '');
+    }
+  }
+  // Default live production domain for public bill viewing
+  return 'https://billing.atriowings.in';
+};
+
 export const buildWhatsAppMessage = (opts: {
   shopName: string;
   number: string;
@@ -637,9 +659,11 @@ export const buildWhatsAppMessage = (opts: {
   shareToken?: string;
   lang: 'en' | 'hi' | 'ta';
   includeLink?: boolean;
+  publicBaseUrl?: string;
 }): string => {
+  const base = getPublicBaseUrl(opts.publicBaseUrl);
   const url = opts.includeLink && opts.shareToken
-    ? `${window.location.origin}/b/${opts.shareToken}`
+    ? `${base}/b/${opts.shareToken}`
     : '';
 
   let msg = billMessage({
@@ -7291,6 +7315,7 @@ export function App() {
         shareToken: checkoutSuccess.shareToken,
         lang: successLang,
         includeLink: true,
+        publicBaseUrl: shop?.publicBaseUrl || (shop as any)?.public_base_url,
       });
 
       // 3. Share flow: Electron Windows EXE vs Direct Browser WhatsApp
@@ -7390,6 +7415,7 @@ export function App() {
         shareToken: resendInvoice.shareToken,
         lang: resendLang,
         includeLink: true,
+        publicBaseUrl: shop?.publicBaseUrl || (shop as any)?.public_base_url,
       });
 
       const link = whatsappLink(check.normalized, msg);
@@ -8072,8 +8098,9 @@ export function App() {
     setReceiptSuccessPhoneError('');
     setReceiptSuccessSendState('sending');
 
+    const receiptBase = getPublicBaseUrl(shop?.publicBaseUrl || (shop as any)?.public_base_url);
     const receiptLink = (shop?.whatsappIncludeLink !== false && receiptSuccessPayment.shareToken)
-      ? `${window.location.origin}/r/${receiptSuccessPayment.shareToken}`
+      ? `${receiptBase}/r/${receiptSuccessPayment.shareToken}`
       : undefined;
 
     const msg = receiptMessage({
@@ -8589,9 +8616,10 @@ export function App() {
     setCnWhatsAppPhoneError('');
 
     try {
+      const cnBase = getPublicBaseUrl(shop?.publicBaseUrl || (shop as any)?.public_base_url);
       const publicLink =
         shop?.whatsappIncludeLink && creditNoteWhatsAppTarget.shareToken
-          ? `${window.location.origin}/c/${creditNoteWhatsAppTarget.shareToken}`
+          ? `${cnBase}/c/${creditNoteWhatsAppTarget.shareToken}`
           : undefined;
 
       const msg = creditNoteMessage({

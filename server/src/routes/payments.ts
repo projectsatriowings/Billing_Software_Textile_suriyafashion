@@ -1217,7 +1217,11 @@ export function registerPayments(r: Router) {
 
   // 10. Public Hosted Receipt Link (/r/:token)
   r.get('/r/:token', async (ctx) => {
-    const payment = await ctx.db.one('SELECT * FROM payments WHERE share_token = ?', [ctx.params.token]);
+    const rawToken = ctx.params.token.replace(/\.pdf$/i, '');
+    let payment = await ctx.db.one('SELECT * FROM payments WHERE share_token = ?', [rawToken]);
+    if (!payment && rawToken.length >= 8) {
+      payment = await ctx.db.one('SELECT * FROM payments WHERE LOWER(share_token) = LOWER(?)', [rawToken]);
+    }
     if (!payment) throw notFound('Receipt not found or link has expired.');
 
     const tenantId = payment.tenant_id ?? payment.tenantId;

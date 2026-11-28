@@ -1447,7 +1447,23 @@ export function registerInvoices(r: Router) {
   // Public Hosted Bill Link (/b/:token and /b/:token.pdf)
   r.get('/b/:token', async (ctx) => {
     const rawToken = ctx.params.token.replace(/\.pdf$/i, '');
-    const inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [rawToken]);
+    let inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [rawToken]);
+    if (!inv && rawToken.length >= 8) {
+      // Fallback 1: Case-insensitive match (for mobile / URL auto-lowercasing)
+      inv = await ctx.db.one('SELECT * FROM invoices WHERE LOWER(share_token) = LOWER(?)', [rawToken]);
+    }
+    if (!inv && rawToken.length >= 8) {
+      // Fallback 2: zero ('0') vs uppercase ('O') typo tolerance
+      const alt1 = rawToken.replace(/0/g, 'O');
+      const alt2 = rawToken.replace(/O/g, '0');
+      inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ? OR share_token = ?', [alt1, alt2]);
+    }
+    if (!inv && rawToken.length >= 8) {
+      // Fallback 3: 'c' vs 'o' typo tolerance (common font confusion in tokens)
+      const alt3 = rawToken.replace(/o/g, 'c');
+      const alt4 = rawToken.replace(/c/g, 'o');
+      inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ? OR share_token = ?', [alt3, alt4]);
+    }
     if (!inv) throw notFound('Bill not found or link has expired.');
 
     const { printable, isWholesale, paper, shop } = await loadPrintableInvoice(ctx.db, inv.id, ctx.query.paper);
