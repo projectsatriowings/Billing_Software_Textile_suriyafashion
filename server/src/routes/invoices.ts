@@ -1361,17 +1361,19 @@ export function registerInvoices(r: Router) {
     };
   });
 
-  // Public Hosted Bill Link (/b/:token)
+  // Public Hosted Bill Link (/b/:token and /b/:token.pdf)
   r.get('/b/:token', async (ctx) => {
-    const inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [ctx.params.token]);
+    const rawToken = ctx.params.token.replace(/\.pdf$/i, '');
+    const inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [rawToken]);
     if (!inv) throw notFound('Bill not found or link has expired.');
 
-    if (ctx.query.format === 'pdf' || ctx.query.download === 'pdf') {
-      const { printable, isWholesale } = await loadPrintableInvoice(ctx.db, inv.id, ctx.query.paper);
-      const pdfBuffer = await generateInvoicePdf(printable);
-      const safeNumber = (printable.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Bill_${safeNumber}.pdf`;
-      return new FileResponse(pdfBuffer, 'application/pdf', filename);
+    const { printable, isWholesale } = await loadPrintableInvoice(ctx.db, inv.id, ctx.query.paper);
+    const pdfBuffer = await generateInvoicePdf(printable);
+    const safeNumber = (printable.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Bill_${safeNumber}.pdf`;
+
+    if (ctx.query.format !== 'html') {
+      return new FileResponse(pdfBuffer, 'application/pdf', filename, 'inline');
     }
 
     const shop = await ctx.db.one('SELECT * FROM tenants WHERE id = ?', [inv.tenantId ?? inv.tenant_id]);

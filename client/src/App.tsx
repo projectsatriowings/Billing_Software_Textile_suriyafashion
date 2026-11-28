@@ -637,8 +637,12 @@ export const buildWhatsAppMessage = (opts: {
   lang: 'en' | 'hi' | 'ta';
   includeLink?: boolean;
 }): string => {
+  const isLocal = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const baseOrigin = isLocal ? 'https://billing.atriowings.in' : window.location.origin;
+
   const url = opts.includeLink && opts.shareToken
-    ? `${window.location.origin}/b/${opts.shareToken}`
+    ? `${baseOrigin}/b/${opts.shareToken}.pdf`
     : '';
 
   let msg = billMessage({
@@ -652,7 +656,7 @@ export const buildWhatsAppMessage = (opts: {
   });
 
   if (!opts.includeLink || !url) {
-    msg = msg.replace(/\n(View \/ download|बिल देखें \/ डाउनलोड करें|பில்லைப் பார்க்க \/ பதிவிறக்க):\s*$/m, '').trim();
+    msg = msg.replace(/\n(View \/ download|Download Bill PDF|View \/ download PDF|बिल देखें \/ डाउनलोड करें|பில்லைப் பார்க்க \/ பதிவிறக்க|பில் PDF பதிவிறக்க|बिल PDF डाउनलोड):\s*$/m, '').trim();
   }
   return msg;
 };
