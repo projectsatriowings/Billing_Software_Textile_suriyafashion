@@ -6988,7 +6988,7 @@ export function App() {
               setSelectedPartyId(match.id);
               setCustomerSearch('');
               setQuickCustomerName('');
-              showToast(`✓ Linked member: ${match.name} (${match.loyaltyPoints ?? 0} pts)`);
+              showToast(`✓ Linked customer: ${match.name}`);
               if (cart.length > 0) {
                 focusProceedPayment();
               } else {
@@ -7001,7 +7001,7 @@ export function App() {
                   setSelectedPartyId(res.party.id);
                   setCustomerSearch('');
                   setQuickCustomerName('');
-                  showToast(`✓ Linked member: ${res.party.name} (${res.party.loyaltyPoints ?? 0} pts)`);
+                  showToast(`✓ Linked customer: ${res.party.name}`);
                   if (cart.length > 0) {
                     focusProceedPayment();
                   } else {
@@ -12538,11 +12538,6 @@ export function App() {
                                           <span style={{ fontWeight: 750, color: user?.role === 'cashier' ? 'var(--sidebar)' : '#1e293b' }}>{item.name}</span>
                                           <span style={{ color: '#64748b', fontSize: '0.74rem' }}>({item.phone})</span>
                                         </div>
-                                        {item.points !== undefined && item.points > 0 && (
-                                          <span style={{ fontSize: '0.68rem', color: '#15803d', fontWeight: 750, background: '#dcfce7', padding: '1px 5px', borderRadius: '4px' }}>
-                                            {item.points} pts
-                                          </span>
-                                        )}
                                       </div>
                                     ))}
                                   </div>
