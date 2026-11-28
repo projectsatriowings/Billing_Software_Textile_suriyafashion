@@ -1288,10 +1288,13 @@ export function registerInvoices(r: Router) {
 
   // Dedicated Invoice PDF Download Endpoint (Authenticated via requireUser)
   r.get('/api/invoices/:id/download-pdf', requireUser, async (ctx) => {
-    const { printable, isWholesale } = await loadPrintableInvoice(ctx.db, ctx.params.id, ctx.query.paper);
+    const { printable, isWholesale, inv } = await loadPrintableInvoice(ctx.db, ctx.params.id, ctx.query.paper);
+    if ((inv.tenantId ?? inv.tenant_id) !== ctx.user!.tenantId) {
+      throw forbidden('You cannot access this invoice');
+    }
     const pdfBuffer = await generateInvoicePdf(printable);
     const safeNumber = (printable.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Invoice_${safeNumber}.pdf`;
+    const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Bill_${safeNumber}.pdf`;
     return new FileResponse(pdfBuffer, 'application/pdf', filename);
   });
 
