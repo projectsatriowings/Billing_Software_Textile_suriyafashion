@@ -7138,10 +7138,10 @@ export function App() {
         balanceMinor: checkoutSuccess.balanceMinor,
         shareToken: checkoutSuccess.shareToken,
         lang: successLang,
-        includeLink: Boolean(shop?.whatsappIncludeLink),
+        includeLink: shop?.whatsappIncludeLink !== false,
       });
 
-      // 3. Check Platform Capabilities & Share (Electron Windows EXE vs Browser Web Share vs Fallback)
+      // 3. Open WhatsApp directly with prefilled message & auto-download PDF (no OS share dialog)
       const electronApi = (window as any).electronAPI;
       if (electronApi && typeof electronApi.shareBillWhatsApp === 'function') {
         setSuccessSendState('opening');
@@ -7168,49 +7168,26 @@ export function App() {
         setSuccessSendState('awaiting_send');
         setSuccessShareNote(`PDF ready in folder. WhatsApp opened for ${check.normalized}.`);
       } else {
-        const pdfFile = new File([blob], filename, { type: 'application/pdf' });
-        const canWebShareFile = typeof navigator !== 'undefined' &&
-          !!navigator.share &&
-          !!navigator.canShare &&
-          navigator.canShare({ files: [pdfFile] });
+        // Direct Browser WhatsApp Flow: straight to WhatsApp with prefilled text + PDF downloaded
+        setSuccessSendState('opening');
+        setSuccessShareNote('Opening WhatsApp...');
 
-        if (canWebShareFile) {
-          setSuccessSendState('opening');
-          setSuccessShareNote('Opening WhatsApp share...');
-          try {
-            await navigator.share({
-              files: [pdfFile],
-              title: `Bill #${checkoutSuccess.number}`,
-              text: msg,
-            });
-            setSuccessSendState('awaiting_send');
-            setSuccessShareNote('Awaiting WhatsApp Send...');
-          } catch (shareErr: any) {
-            if (shareErr.name === 'AbortError') {
-              setSuccessSendState('cancelled');
-              setSuccessShareNote('Sharing Cancelled.');
-              return;
-            }
-            throw shareErr;
-          }
-        } else {
-          // Browser fallback: Auto-download PDF + Open WhatsApp Web
-          setSuccessSendState('opening');
-          const blobUrl = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
+        // 1. Immediately auto-download the Bill PDF to cashier's computer
+        const blobUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 15000);
 
-          const link = whatsappLink(check.normalized, msg);
-          window.open(link, '_blank', 'noopener,noreferrer');
+        // 2. Open WhatsApp directly with prefilled message (no Windows OS share picker!)
+        const waUrl = `https://api.whatsapp.com/send?phone=${check.normalized}&text=${encodeURIComponent(msg)}`;
+        window.open(waUrl, '_blank', 'noopener,noreferrer');
 
-          setSuccessSendState('awaiting_send');
-          setSuccessShareNote(`Bill PDF downloaded (${filename}). Please attach it in WhatsApp.`);
-        }
+        setSuccessSendState('awaiting_send');
+        setSuccessShareNote(`Bill PDF downloaded (${filename}) & WhatsApp opened with prefilled message.`);
       }
 
       // Asynchronously track (WhatsApp failure must never block billing)
