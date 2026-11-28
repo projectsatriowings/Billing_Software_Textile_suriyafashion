@@ -7,7 +7,6 @@ import {
   PrinterIcon,
   FileTextIcon,
   RotateCcwIcon,
-  EyeIcon,
   Building2Icon,
   PhoneIcon,
   CalendarIcon,
@@ -203,77 +202,34 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
   const renderActions = (inv: Invoice, isMobileCard = false) => {
     return (
       <div className={`bento-act-group ${isMobileCard ? 'm-card-actions' : ''}`}>
-        {/* 1. View / Items */}
         {inv.kind === 'credit_note' ? (
-          <>
-            <button
-              type="button"
-              className="bento-act-btn view"
-              onClick={() => openInvoiceDetail(inv.id)}
-              title="View credit note lines"
-            >
-              <EyeIcon size={13} />
-              <span>View</span>
-            </button>
-            <a
-              href={`/api/credit-notes/${inv.id}/print?paper=thermal80&autoprint=true`}
-              target="_blank"
-              rel="noreferrer"
-              className="bento-act-btn thermal"
-              title="Print 80mm thermal receipt"
-            >
-              <PrinterIcon size={13} />
-              <span>Thermal</span>
-            </a>
-            <a
-              href={`/api/credit-notes/${inv.id}/print?paper=a4`}
-              target="_blank"
-              rel="noreferrer"
-              className="bento-act-btn a4"
-              title="Print official A4 GST credit note"
-            >
-              <FileTextIcon size={13} />
-              <span>A4 GST</span>
-            </a>
-          </>
+          <a
+            href={`/api/credit-notes/${inv.id}/print?paper=thermal80&autoprint=true`}
+            target="_blank"
+            rel="noreferrer"
+            className="bento-act-btn thermal"
+            title="Print 80mm thermal receipt"
+          >
+            <PrinterIcon size={13} />
+            <span>Thermal</span>
+          </a>
         ) : (inv.invoiceType === 'wholesale' || (inv as any).invoice_type === 'wholesale') ? (
-          <>
-            <a
-              href={`/api/invoices/${inv.id}/print?paper=wholesale_a4&autoprint=true`}
-              target="_blank"
-              rel="noreferrer"
-              className="bento-act-btn a4"
-              title="Print Wholesale A4 Tax Invoice"
-            >
-              <PrinterIcon size={13} />
-              <span>A4 Print</span>
-            </a>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const blob = await downloadInvoicePdf(inv.id, 'wholesale_a4');
-                  triggerBlobDownload(blob, `Wholesale_Invoice_${inv.number}.pdf`);
-                } catch (err: any) {
-                  alert(err.message || 'Failed to download wholesale invoice PDF');
-                }
-              }}
-              className="bento-act-btn view"
-              title="Download Wholesale A4 Tax Invoice PDF"
-            >
-              <FileTextIcon size={13} />
-              <span>PDF</span>
-            </button>
-            <button
-              type="button"
-              className="bento-act-btn view"
-              onClick={() => openInvoiceDetail(inv.id)}
-              title="View invoice lines & items"
-            >
-              <EyeIcon size={13} />
-              <span>Items</span>
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const blob = await downloadInvoicePdf(inv.id, 'wholesale_a4');
+                triggerBlobDownload(blob, `Wholesale_Invoice_${inv.number}.pdf`);
+              } catch (err: any) {
+                alert(err.message || 'Failed to download wholesale invoice PDF');
+              }
+            }}
+            className="bento-act-btn view"
+            title="Download Wholesale A4 Tax Invoice PDF"
+          >
+            <FileTextIcon size={13} />
+            <span>PDF</span>
+          </button>
         ) : (
           <>
             <a
@@ -296,33 +252,10 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
               <FileTextIcon size={13} />
               <span>Receipt</span>
             </a>
-            <button
-              type="button"
-              className="bento-act-btn view"
-              onClick={() => openInvoiceDetail(inv.id)}
-              title="View bill lines & items"
-            >
-              <EyeIcon size={13} />
-              <span>Items</span>
-            </button>
           </>
         )}
 
-        {/* 4. Return / Credit Note */}
-        {inv.kind !== 'credit_note' && inv.status !== 'cancelled' && (
-          <button
-            type="button"
-            className="bento-act-btn return"
-            disabled={Boolean(inv.fullyReturned)}
-            onClick={() => openReturnModal(inv.id)}
-            title={inv.fullyReturned ? 'Fully returned' : 'Issue sales return or credit note'}
-          >
-            <RotateCcwIcon size={13} />
-            <span>Return / CN</span>
-          </button>
-        )}
-
-        {/* 6. Void (Owner / Manager on Credit Note) */}
+        {/* Void (Owner / Manager on Credit Note) */}
         {inv.kind === 'credit_note' && inv.status !== 'voided' && (user?.role === 'owner' || user?.role === 'manager') && (
           <button
             type="button"
@@ -726,7 +659,7 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
                         {inv.isLateSale ? (
                           <div style={{ textAlign: 'right' }}>
                             <span className="invoices-date-text" style={{ color: '#b45309', fontWeight: 700 }}>
-                               B-Date: {inv.bdate}
+                              B-Date: {inv.bdate}
                             </span>
                             <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
                               Entry: {new Date(inv.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
@@ -929,7 +862,7 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
                         {inv.isLateSale ? (
                           <div style={{ lineHeight: 1.3 }}>
                             <div style={{ fontWeight: 800, color: '#b45309', fontSize: '0.78rem' }}>
-                               {inv.bdate}
+                              {inv.bdate}
                             </div>
                             <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
                               Entry: {new Date(inv.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
