@@ -1364,7 +1364,7 @@ export function SuperAdminDashboard({
                               }}
                               title={editBranchCounters.length <= 1 ? 'A branch must have at least one counter' : 'Remove counter'}
                             >
-                              🗑️ Remove
+                               Remove
                             </button>
                           </div>
                         </>

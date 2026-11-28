@@ -265,6 +265,7 @@ export const BUSINESS_TYPES = [
   'clothing',
   'electronics',
   'hardware',
+  'textile',
   'other',
 ] as const;
 export type BusinessType = (typeof BUSINESS_TYPES)[number];

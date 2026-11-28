@@ -112,10 +112,11 @@ async function computeShiftFinancialsCore(
        AND (p.status IS NULL OR p.status = 'posted')
        AND (p.invoice_id IS NULL OR (i.status = 'posted' AND i.kind = 'sale'))
        AND COALESCE(p.kind, 'receipt') = 'receipt'
+       AND COALESCE(p.is_late_sale, FALSE) = FALSE
        AND (
-         (p.invoice_id IS NOT NULL AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date))
+         (p.invoice_id IS NOT NULL AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date)))
          OR
-         (p.invoice_id IS NULL AND (p.bdate = ? OR (p.created_at AT TIME ZONE ?)::date = ?::date))
+         (p.invoice_id IS NULL AND (p.bdate = ? OR (p.bdate IS NULL AND (p.created_at AT TIME ZONE ?)::date = ?::date)))
        )
        AND (
          (p.shift_id = ? AND (p.created_by = ? OR p.created_by IS NULL))
@@ -206,7 +207,7 @@ async function computeShiftFinancialsCore(
        AND cn.status = 'posted'
        AND cn.refund_amount_minor > 0
        AND COALESCE(cn.refund_mode, 'cash') = 'cash'
-       AND (cn.bdate = ? OR (cn.created_at AT TIME ZONE ?)::date = ?::date)
+       AND (cn.bdate = ? OR (cn.bdate IS NULL AND (cn.created_at AT TIME ZONE ?)::date = ?::date))
        AND (cn.created_by = ? OR cn.created_by IS NULL)
      ORDER BY cn.created_at DESC`,
     [tenantId, businessDate, tz, businessDate, shiftUserId],
@@ -227,7 +228,8 @@ async function computeShiftFinancialsCore(
      WHERE tenant_id = ?
        AND kind = 'sale'
        AND status = 'posted'
-       AND (bdate = ? OR (created_at AT TIME ZONE ?)::date = ?::date)
+       AND (bdate = ? OR (bdate IS NULL AND (created_at AT TIME ZONE ?)::date = ?::date))
+       AND COALESCE(is_late_sale, FALSE) = FALSE
        AND (created_by = ? OR created_by IS NULL)`,
     [tenantId, businessDate, tz, businessDate, shiftUserId],
   );

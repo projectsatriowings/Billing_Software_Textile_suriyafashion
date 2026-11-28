@@ -224,10 +224,11 @@ import { submitExchange } from './api';
 import { ResponsiveNavbar } from './components/navigation/ResponsiveNavbar';
 import { VariantPickerModal } from './components/pos/VariantPickerModal.tsx';
 import { TemporaryProductModal } from './components/pos/TemporaryProductModal.tsx';
-import { TailoringModal } from './components/tailoring/TailoringModal.tsx';
 import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
 import { TextileReportsView } from './components/reports/TextileReportsView.tsx';
-import { getItemVariants, saveItemVariants, type ProductVariant, type TailoringOrder } from './api.ts';
+import { getItemVariants, saveItemVariants, type ProductVariant, type ClosedBusinessDate } from './api.ts';
+import { LateSaleModal } from './components/pos/LateSaleModal.tsx';
+import { LateSaleConfirmModal } from './components/pos/LateSaleConfirmModal.tsx';
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -687,7 +688,7 @@ export interface PosCartItem {
   item: Item;
   qty: number;
   variant?: ProductVariant | null;
-  lineType?: 'item' | 'cutting_charge' | 'tailoring' | 'temporary';
+  lineType?: 'item' | 'temporary';
   lengthUnit?: 'm' | 'yd';
   originalLength?: number;
   isReturn?: boolean;
@@ -2439,11 +2440,73 @@ export function App() {
   const [variantPickerMode, setVariantPickerMode] = useState<'add_to_cart' | 'exchange'>('add_to_cart');
   const [variantPickerCurrentVarId, setVariantPickerCurrentVarId] = useState<string | null>(null);
 
-  // Tailoring & Stitching Modal State
-  const [showTailoringModal, setShowTailoringModal] = useState(false);
+
 
   // Size-Ratio Purchase Inward Modal State
   const [showSizeRatioModal, setShowSizeRatioModal] = useState(false);
+
+  // Late Sale Entry (Post-Day-Close Sale) State
+  const [lateSaleMode, setLateSaleMode] = useState<{
+    active: boolean;
+    businessDate: string;
+    reason?: string;
+  } | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('pos_late_sale_mode');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [showLateSaleModal, setShowLateSaleModal] = useState<boolean>(false);
+  const [showLateSaleConfirmModal, setShowLateSaleConfirmModal] = useState<boolean>(false);
+  const [lateSaleInitialDate, setLateSaleInitialDate] = useState<string | undefined>(undefined);
+
+  // Keep late sale mode state synced to session storage
+  useEffect(() => {
+    try {
+      if (lateSaleMode?.active) {
+        sessionStorage.setItem('pos_late_sale_mode', JSON.stringify(lateSaleMode));
+      } else {
+        sessionStorage.removeItem('pos_late_sale_mode');
+      }
+    } catch { }
+  }, [lateSaleMode]);
+
+  const canAccessLateSale = ['owner', 'super_admin', 'store_manager', 'manager', 'admin'].includes(
+    String(user?.role || '').toLowerCase()
+  );
+  const canManageLateSale = canAccessLateSale;
+
+  const handleStartLateSale = (businessDate: string, reason?: string) => {
+    setLateSaleMode({
+      active: true,
+      businessDate,
+      reason,
+    });
+    setShowLateSaleModal(false);
+    setActiveTab('pos');
+    showToast(`🕒 Late Sale Mode ACTIVE: Transactions will be recorded under closed business date ${businessDate}`, 'info');
+  };
+
+  const handleExitLateSale = () => {
+    if (cart.length > 0) {
+      askConfirmation({
+        title: 'Exit Late Sale Mode?',
+        message: "You have items in your cart. Exiting Late Sale mode will clear the cart or revert to today's sales. Do you want to continue?",
+        confirmText: 'Exit Late Sale',
+        variant: 'danger',
+        onConfirm: () => {
+          setLateSaleMode(null);
+          showToast('Exited Late Sale Entry mode. System reverted to current date billing.', 'info');
+        },
+      });
+      return;
+    }
+    setLateSaleMode(null);
+    showToast('Exited Late Sale Entry mode. System reverted to current date billing.', 'info');
+  };
 
   const handleItemImageFileSelect = async (file: File) => {
     if (!file) return;
@@ -4566,24 +4629,7 @@ export function App() {
     showToast(`Exchanged to ${newVariant.size || ''} / ${newVariant.colour || ''}`);
   };
 
-  const addCuttingCharge = () => {
-    const chargeStr = prompt('Enter Tailoring / Cutting / Stitching charge amount (₹):', '50');
-    if (!chargeStr) return;
-    const val = parseFloat(chargeStr);
-    if (isNaN(val) || val <= 0) return;
-    const chargeItem: Item = {
-      id: `charge_${Date.now()}`,
-      name: 'Tailoring / Cutting Charge (SAC 9988)',
-      priceMinor: Math.round(val * 100),
-      unit: 'svc',
-      currentStockMilli: 999000,
-      active: true,
-      hsn: '9988',
-      taxRateBp: Boolean(shop?.gstEnabled) ? 500 : 0,
-    } as Item;
-    setCart((prev) => [...prev, { item: chargeItem, qty: 1, lineType: 'cutting_charge' }]);
-    showToast(`Added Tailoring Charge of ₹${val.toFixed(2)}`);
-  };
+
 
   const handleAddTemporaryProducts = (
     supplierInvoiceNumber: string,
@@ -6366,7 +6412,7 @@ export function App() {
     showToast('✓ Added return item(s) to cart. You can now scan replacement products.');
   };
 
-  const handleCheckout = async (isKot = false) => {
+  const handleCheckout = async (isKot = false, confirmedLateSale = false) => {
     if (cart.length === 0) return;
 
     if (!selectedCounter) {
@@ -6404,6 +6450,12 @@ export function App() {
       } else {
         setShowCustomerPickerModal(true);
       }
+      return;
+    }
+
+    // If in Late Sale mode and not yet confirmed via verification modal, prompt confirmation
+    if (lateSaleMode?.active && !confirmedLateSale) {
+      setShowLateSaleConfirmModal(true);
       return;
     }
 
@@ -6636,6 +6688,9 @@ export function App() {
         body: JSON.stringify({
           lines,
           invoiceType: 'retail',
+          isLateSale: Boolean(lateSaleMode?.active),
+          businessDate: lateSaleMode?.active ? lateSaleMode.businessDate : undefined,
+          lateSaleReason: lateSaleMode?.active ? lateSaleMode.reason : undefined,
           location: user?.assignedLocation || currentBranchCode || undefined,
           counter: selectedCounter,
           counterId: checkoutCounterId || selectedCounterId || undefined,
@@ -6695,6 +6750,13 @@ export function App() {
       }
       const smsSuffix = res.sms?.sent ? ' • 📲 SMS Sent!' : '';
       showToast(isKot ? `KOT & Bill Generated: ${res.number}` : `Invoice ${res.number} generated!${pointsMsg}${smsSuffix}`);
+
+      if (lateSaleMode?.active) {
+        const recordedDate = lateSaleMode.businessDate;
+        setLateSaleMode(null);
+        setShowLateSaleConfirmModal(false);
+        showToast(`🕒 Late Sale Bill #${res.number} recorded for closed business date ${recordedDate}! Stock deducted & Day Close reconciled.`, 'success');
+      }
       window.dispatchEvent(new CustomEvent('bill_completed', { detail: res }));
 
       // Trigger Checkout Success Modal for final bill (Section 4.1: Restaurant flow triggers after final bill, not KOT)
@@ -9211,14 +9273,10 @@ export function App() {
             {/* Rail Divider visible in collapsed mode */}
             <div className="sidebar-rail-divider" aria-hidden="true" />
 
-            {/* Interactive Multi-Business Switcher & Store Profile */}
+            {/* Multi-Business Switcher & Store Profile */}
             <div className="sidebar-store-wrapper">
-              <button
-                type="button"
+              <div
                 className="sidebar-store-btn"
-                onClick={() => {
-                  setShowBusinessDropdown(!showBusinessDropdown);
-                }}
                 title={shop?.name || 'Store Profile'}
               >
                 <div className="sidebar-store-icon-tile">
@@ -9228,148 +9286,17 @@ export function App() {
                   </svg>
                 </div>
                 <div className="sidebar-store-info">
-                  <span className="sidebar-store-name">
-                    {shop?.name || 'Shree Krishna Supermarket'}
+                  <span
+                    className="sidebar-store-name"
+                    style={{ whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'break-word', lineHeight: 1.25 }}
+                  >
+                    {shop?.name || 'Surya Cotton House'}
                   </span>
                   <span className="sidebar-store-badge">
                     {getBusinessLabel(shop?.businessType)}
                   </span>
                 </div>
-                <span className="sidebar-store-chevron" aria-hidden="true">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </span>
-              </button>
-
-              {showBusinessDropdown && (
-                <>
-                  <div
-                    className="dropdown-backdrop"
-                    onClick={() => setShowBusinessDropdown(false)}
-                  />
-                  <div className="business-dropdown-menu sidebar-dropdown-flyout">
-                    <div className="dropdown-header">
-                      <span>Store Profile</span>
-                      <span className="store-isolation-badge">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '4px', verticalAlign: '-1px' }}>
-                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                        </svg>
-                        Isolated Partition
-                      </span>
-                    </div>
-
-                    <div style={{ padding: '0.65rem' }}>
-                      {/* Active Store Identity Card */}
-                      <div className="store-profile-card">
-                        <div className="store-profile-header">
-                          <span className="store-profile-name">{shop?.name || 'Your Store'}</span>
-                          <span className={`biz-badge biz-${shop?.businessType || 'retail'}`}>
-                            {getBusinessIcon(shop?.businessType)} {getBusinessLabel(shop?.businessType)}
-                          </span>
-                        </div>
-
-                        <div className="store-profile-meta-grid">
-                          <div className="store-meta-item">
-                            <span className="store-meta-label">GSTIN</span>
-                            <span className="store-meta-val">{shop?.gstin || 'Unregistered B2C'}</span>
-                          </div>
-                          <div className="store-meta-item">
-                            <span className="store-meta-label">Phone</span>
-                            <span className="store-meta-val">{shop?.phone || 'Not configured'}</span>
-                          </div>
-                          <div className="store-meta-item">
-                            <span className="store-meta-label">Address</span>
-                            <span className="store-meta-val">{shop?.address || 'Store location not specified'}</span>
-                          </div>
-                        </div>
-
-                        {/* Quick navigation actions */}
-                        <div className="store-quick-actions">
-                          {user?.role !== 'cashier' && (
-                            <button
-                              type="button"
-                              className="store-quick-action-btn"
-                              onClick={() => {
-                                setActiveTab('settings');
-                                setShowBusinessDropdown(false);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '5px', verticalAlign: '-2px' }}>
-                                <circle cx="12" cy="12" r="3" />
-                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                              </svg>
-                              Store Profile &amp; Settings
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="store-quick-action-btn"
-                            onClick={() => {
-                              setActiveTab('pos');
-                              setShowBusinessDropdown(false);
-                            }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '5px', verticalAlign: '-2px' }}>
-                              <circle cx="9" cy="21" r="1" />
-                              <circle cx="20" cy="21" r="1" />
-                              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-                            </svg>
-                            Open POS Quick Billing
-                          </button>
-                          {user?.role !== 'cashier' && (
-                            <button
-                              type="button"
-                              className="store-quick-action-btn"
-                              onClick={() => {
-                                setActiveTab('reports');
-                                setShowBusinessDropdown(false);
-                              }}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '5px', verticalAlign: '-2px' }}>
-                                <line x1="18" y1="20" x2="18" y2="10" />
-                                <line x1="12" y1="20" x2="12" y2="4" />
-                                <line x1="6" y1="20" x2="6" y2="14" />
-                                <line x1="2" y1="20" x2="22" y2="20" />
-                              </svg>
-                              Sales Reports &amp; Analytics
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="store-single-tenant-note">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                        </svg>
-                        <span>
-                          <strong>Single-Business License Active:</strong> Your store data is strictly private to your account. No cross-store data leaks.
-                        </span>
-                      </div>
-                    </div>
-
-                    {user?.role !== 'cashier' && (
-                      <div className="dropdown-footer">
-                        <button
-                          className="btn btn-secondary"
-                          style={{ width: '100%', padding: '0.45rem', fontSize: '0.8rem', justifyContent: 'center' }}
-                          onClick={() => {
-                            setShowBusinessDropdown(false);
-                            setActiveTab('settings');
-                          }}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                            <circle cx="12" cy="12" r="3" />
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                          </svg>
-                          Store Profile &amp; Tax Settings
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
+              </div>
             </div>
 
             {/* Navigation Links - Strictly Tailored per Role */}
@@ -9971,7 +9898,7 @@ export function App() {
                 {(user?.name || user?.email || 'User').slice(0, 1).toUpperCase()}
               </div>
               <div className="sidebar-user-meta">
-                <span className="sidebar-user-name">{user?.name || user?.email || 'User'}</span>
+                <span className="sidebar-user-name">{(user?.name || user?.email || 'User').replace(/\s*\([^)]*\)/g, '').trim()}</span>
                 <span className="sidebar-user-role">
                   <span className="user-status-dot"></span>
                   {user?.role === 'owner' ? 'Super Admin' : user?.role === 'manager' ? 'Store Manager' : user?.role === 'cashier' ? 'Cashier' : (user?.role || 'Staff')}
@@ -11112,6 +11039,82 @@ export function App() {
             {/* TAB 1: BENTO POS BILLING TERMINAL */}
             {displayTab === 'pos' && (
               <div className="bento-pos-root" key={`pos-${selectedBranchScope}`}>
+                {/* Late Sale Entry Mode Banner (Post-Day-Close) */}
+                {lateSaleMode?.active ? (
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                      border: '1.5px solid #f59e0b',
+                      borderRadius: '12px',
+                      padding: '10px 14px',
+                      marginBottom: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      boxShadow: '0 4px 12px rgba(245, 158, 11, 0.12)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '8px',
+                          background: '#f59e0b',
+                          color: '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: '1rem',
+                        }}
+                      >
+                        🕒
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 800, color: '#92400e', fontSize: '0.88rem' }}>
+                            POST-DAY-CLOSE LATE SALE MODE ACTIVE
+                          </span>
+                          <span
+                            style={{
+                              background: '#fde68a',
+                              color: '#92400e',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.74rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            Business Date: {lateSaleMode.businessDate}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: '2px' }}>
+                          Sales will be attributed to <strong>{lateSaleMode.businessDate}</strong> • Real-time entry timestamp and stock movement are recorded for audit • Reason: "{lateSaleMode.reason}"
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleExitLateSale}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #d97706',
+                        color: '#b45309',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        fontWeight: 700,
+                        fontSize: '0.78rem',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Exit Late Sale Mode
+                    </button>
+                  </div>
+                ) : null}
+
                 {/* Shift Closed Banner Warning */}
                 {!activeShiftNumber && (
                   <div className="bento-shift-warning-banner">
@@ -11207,46 +11210,6 @@ export function App() {
                           <button
                             type="button"
                             style={{
-                              background: '#f8fafc',
-                              border: '1px solid #cbd5e1',
-                              color: '#334155',
-                              padding: '0.35rem 0.65rem',
-                              borderRadius: '8px',
-                              fontSize: '0.76rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                            onClick={() => setShowTailoringModal(true)}
-                            title="Manage tailoring orders, repeat measurements and due dates"
-                          >
-                            ✂️ Tailoring
-                          </button>
-                          <button
-                            type="button"
-                            style={{
-                              background: '#f0fdf4',
-                              border: '1px solid #bbf7d0',
-                              color: '#166534',
-                              padding: '0.35rem 0.65rem',
-                              borderRadius: '8px',
-                              fontSize: '0.76rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                            onClick={addCuttingCharge}
-                            title="Add tailoring / cutting / stitching charge item"
-                          >
-                            + Cutting Charge
-                          </button>
-                          <button
-                            type="button"
-                            style={{
                               background: '#fffbeb',
                               border: '1px solid #fde68a',
                               color: '#b45309',
@@ -11262,8 +11225,73 @@ export function App() {
                             onClick={() => setShowTemporaryProductModal(true)}
                             title="Add non-inventory product purchased from a supplier before stock import"
                           >
-                            📦 + Non-Inventory Product
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                              <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                              <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                            </svg>
+                            <span>+ Non-Inventory Product</span>
                           </button>
+                          {canAccessLateSale && (
+                            <button
+                              type="button"
+                              style={{
+                                background: lateSaleMode?.active ? '#fef3c7' : '#ffffff',
+                                border: lateSaleMode?.active ? '1.5px solid #d97706' : '1px solid #cbd5e1',
+                                color: lateSaleMode?.active ? '#92400e' : '#334155',
+                                padding: '0 0.65rem',
+                                height: '28px',
+                                boxSizing: 'border-box',
+                                borderRadius: '8px',
+                                fontSize: '0.76rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                whiteSpace: 'nowrap',
+                              }}
+                              onClick={() => {
+                                if (lateSaleMode?.active) {
+                                  handleExitLateSale();
+                                } else {
+                                  setLateSaleInitialDate(undefined);
+                                  setShowLateSaleModal(true);
+                                }
+                              }}
+                              title={lateSaleMode?.active ? 'Click to exit Late Sale Entry mode' : 'Enter a sale for a previously closed business date after day close'}
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                              </svg>
+                              {lateSaleMode?.active ? (
+                                <>
+                                  <span>Late Sale ({lateSaleMode.businessDate})</span>
+                                  <span
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      width: '15px',
+                                      height: '15px',
+                                      borderRadius: '50%',
+                                      background: '#fde68a',
+                                      color: '#92400e',
+                                      fontSize: '0.7rem',
+                                      fontWeight: 800,
+                                      marginLeft: '2px',
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    ✕
+                                  </span>
+                                </>
+                              ) : (
+                                <span>Late Sale Entry</span>
+                              )}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="bento-clear-cart-btn"
@@ -25951,6 +25979,19 @@ export function App() {
                           Credit Note
                         </span>
                       )}
+                      {invoiceDetailData?.invoice?.isLateSale && (
+                        <span
+                          className="shift-ref-pill invoice-detail-kind-pill"
+                          style={{
+                            background: '#FEF3C7',
+                            color: '#B45309',
+                            border: '1px solid #FDE68A',
+                            fontWeight: 800,
+                          }}
+                        >
+                          🕒 Late Sale (Post-Day-Close)
+                        </span>
+                      )}
                     </h3>
                     <p className="invoice-detail-subtitle">
                       <span>Issued on {invoiceDetailData?.invoice?.bdate ? new Date(invoiceDetailData.invoice.bdate).toLocaleDateString('en-IN') : '—'}</span>
@@ -25958,6 +25999,34 @@ export function App() {
                         <span>• Customer: <strong>{invoiceDetailData.invoice.customerName}</strong></span>
                       )}
                     </p>
+                    {invoiceDetailData?.invoice?.isLateSale && (
+                      <div
+                        style={{
+                          backgroundColor: '#FFFBEB',
+                          border: '1px solid #FDE68A',
+                          borderRadius: '8px',
+                          padding: '6px 10px',
+                          marginTop: '6px',
+                          fontSize: '0.78rem',
+                          color: '#92400E',
+                        }}
+                      >
+                        <div>
+                          <strong>Business Date:</strong> {invoiceDetailData.invoice.bdate} (Attributed to this closed date)
+                        </div>
+                        <div>
+                          <strong>Actual Entry Date/Time:</strong>{' '}
+                          {invoiceDetailData.invoice.lateSaleEntryAt
+                            ? new Date(invoiceDetailData.invoice.lateSaleEntryAt).toLocaleString('en-IN')
+                            : '—'}
+                        </div>
+                        {invoiceDetailData.invoice.lateSaleReason && (
+                          <div>
+                            <strong>Reason:</strong> {invoiceDetailData.invoice.lateSaleReason}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {invoiceDetailData?.invoice?.customerPhone && (
                       <div className="invoice-detail-phone">
                         <PhoneIcon size={12} style={{ color: 'var(--primary, #0F766E)' }} />
@@ -27586,11 +27655,7 @@ export function App() {
           />
         )}
 
-        {/* Textile Tailoring & Stitching Order Modal */}
-        <TailoringModal
-          isOpen={showTailoringModal}
-          onClose={() => setShowTailoringModal(false)}
-        />
+
 
         {/* Textile Size-Ratio Purchase Inward & Job Work Modal */}
         <SizeRatioInwardModal
@@ -27605,6 +27670,41 @@ export function App() {
           isOpen={showTemporaryProductModal}
           onClose={() => setShowTemporaryProductModal(false)}
           onAddProducts={handleAddTemporaryProducts}
+        />
+
+        {/* Late Sale Entry (Post-Day-Close) Modal */}
+        <LateSaleModal
+          isOpen={showLateSaleModal}
+          onClose={() => setShowLateSaleModal(false)}
+          onStartLateSale={handleStartLateSale}
+          branchId={activeBranch?.id || user?.branchId || undefined}
+          formatRupees={formatRupees}
+          initialBusinessDate={lateSaleInitialDate}
+        />
+
+        {/* Late Sale Confirmation Summary Modal */}
+        <LateSaleConfirmModal
+          isOpen={showLateSaleConfirmModal}
+          onClose={() => setShowLateSaleConfirmModal(false)}
+          onConfirm={() => handleCheckout(false, true)}
+          isSaving={isCheckingOut}
+          businessDate={lateSaleMode?.businessDate || ''}
+          reason={lateSaleMode?.reason || ''}
+          customerName={parties.find((p) => p.id === selectedPartyId)?.name || quickCustomerName || 'Walk-in Customer'}
+          customerPhone={parties.find((p) => p.id === selectedPartyId)?.phone || customerSearch || undefined}
+          items={cart.map((c) => ({
+            name: c.item.name,
+            variantSize: c.variant?.size,
+            variantColour: c.variant?.colour,
+            qty: c.qty,
+            priceMinor: c.item.priceMinor,
+            totalMinor: Math.round(c.item.priceMinor * c.qty),
+          }))}
+          totalMinor={cartTotalMinor}
+          paymentMethod={selectedPayMode}
+          cashReceivedMinor={selectedPayMode === 'cash' ? Math.round((parseFloat(cashReceived) || 0) * 100) : undefined}
+          changeReturnedMinor={selectedPayMode === 'cash' ? Math.max(0, Math.round((parseFloat(cashReceived) || 0) * 100) - cartTotalMinor) : undefined}
+          formatRupees={formatRupees}
         />
       </div>
     </BranchProvider>

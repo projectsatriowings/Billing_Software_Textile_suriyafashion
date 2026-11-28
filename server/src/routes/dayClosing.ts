@@ -169,7 +169,8 @@ async function smartClosingAuditCore(db: Queryable, params: SmartAuditParams): P
     LEFT JOIN invoices i ON i.id = p.invoice_id
     WHERE p.tenant_id = ? AND (p.status IS NULL OR p.status = 'posted')
       AND p.method = 'cash' AND p.kind = 'receipt'
-      AND (p.bdate = ? OR (p.created_at)::date = ?::date)
+      AND (p.bdate = ? OR (p.bdate IS NULL AND (p.created_at)::date = ?::date))
+      AND COALESCE(p.is_late_sale, FALSE) = FALSE
       AND (p.invoice_id IS NULL OR i.branch_id IS NULL OR i.branch_id = ?)
   `;
   const cashPayParams: any[] = [tenantId, bdate, bdate, branchId];
@@ -191,7 +192,7 @@ async function smartClosingAuditCore(db: Queryable, params: SmartAuditParams): P
   const refTxRow = await db.one<any>(
     `SELECT COALESCE(SUM(amount_minor), 0)::bigint AS cash_refunds_minor
      FROM refund_transactions
-     WHERE tenant_id = ? AND (bdate = ? OR (created_at)::date = ?::date) AND method = 'cash'
+     WHERE tenant_id = ? AND (bdate = ? OR (bdate IS NULL AND (created_at)::date = ?::date)) AND method = 'cash'
        ${shiftId ? ' AND shift_id = ?' : ''}
        ${cashierId ? ' AND processed_by = ?' : ''}`,
     [tenantId, bdate, bdate, ...(shiftId ? [shiftId] : []), ...(cashierId ? [cashierId] : [])],
@@ -471,7 +472,7 @@ async function smartClosingAuditCore(db: Queryable, params: SmartAuditParams): P
     `SELECT id, number, bdate, DATE(created_at) AS created_date, total_minor, status
      FROM invoices
      WHERE tenant_id = ? AND branch_id = ?
-       AND (bdate IS NULL OR bdate = '' OR (DATE(created_at) = ?::date AND bdate != ?))
+       AND (bdate IS NULL OR bdate = '' OR (DATE(created_at) = ?::date AND bdate != ? AND COALESCE(is_late_sale, FALSE) = FALSE))
        AND status = 'posted'
      LIMIT 10`,
     [tenantId, branchId, bdate, bdate],
@@ -1014,7 +1015,7 @@ export function registerDayClosing(r: Router) {
         COALESCE(SUM(CASE WHEN method = 'bank' THEN amount_minor ELSE 0 END), 0)::bigint AS bank_refunds_minor,
         COALESCE(SUM(amount_minor), 0)::bigint AS total_refunds_minor
        FROM refund_transactions
-       WHERE tenant_id = ? AND (bdate = ? OR (created_at)::date = ?::date)
+       WHERE tenant_id = ? AND (bdate = ? OR (bdate IS NULL AND (created_at)::date = ?::date))
          ${shiftId ? ' AND shift_id = ?' : ''}
          ${cashierId ? ' AND processed_by = ?' : ''}`,
       [tenantId, bdate, bdate, ...(shiftId ? [shiftId] : []), ...(cashierId ? [cashierId] : [])],
@@ -1069,7 +1070,8 @@ export function registerDayClosing(r: Router) {
        LEFT JOIN invoices i ON i.id = p.invoice_id
        WHERE p.tenant_id = ?
          AND (p.status IS NULL OR p.status = 'posted')
-         AND (p.bdate = ? OR (p.created_at)::date = ?::date)
+         AND (p.bdate = ? OR (p.bdate IS NULL AND (p.created_at)::date = ?::date))
+      AND COALESCE(p.is_late_sale, FALSE) = FALSE
          AND (p.invoice_id IS NULL OR i.branch_id IS NULL OR i.branch_id = ?)`;
     const paymentParams: any[] = [tenantId, bdate, bdate, branchId];
     if (shiftId) {
@@ -1240,6 +1242,46 @@ export function registerDayClosing(r: Router) {
       actualCashMinor: closedRecord ? Number(closedRecord.actual_cash_minor) : null,
     });
 
+    // Late Sales (Post-Day-Close transactions)
+    const lateSalesRows = await db.query<any>(
+      `SELECT i.id, i.number, i.total_minor, i.paid_minor, i.bdate, i.created_at,
+              i.customer_name, i.customer_phone, i.is_late_sale, i.late_sale_reason,
+              i.late_sale_entry_at, u.name AS entered_by_name,
+              COALESCE((
+                SELECT json_agg(json_build_object('method', p.method, 'amountMinor', p.amount_minor))
+                FROM payments p WHERE p.invoice_id = i.id
+              ), '[]'::json) AS payments
+       FROM invoices i
+       LEFT JOIN users u ON u.id = COALESCE(i.late_sale_entered_by, i.created_by)
+       WHERE i.tenant_id = ? AND (i.branch_id = ? OR i.branch_id = ?) AND i.bdate = ? AND i.status = 'posted' AND i.kind = 'sale'
+         AND (i.is_late_sale = TRUE ${closedRecord ? 'OR i.created_at > ?' : ''})
+       ORDER BY i.created_at ASC`,
+      closedRecord ? [tenantId, branchId, branchCode, bdate, closedRecord.created_at] : [tenantId, branchId, branchCode, bdate],
+    );
+
+    const lateSalesCount = lateSalesRows.length;
+    const lateSalesTotalMinor = lateSalesRows.reduce((sum, r) => sum + Number(r.totalMinor ?? r.total_minor ?? 0), 0);
+    let lateCashMinor = 0;
+    let lateUpiMinor = 0;
+    let lateCardMinor = 0;
+    for (const r of lateSalesRows) {
+      const pmts = r.payments || [];
+      for (const p of pmts) {
+        const m = (p.method || '').toLowerCase();
+        const amt = Number(p.amountMinor || 0);
+        if (m === 'cash') lateCashMinor += amt;
+        else if (m === 'upi') lateUpiMinor += amt;
+        else if (m === 'card') lateCardMinor += amt;
+      }
+    }
+
+    const originalGrossSalesMinor = closedRecord ? Number(closedRecord.gross_sales_minor) : grossSalesMinor;
+    const originalNetSalesMinor = closedRecord ? Number(closedRecord.net_sales_minor) : netSalesMinor;
+    const originalActualCashMinor = closedRecord ? Number(closedRecord.actual_cash_minor) : null;
+    const revisedGrossSalesMinor = originalGrossSalesMinor + (closedRecord ? lateSalesTotalMinor : 0);
+    const revisedNetSalesMinor = originalNetSalesMinor + (closedRecord ? lateSalesTotalMinor : 0);
+    const revisedActualCashMinor = originalActualCashMinor !== null ? originalActualCashMinor + lateCashMinor : null;
+
     return {
       bdate,
       branchId,
@@ -1255,6 +1297,36 @@ export function registerDayClosing(r: Router) {
       isReopened: Boolean(closedRecord && closedRecord.status === 'reopened'),
       status: closedRecord?.status || 'open',
       closedRecord: closedRecord || null,
+
+      // Late Sales (Post-Day-Close Sales) summary
+      lateSalesSummary: {
+        hasLateSales: lateSalesCount > 0,
+        lateSalesCount,
+        lateSalesTotalMinor,
+        lateCashMinor,
+        lateUpiMinor,
+        lateCardMinor,
+        originalGrossSalesMinor,
+        originalNetSalesMinor,
+        originalActualCashMinor,
+        revisedGrossSalesMinor,
+        revisedNetSalesMinor,
+        revisedActualCashMinor,
+        lateSales: lateSalesRows.map((r: any) => ({
+          id: r.id,
+          number: r.number,
+          totalMinor: Number(r.totalMinor ?? r.total_minor ?? 0),
+          paidMinor: Number(r.paidMinor ?? r.paid_minor ?? 0),
+          customerName: r.customerName ?? r.customer_name ?? 'Counter Customer',
+          customerPhone: r.customerPhone ?? r.customer_phone,
+          businessDate: r.bdate,
+          createdAt: r.createdAt ?? r.created_at,
+          lateSaleEntryAt: r.lateSaleEntryAt ?? r.late_sale_entry_at ?? r.createdAt ?? r.created_at,
+          lateSaleReason: r.lateSaleReason ?? r.late_sale_reason,
+          enteredByName: r.enteredByName ?? r.entered_by_name ?? 'Staff',
+          payments: r.payments || [],
+        })),
+      },
 
       // A. Sales Summary
       salesSummary: {
@@ -1348,6 +1420,72 @@ export function registerDayClosing(r: Router) {
       audit,
     };
     });
+  });
+
+  // --------------------------------------------------------------------------
+  // 1a. Closed Business Dates for Late Sale Entry (Post-Day-Close Sale)
+  // --------------------------------------------------------------------------
+  r.get('/api/day-closing/closed-dates', requireUser, async (ctx) => {
+    const tenantId = ctx.user!.tenantId;
+    const scope = await resolveBranchScope(ctx);
+    const rawBranch = String(ctx.query.branchId || ctx.query.branch || (scope.branchId ?? 'MAIN')).trim();
+
+    const branchRecord = await ctx.db.one<any>(
+      `SELECT id, code FROM branches
+       WHERE tenant_id = ? AND (id = ? OR UPPER(code) = UPPER(?)) AND (deleted_at IS NULL OR active = true)
+       LIMIT 1`,
+      [tenantId, rawBranch, rawBranch],
+    );
+    const branchId = branchRecord?.id || scope.branchId || rawBranch;
+    const branchCode = branchRecord?.code || rawBranch;
+
+    const rows = await ctx.db.query<any>(
+      `SELECT dc.id, dc.bdate, dc.branch_id, dc.status, dc.closed_at, dc.created_at,
+              dc.gross_sales_minor, dc.net_sales_minor, dc.invoices_count, dc.actual_cash_minor,
+              u.name AS closed_by_name,
+              COALESCE((
+                SELECT COUNT(*)::int FROM invoices i
+                WHERE i.tenant_id = dc.tenant_id AND (i.branch_id = dc.branch_id OR i.branch_id = ? OR i.branch_id = ?)
+                  AND i.bdate = dc.bdate AND i.status = 'posted' AND i.kind = 'sale'
+                  AND (i.is_late_sale = TRUE OR i.created_at > dc.created_at)
+              ), 0) AS late_sales_count,
+              COALESCE((
+                SELECT SUM(i.total_minor)::bigint FROM invoices i
+                WHERE i.tenant_id = dc.tenant_id AND (i.branch_id = dc.branch_id OR i.branch_id = ? OR i.branch_id = ?)
+                  AND i.bdate = dc.bdate AND i.status = 'posted' AND i.kind = 'sale'
+                  AND (i.is_late_sale = TRUE OR i.created_at > dc.created_at)
+              ), 0) AS late_sales_total_minor
+       FROM day_closings dc
+       LEFT JOIN users u ON u.id = dc.closed_by
+       WHERE dc.tenant_id = ? AND (dc.branch_id = ? OR dc.branch_id = ? OR dc.branch_id = ?)
+         AND dc.status IN ('closed', 'approved', 'submitted')
+       ORDER BY dc.bdate DESC, dc.created_at DESC
+       LIMIT 30`,
+      [branchId, branchCode, branchId, branchCode, tenantId, branchId, branchCode, rawBranch],
+    );
+
+    const dateMap = new Map<string, any>();
+    for (const r of rows) {
+      if (!dateMap.has(r.bdate)) {
+        dateMap.set(r.bdate, {
+          bdate: r.bdate,
+          dayClosingId: r.id,
+          status: r.status,
+          closedAt: r.closedAt || r.closed_at || r.createdAt || r.created_at,
+          closedByName: r.closedByName || r.closed_by_name || 'Staff',
+          originalSalesTotalMinor: Number(r.grossSalesMinor ?? r.gross_sales_minor ?? 0),
+          originalNetSalesMinor: Number(r.netSalesMinor ?? r.net_sales_minor ?? 0),
+          originalCashMinor: Number(r.actualCashMinor ?? r.actual_cash_minor ?? 0),
+          invoicesCount: Number(r.invoicesCount ?? r.invoices_count ?? 0),
+          lateSalesCount: Number(r.lateSalesCount ?? r.late_sales_count ?? 0),
+          lateSalesTotalMinor: Number(r.lateSalesTotalMinor ?? r.late_sales_total_minor ?? 0),
+        });
+      }
+    }
+
+    return {
+      closedDates: Array.from(dateMap.values()),
+    };
   });
 
   // --------------------------------------------------------------------------
@@ -1459,7 +1597,7 @@ export function registerDayClosing(r: Router) {
           COALESCE(SUM(CASE WHEN method = 'cash' THEN amount_minor ELSE 0 END), 0)::bigint AS cash_refunds,
           COALESCE(SUM(CASE WHEN method = 'upi' THEN amount_minor ELSE 0 END), 0)::bigint AS upi_refunds
          FROM refund_transactions
-         WHERE tenant_id = ? AND (bdate = ? OR (created_at)::date = ?::date)
+         WHERE tenant_id = ? AND (bdate = ? OR (bdate IS NULL AND (created_at)::date = ?::date))
            ${shiftId ? ' AND shift_id = ?' : ''}
            ${cashierId ? ' AND processed_by = ?' : ''}`,
         [tenantId, bdate, bdate, ...(shiftId ? [shiftId] : []), ...(cashierId ? [cashierId] : [])],
@@ -1499,7 +1637,7 @@ export function registerDayClosing(r: Router) {
           COALESCE(SUM(CASE WHEN p.method = 'card' THEN p.amount_minor ELSE 0 END), 0)::bigint AS card
          FROM payments p
          LEFT JOIN invoices i ON i.id = p.invoice_id
-         WHERE p.tenant_id = ? AND (p.status IS NULL OR p.status = 'posted') AND (p.bdate = ? OR (p.created_at)::date = ?::date)
+         WHERE p.tenant_id = ? AND (p.status IS NULL OR p.status = 'posted') AND (p.bdate = ? OR (p.bdate IS NULL AND (p.created_at)::date = ?::date)) AND COALESCE(p.is_late_sale, FALSE) = FALSE
            AND (p.invoice_id IS NULL OR i.branch_id IS NULL OR i.branch_id = ?)`;
       const paymentsParams: any[] = [tenantId, bdate, bdate, branchId];
       if (shiftId) {

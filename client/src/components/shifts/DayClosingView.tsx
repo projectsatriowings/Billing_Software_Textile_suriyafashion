@@ -1854,6 +1854,198 @@ export const DayClosingView: React.FC<DayClosingViewProps> = ({
           </div>
 
           {/* ====================================================================
+              POST-DAY-CLOSE LATE SALES RECONCILIATION DECK
+              ==================================================================== */}
+          {preview?.lateSalesSummary?.hasLateSales && (
+            <div
+              className="bento-card-3d"
+              style={{
+                marginBottom: '1.25rem',
+                backgroundColor: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid #fde68a',
+                overflow: 'hidden',
+                boxShadow: '0 10px 25px -5px rgba(245, 158, 11, 0.1)',
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  padding: '1rem 1.25rem',
+                  background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                  borderBottom: '1px solid #fde68a',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.5rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div
+                    style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      backgroundColor: '#f59e0b',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <ClockIcon size={18} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800, color: '#92400e' }}>
+                      Post-Day-Close Late Sales Reconciliation
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.78rem', color: '#b45309' }}>
+                      {preview.lateSalesSummary.lateSalesCount} late bill(s) entered after day close • Original Day Close values preserved
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #fcd34d',
+                      borderRadius: '20px',
+                      padding: '3px 10px',
+                      fontSize: '0.74rem',
+                      fontWeight: 800,
+                      color: '#b45309',
+                    }}
+                  >
+                    +{fmt(preview.lateSalesSummary.lateSalesTotalMinor)} Added
+                  </span>
+                </div>
+              </div>
+
+              {/* Metric Comparison Cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '1rem',
+                  padding: '1.25rem',
+                  backgroundColor: '#fafafa',
+                  borderBottom: '1px solid #f1f5f9',
+                }}
+              >
+                {/* 1. Original Closed Sales */}
+                <div style={{ backgroundColor: '#ffffff', padding: '1rem', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                    Original Closed Sales
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#334155', marginTop: '2px' }}>
+                    {fmt(preview.lateSalesSummary.originalNetSalesMinor)}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    Sealed at Day Close (Unchanged)
+                  </div>
+                </div>
+
+                {/* 2. Late Sales Added */}
+                <div style={{ backgroundColor: '#fffbeb', padding: '1rem', borderRadius: '10px', border: '1px solid #fde68a' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#92400e', textTransform: 'uppercase' }}>
+                    Late Sales Added
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#d97706', marginTop: '2px' }}>
+                    +{fmt(preview.lateSalesSummary.lateSalesTotalMinor)}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '4px' }}>
+                    {preview.lateSalesSummary.lateSalesCount} transaction(s) post-closing
+                  </div>
+                </div>
+
+                {/* 3. Revised Business-Date Total */}
+                <div style={{ backgroundColor: '#f0fdf4', padding: '1rem', borderRadius: '10px', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#166534', textTransform: 'uppercase' }}>
+                    Revised Business-Date Total
+                  </div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#15803d', marginTop: '2px' }}>
+                    {fmt(preview.lateSalesSummary.revisedNetSalesMinor)}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#166534', marginTop: '4px' }}>
+                    Full revised sales for {selectedDate}
+                  </div>
+                </div>
+
+                {/* 4. Cash Drawer Separation */}
+                <div style={{ backgroundColor: '#ffffff', padding: '1rem', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
+                    Post-Close Cash Collected
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f766e', marginTop: '2px' }}>
+                    {fmt(preview.lateSalesSummary.lateCashMinor)}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '4px' }}>
+                    Tracked separately from closing cash
+                  </div>
+                </div>
+              </div>
+
+              {/* Itemized Table of Late Sales */}
+              <div style={{ padding: '1rem 1.25rem' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Itemized Late Sales Transactions
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b', textAlign: 'left' }}>
+                        <th style={{ padding: '6px 8px' }}>Bill Number</th>
+                        <th style={{ padding: '6px 8px' }}>Customer</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total Amount</th>
+                        <th style={{ padding: '6px 8px' }}>Payment Mode</th>
+                        <th style={{ padding: '6px 8px' }}>Actual Entry Timestamp</th>
+                        <th style={{ padding: '6px 8px' }}>Entered By</th>
+                        <th style={{ padding: '6px 8px' }}>Audit Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.lateSalesSummary.lateSales.map((ls: any) => (
+                        <tr key={ls.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '8px 8px', fontWeight: 700, color: '#0f766e' }}>
+                            {ls.number}
+                          </td>
+                          <td style={{ padding: '8px 8px', color: '#1e293b' }}>
+                            <div>{ls.customerName}</div>
+                            {ls.customerPhone && <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{ls.customerPhone}</div>}
+                          </td>
+                          <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
+                            {fmt(ls.totalMinor)}
+                          </td>
+                          <td style={{ padding: '8px 8px' }}>
+                            {ls.payments && ls.payments.length > 0
+                              ? ls.payments.map((p: any) => `${(p.method || '').toUpperCase()} (${fmt(p.amountMinor)})`).join(', ')
+                              : 'PAID'}
+                          </td>
+                          <td style={{ padding: '8px 8px', color: '#475569', whiteSpace: 'nowrap' }}>
+                            {new Date(ls.lateSaleEntryAt || ls.createdAt).toLocaleString('en-IN', {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                              timeZone: 'Asia/Kolkata',
+                            })}
+                          </td>
+                          <td style={{ padding: '8px 8px', color: '#334155' }}>
+                            {ls.enteredByName || 'Store Manager'}
+                          </td>
+                          <td style={{ padding: '8px 8px', color: '#92400e', fontStyle: 'italic', maxWidth: '200px' }}>
+                            {ls.lateSaleReason || 'Post-closing customer purchase'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ====================================================================
               ROW 3: ASYMMETRICAL BENTO FINANCIAL KPI DECK (Hero 5 : Secondary 7)
               ==================================================================== */}
           <div className="bento-financial-kpi-deck">
