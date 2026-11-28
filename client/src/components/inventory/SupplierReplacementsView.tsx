@@ -237,11 +237,26 @@ export const SupplierReplacementsView: React.FC<SupplierReplacementsViewProps> =
                   <tr key={rep.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                       <div style={{ fontWeight: 700, color: '#0f172a' }}>{repNum}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{formatDate(recDate)}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>Replaced: {formatDate(recDate)}</div>
                     </td>
                     <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                       <div style={{ fontWeight: 600, color: '#2563eb' }}>{retNum || '—'}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{suppName || 'Vendor'}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>{suppName || 'Vendor'}</div>
+                      {(rep.returnDate || rep.return_date) && (
+                        <div style={{ fontSize: '0.75rem', color: '#475569' }}>
+                          Shop Return: {formatDate(rep.returnDate || rep.return_date)}
+                        </div>
+                      )}
+                      {(rep.dispatchDate || rep.dispatch_date) && (
+                        <div style={{ fontSize: '0.75rem', color: '#0284c7' }}>
+                          Dispatched: {formatDate(rep.dispatchDate || rep.dispatch_date)}
+                        </div>
+                      )}
+                      {(rep.customerReturnDate || rep.customer_return_date) && (
+                        <div style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                          Cust Return: {formatDate(rep.customerReturnDate || rep.customer_return_date)}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                       <div style={{ fontWeight: 600, color: '#0f172a' }}>

@@ -53,12 +53,32 @@ export function registerDamagedStock(r: Router): void {
         i.barcode AS current_barcode,
         p.name AS supplier_name,
         u.name AS reporter_name,
-        pur.purchase_number AS original_purchase_number
+        pur.purchase_number AS original_purchase_number,
+        sr.return_number AS supplier_return_number,
+        sr.return_date AS supplier_return_date,
+        sr.dispatch_date,
+        sr.dispatch_ref,
+        srep.replacement_number,
+        srep.received_date AS replacement_received_date
       FROM damaged_stock ds
       LEFT JOIN items i ON i.id = ds.item_id AND i.tenant_id = ds.tenant_id
       LEFT JOIN parties p ON p.id = ds.supplier_id AND p.tenant_id = ds.tenant_id
       LEFT JOIN users u ON u.id = ds.reported_by AND u.tenant_id = ds.tenant_id
       LEFT JOIN purchases pur ON pur.id = ds.purchase_id AND pur.tenant_id = ds.tenant_id
+      LEFT JOIN LATERAL (
+        SELECT sr_sub.return_number, sr_sub.return_date, sr_sub.dispatch_date, sr_sub.dispatch_ref
+        FROM supplier_return_lines srl_sub
+        JOIN supplier_returns sr_sub ON sr_sub.id = srl_sub.return_id AND sr_sub.tenant_id = srl_sub.tenant_id
+        WHERE srl_sub.damaged_stock_id = ds.id
+        ORDER BY sr_sub.created_at DESC LIMIT 1
+      ) sr ON true
+      LEFT JOIN LATERAL (
+        SELECT srep_sub.replacement_number, srep_sub.received_date
+        FROM supplier_return_lines srl_sub2
+        JOIN supplier_replacements srep_sub ON srep_sub.return_line_id = srl_sub2.id AND srep_sub.tenant_id = srl_sub2.tenant_id
+        WHERE srl_sub2.damaged_stock_id = ds.id
+        ORDER BY srep_sub.created_at DESC LIMIT 1
+      ) srep ON true
       WHERE ds.tenant_id = ? ${branchFilter}
     `;
     const params: unknown[] = [tenantId, ...branchParams];
@@ -148,7 +168,7 @@ export function registerDamagedStock(r: Router): void {
 
     const itemId = V.str(b.itemId, 'Item ID');
     const classification = (b.classification === 'DEFECTIVE') ? 'DEFECTIVE' : 'DAMAGED';
-    const damageReason = V.str(b.damageReason, 'Damage / Defect Reason', 100);
+    const damageReason = V.str(b.damageReason, 'Damage / Defect Reason', { max: 100 });
     const customReason = V.optStr(b.customReason, 'Custom Reason', 255);
     const notes = V.optStr(b.notes, 'Notes', 500);
     const rollNo = V.optStr(b.rollNo, 'Roll Number', 100);
@@ -324,7 +344,9 @@ export function registerDamagedStock(r: Router): void {
         p.phone AS supplier_phone,
         u.name AS creator_name,
         app.name AS approver_name,
-        pur.purchase_number AS original_purchase_number
+        pur.purchase_number AS original_purchase_number,
+        (SELECT srep.received_date FROM supplier_replacements srep WHERE srep.return_id = sr.id ORDER BY srep.created_at DESC LIMIT 1) AS replacement_received_date,
+        (SELECT srep.replacement_number FROM supplier_replacements srep WHERE srep.return_id = sr.id ORDER BY srep.created_at DESC LIMIT 1) AS replacement_number
       FROM supplier_returns sr
       LEFT JOIN parties p ON p.id = sr.supplier_id AND p.tenant_id = sr.tenant_id
       LEFT JOIN users u ON u.id = sr.created_by AND u.tenant_id = sr.tenant_id
@@ -362,9 +384,11 @@ export function registerDamagedStock(r: Router): void {
     if (returnIds.length > 0) {
       const placeholders = returnIds.map(() => '?').join(',');
       allLines = await ctx.db.query(
-        `SELECT srl.*, i.name AS current_item_name, i.sku AS current_sku, i.barcode AS current_barcode
+        `SELECT srl.*, i.name AS current_item_name, i.sku AS current_sku, i.barcode AS current_barcode,
+                ds.damage_date AS customer_return_date, ds.damage_number
          FROM supplier_return_lines srl
          LEFT JOIN items i ON i.id = srl.item_id AND i.tenant_id = srl.tenant_id
+         LEFT JOIN damaged_stock ds ON ds.id = srl.damaged_stock_id AND ds.tenant_id = srl.tenant_id
          WHERE srl.return_id IN (${placeholders}) AND srl.tenant_id = ?
          ORDER BY srl.created_at ASC`,
         [...returnIds, tenantId],
@@ -422,7 +446,7 @@ export function registerDamagedStock(r: Router): void {
       for (const l of lines) {
         const itemId = V.str(l.itemId || l.item_id, 'Item ID in line');
         const damagedStockId = V.optStr(l.damagedStockId || l.damaged_stock_id, 'Damaged Stock ID', 64);
-        const returnReason = V.str(l.returnReason || l.return_reason || l.damageReason || l.damage_reason || 'Damaged goods return', 'Return reason', 150);
+        const returnReason = V.str(l.returnReason || l.return_reason || l.damageReason || l.damage_reason || 'Damaged goods return', 'Return reason', { max: 150 });
 
         let qtyMilli: number;
         if (l.qtyMilli !== undefined || l.qty_milli !== undefined) {
@@ -551,7 +575,7 @@ export function registerDamagedStock(r: Router): void {
     const b = ctx.body ?? {};
 
     const dispatchDate = V.optStr(b.dispatchDate, 'Dispatch Date', 20) || new Date().toISOString().slice(0, 10);
-    const dispatchRef = V.str(b.dispatchRef || b.challanNo || 'DISPATCH', 'Dispatch Reference / Challan', 100);
+    const dispatchRef = V.str(b.dispatchRef || b.challanNo || 'DISPATCH', 'Dispatch Reference / Challan', { max: 100 });
     const notes = V.optStr(b.notes, 'Notes', 255);
 
     return ctx.db.tx(async (q) => {
@@ -635,6 +659,11 @@ export function registerDamagedStock(r: Router): void {
         srep.*,
         p.name AS supplier_name,
         sr.return_number,
+        sr.return_date,
+        sr.dispatch_date,
+        sr.dispatch_ref,
+        ds.damage_date AS customer_return_date,
+        ds.damage_number,
         orig_i.name AS original_item_name,
         orig_i.sku AS original_sku,
         rep_i.name AS replacement_item_name,
@@ -642,6 +671,8 @@ export function registerDamagedStock(r: Router): void {
         u.name AS receiver_name
       FROM supplier_replacements srep
       JOIN supplier_returns sr ON sr.id = srep.return_id AND sr.tenant_id = srep.tenant_id
+      LEFT JOIN supplier_return_lines srl ON srl.id = srep.return_line_id AND srl.tenant_id = srep.tenant_id
+      LEFT JOIN damaged_stock ds ON ds.id = srl.damaged_stock_id AND ds.tenant_id = srep.tenant_id
       LEFT JOIN parties p ON p.id = srep.supplier_id AND p.tenant_id = srep.tenant_id
       LEFT JOIN items orig_i ON orig_i.id = srep.original_item_id AND orig_i.tenant_id = srep.tenant_id
       LEFT JOIN items rep_i ON rep_i.id = srep.replacement_item_id AND rep_i.tenant_id = srep.tenant_id

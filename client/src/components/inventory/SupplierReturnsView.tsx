@@ -76,10 +76,14 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
     );
     if (!dispatchRef) return;
 
+    const defaultDate = new Date().toISOString().slice(0, 10);
+    const enteredDate = window.prompt(`Enter Dispatch Date (YYYY-MM-DD):`, defaultDate);
+    const dispatchDate = enteredDate && enteredDate.trim() ? enteredDate.trim() : defaultDate;
+
     try {
       await dispatchSupplierReturn(ret.id, {
         dispatchRef,
-        dispatchDate: new Date().toISOString().slice(0, 10),
+        dispatchDate,
       });
       showToast(`Supplier return ${retNum} marked as dispatched to supplier.`);
       loadData();
@@ -278,7 +282,17 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
                       <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>
                         {retNum}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Date: {formatDate(retDate)}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Shop Return: {formatDate(retDate)}</div>
+                      {(ret.dispatchDate || ret.dispatch_date) && (
+                        <div style={{ fontSize: '0.75rem', color: '#0284c7' }}>
+                          Dispatched: {formatDate(ret.dispatchDate || ret.dispatch_date)}
+                        </div>
+                      )}
+                      {(ret.replacementReceivedDate || ret.replacement_received_date) && (
+                        <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>
+                          Replaced: {formatDate(ret.replacementReceivedDate || ret.replacement_received_date)}
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -393,6 +407,11 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
                           <tr key={l.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '0.5rem' }}>
                               <div style={{ fontWeight: 600 }}>{l.itemName || l.item_name}</div>
+                              {(l.customerReturnDate || l.customer_return_date) && (
+                                <div style={{ fontSize: '0.75rem', color: '#b45309' }}>
+                                  Cust Return: {formatDate(l.customerReturnDate || l.customer_return_date)} {l.damageNumber || l.damage_number ? `(${l.damageNumber || l.damage_number})` : ''}
+                                </div>
+                              )}
                               {l.sku && <div style={{ fontSize: '0.75rem', color: '#64748b' }}>SKU: {l.sku}</div>}
                             </td>
                             <td style={{ padding: '0.5rem' }}>

@@ -36,6 +36,7 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
   const [returnReason, setReturnReason] = useState<string>(
     preselectedDamagedItem?.damageReason || preselectedDamagedItem?.damage_reason || 'Defective textile goods'
   );
+  const [returnDate, setReturnDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -123,6 +124,7 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
         supplierId,
         purchaseId: selectedDmg.purchaseId || selectedDmg.purchase_id,
         returnType,
+        returnDate,
         notes: notes || undefined,
         lines: [
           {
@@ -277,6 +279,9 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
                 }}
               >
                 <div><strong>Product:</strong> {selectedDmg.itemName || selectedDmg.item_name}</div>
+                {(selectedDmg.damageDate || selectedDmg.damage_date) && (
+                  <div><strong>Customer Return Date:</strong> {new Date(String(selectedDmg.damageDate || selectedDmg.damage_date)).toLocaleDateString('en-IN')}</div>
+                )}
                 <div><strong>Recorded Defect:</strong> {selectedDmg.damageReason || selectedDmg.damage_reason}</div>
                 {(selectedDmg.rollNo || selectedDmg.roll_no) && <div><strong>Roll No:</strong> {selectedDmg.rollNo || selectedDmg.roll_no}</div>}
                 {selectedDmg.size && <div><strong>Size / Shade:</strong> {selectedDmg.size} / {selectedDmg.colour || 'N/A'}</div>}
@@ -285,8 +290,8 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
             )}
           </div>
 
-          {/* Return Quantity & Type */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '1rem', marginBottom: '1.25rem' }}>
+          {/* Return Quantity, Shop Return Date & Type */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>
                 Return Qty ({selectedDmg?.unit || 'pcs'}) *
@@ -298,6 +303,26 @@ export const SupplierReturnModal: React.FC<SupplierReturnModalProps> = ({
                 required
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>
+                Shop Return Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={returnDate}
+                onChange={(e) => setReturnDate(e.target.value)}
                 style={{
                   width: '100%',
                   padding: '0.5rem 0.75rem',

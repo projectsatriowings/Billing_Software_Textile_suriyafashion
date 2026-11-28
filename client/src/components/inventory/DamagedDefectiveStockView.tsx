@@ -333,7 +333,7 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
                 <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                     <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.damageNumber || item.damage_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{formatDate(item.damageDate || item.damage_date)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 600 }}>Cust Return: {formatDate(item.damageDate || item.damage_date)}</div>
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                     <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.itemName || item.item_name}</div>
@@ -355,7 +355,22 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
                     {item.notes && <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>{item.notes}</div>}
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
-                    <div style={{ color: '#334155' }}>{item.supplierName || item.supplier_name || '—'}</div>
+                    <div style={{ color: '#334155', fontWeight: 600 }}>{item.supplierName || item.supplier_name || '—'}</div>
+                    {(item.supplierReturnDate || item.supplier_return_date) && (
+                      <div style={{ fontSize: '0.75rem', color: '#2563eb' }}>
+                        Shop Return: {formatDate(item.supplierReturnDate || item.supplier_return_date)} ({item.supplierReturnNumber || item.supplier_return_number})
+                      </div>
+                    )}
+                    {(item.dispatchDate || item.dispatch_date) && (
+                      <div style={{ fontSize: '0.75rem', color: '#0284c7' }}>
+                        Dispatched: {formatDate(item.dispatchDate || item.dispatch_date)}
+                      </div>
+                    )}
+                    {(item.replacementReceivedDate || item.replacement_received_date) && (
+                      <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>
+                        Replaced: {formatDate(item.replacementReceivedDate || item.replacement_received_date)}
+                      </div>
+                    )}
                     {(item.originalPurchaseNumber || item.original_purchase_number) && (
                       <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Pur: {item.originalPurchaseNumber || item.original_purchase_number}</div>
                     )}

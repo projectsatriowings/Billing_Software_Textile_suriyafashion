@@ -214,11 +214,14 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
                   boxSizing: 'border-box',
                 }}
               >
-                {lines.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.item_name} (Pending: {(l.pending_qty_milli / 1000).toFixed(1)} {l.unit})
-                  </option>
-                ))}
+                {lines.map((l) => {
+                  const pQty = ((l.pendingQtyMilli ?? l.pending_qty_milli ?? 0) / 1000).toFixed(1);
+                  return (
+                    <option key={l.id} value={l.id}>
+                      {l.itemName || l.item_name} (Pending: {pQty} {l.unit})
+                    </option>
+                  );
+                })}
               </select>
             </div>
           )}
@@ -250,6 +253,24 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
                 <span style={{ color: '#64748b', display: 'block' }}>Pending Replacement</span>
                 <strong style={{ color: '#d97706' }}>{pendingUnits.toFixed(1)} {selectedLine.unit}</strong>
               </div>
+              {(selectedLine.customerReturnDate || (selectedLine as any).customer_return_date) && (
+                <div>
+                  <span style={{ color: '#b45309', display: 'block', fontWeight: 600 }}>Cust Return Date</span>
+                  <span style={{ color: '#1e293b' }}>{new Date(String(selectedLine.customerReturnDate || (selectedLine as any).customer_return_date)).toLocaleDateString('en-IN')}</span>
+                </div>
+              )}
+              {(supplierReturn.returnDate || supplierReturn.return_date) && (
+                <div>
+                  <span style={{ color: '#475569', display: 'block', fontWeight: 600 }}>Shop Return Date</span>
+                  <span style={{ color: '#1e293b' }}>{new Date(String(supplierReturn.returnDate || supplierReturn.return_date)).toLocaleDateString('en-IN')}</span>
+                </div>
+              )}
+              {(supplierReturn.dispatchDate || supplierReturn.dispatch_date) && (
+                <div>
+                  <span style={{ color: '#0284c7', display: 'block', fontWeight: 600 }}>Dispatch Date</span>
+                  <span style={{ color: '#1e293b' }}>{new Date(String(supplierReturn.dispatchDate || supplierReturn.dispatch_date)).toLocaleDateString('en-IN')}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -319,8 +340,8 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
             </div>
           </div>
 
-          {/* Received Quantity & Challan No */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '1rem', marginBottom: '1.25rem' }}>
+          {/* Received Quantity, Replacement Date & Challan No */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '1rem', marginBottom: '1.25rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>
                 Received Qty ({selectedLine?.unit || 'pcs'}) *
@@ -347,6 +368,26 @@ export const SupplierReplacementModal: React.FC<SupplierReplacementModalProps> =
                   Partial receipt: {(pendingUnits - parseFloat(qty)).toFixed(1)} {selectedLine?.unit} will remain pending.
                 </div>
               )}
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>
+                Replacement Delivery Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={receivedDate}
+                onChange={(e) => setReceivedDate(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem 0.75rem',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '0.875rem',
+                  boxSizing: 'border-box',
+                }}
+              />
             </div>
 
             <div>

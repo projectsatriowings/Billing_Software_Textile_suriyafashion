@@ -638,7 +638,7 @@ export const buildWhatsAppMessage = (opts: {
   includeLink?: boolean;
 }): string => {
   const url = opts.includeLink && opts.shareToken
-    ? `${window.location.origin}/b/${opts.shareToken}.pdf`
+    ? `${window.location.origin}/b/${opts.shareToken}`
     : '';
 
   let msg = billMessage({
@@ -8233,6 +8233,7 @@ export function App() {
       origLineId: string;
       returnQtyMilli: number;
       restock: boolean;
+      condition?: string;
       reason: string;
       customReason?: string;
     }[] = [];
@@ -24404,7 +24405,7 @@ export function App() {
                       <button
                         type="button"
                         disabled={!validateIndianPhone(successPhone).valid || isSendingWhatsApp}
-                        onClick={() => handleSendWhatsAppFromSuccessModal('direct')}
+                        onClick={() => handleSendWhatsAppFromSuccessModal()}
                         style={{
                           width: '100%',
                           padding: '0.55rem 0.85rem',

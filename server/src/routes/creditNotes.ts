@@ -756,7 +756,7 @@ export function registerCreditNotes(r: Router) {
                 itemDetails?.preferredSupplierId ?? itemDetails?.preferred_supplier_id ?? null,
                 cl.reason || 'Customer Return (Damaged)',
                 cl.remarks || null,
-                `Customer Return from Credit Note ${cnNumber} (Orig Invoice: ${origInv.number})`,
+                `Customer Return from Credit Note ${assignedNumber} (Orig Invoice: ${origInv.number})`,
                 classification,
                 classification,
                 ctx.user!.id,

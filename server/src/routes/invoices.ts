@@ -1,5 +1,5 @@
 import { requirePerm, requireUser } from '../auth.ts';
-import { bad, notFound, HtmlResponse, FileResponse, V, type Router } from '../http.ts';
+import { bad, forbidden, notFound, HtmlResponse, FileResponse, V, type Router } from '../http.ts';
 import { newId } from '../security.ts';
 import { j } from '../db/index.ts';
 import { calcBill } from '../../../shared/tax.ts';
@@ -1383,7 +1383,7 @@ export function registerInvoices(r: Router) {
       qrSvgMarkup = qrSvg(upi, { size: 120 });
     }
 
-    let html = renderBillDoc(printable, { ...DEFAULT_CONFIG.template, paper }, { qrSvg: qrSvgMarkup, qrCaption: 'Scan UPI to pay balance', autoPrint: false });
+    let html = renderBillDoc(printable, { ...DEFAULT_CONFIG.template, paper: paper as any }, { qrSvg: qrSvgMarkup, qrCaption: 'Scan UPI to pay balance', autoPrint: false });
     const safeInvNum = String(inv.number || 'INV').replace(/[&<>"']/g, '');
     const downloadBanner = `
 <div class="public-bill-header" style="position:sticky;top:0;background:#0f172a;color:#ffffff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.18);z-index:9999;font-family:system-ui,-apple-system,sans-serif;">
