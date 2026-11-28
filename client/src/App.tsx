@@ -11160,46 +11160,6 @@ export function App() {
                           <button
                             type="button"
                             style={{
-                              background: '#f8fafc',
-                              border: '1px solid #cbd5e1',
-                              color: '#334155',
-                              padding: '0.35rem 0.65rem',
-                              borderRadius: '8px',
-                              fontSize: '0.76rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                            onClick={() => setShowTailoringModal(true)}
-                            title="Manage tailoring orders, repeat measurements and due dates"
-                          >
-                            ✂️ Tailoring
-                          </button>
-                          <button
-                            type="button"
-                            style={{
-                              background: '#f0fdf4',
-                              border: '1px solid #bbf7d0',
-                              color: '#166534',
-                              padding: '0.35rem 0.65rem',
-                              borderRadius: '8px',
-                              fontSize: '0.76rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                            onClick={addCuttingCharge}
-                            title="Add tailoring / cutting / stitching charge item"
-                          >
-                            + Cutting Charge
-                          </button>
-                          <button
-                            type="button"
-                            style={{
                               background: '#fffbeb',
                               border: '1px solid #fde68a',
                               color: '#b45309',
