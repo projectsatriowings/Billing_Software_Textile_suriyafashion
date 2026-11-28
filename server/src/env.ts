@@ -53,8 +53,8 @@ export const env = {
   jwtSecret,
   jwtTtlSeconds: Number(process.env.JWT_TTL_SECONDS ?? 60 * 60 * 24 * 7),
   developerPasscode: process.env.DEVELOPER_PASSCODE || 'dev@superadmin',
-  /** Public base URL used in WhatsApp links. Falls back to the request host. */
-  publicUrl: (process.env.PUBLIC_URL ?? '').replace(/\/$/, ''),
+  /** Public base URL used in WhatsApp links. Falls back to the request host or official live domain. */
+  publicUrl: (process.env.PUBLIC_URL ?? 'https://textilebilling.atriowings.in').replace(/\/$/, ''),
   staticDir: process.env.STATIC_DIR ?? 'client/dist',
   whatsapp: {
     // Optional: WhatsApp Business Cloud API. Without these the app uses click-to-chat links.

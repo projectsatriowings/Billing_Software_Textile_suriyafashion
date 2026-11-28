@@ -648,7 +648,7 @@ export const getPublicBaseUrl = (configuredUrl?: string | null): string => {
     }
   }
   // Default live production domain for public bill viewing
-  return 'https://billing.atriowings.in';
+  return 'https://textilebilling.atriowings.in';
 };
 
 export const buildWhatsAppMessage = (opts: {
