@@ -5287,10 +5287,13 @@ export function App() {
     ? Math.max(0, totalExchangeCreditMinor - newItemsPayableMinor)
     : 0;
 
-  // Final amount to tender / collect at POS terminal
-  const finalPayableMinor = isExchangeActive
+  // Final amount to tender / collect at POS terminal (rounded to whole rupee: <=.50 down, >=.51 up)
+  const rawPayableMinor = isExchangeActive
     ? exchangeCustomerPayableMinor
     : Math.max(0, cartTotalMinor - discountMinor);
+  const absPayable = Math.abs(rawPayableMinor);
+  const roundedPayableAbs = ((absPayable % 100) > 50 ? Math.floor(absPayable / 100) + 1 : Math.floor(absPayable / 100)) * 100;
+  const finalPayableMinor = rawPayableMinor < 0 ? -roundedPayableAbs : roundedPayableAbs;
 
   // Net Loyalty Points on Exchange / Bill:
   const netLoyaltyPointsToEarn = useMemo(() => {

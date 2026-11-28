@@ -562,8 +562,13 @@ export function WholesaleBillingView({
     const totalTaxRupees = scaledCgstRupees + scaledSgstRupees + scaledIgstRupees;
     const rawTotalRupees = netTaxableRupees + totalTaxRupees;
 
-    // Nearest rupee round off
-    const roundedTotalRupees = Math.round(rawTotalRupees);
+    // Nearest rupee round off (<= .50 rounds down, >= .51 rounds up)
+    const rawPaise = Math.round(rawTotalRupees * 100);
+    const absPaise = Math.abs(rawPaise);
+    const baseRupees = Math.floor(absPaise / 100);
+    const remPaise = absPaise % 100;
+    const roundedAbsRupees = remPaise > 50 ? baseRupees + 1 : baseRupees;
+    const roundedTotalRupees = rawPaise < 0 ? -roundedAbsRupees : roundedAbsRupees;
     const roundOffDiffRupees = Number((roundedTotalRupees - rawTotalRupees).toFixed(2));
 
     const totalPaise = Math.round(roundedTotalRupees * 100);

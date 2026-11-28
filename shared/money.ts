@@ -15,6 +15,16 @@ export function divRound(n: number, d: number): number {
   return neg ? -q : q;
 }
 
+/** Round paise to whole rupee: <= 50 paise rounds down, > 50 paise (.51+) rounds up. */
+export function roundRupeeHalfDown(minor: number): number {
+  const neg = minor < 0;
+  const abs = Math.abs(minor);
+  const rupees = Math.floor(abs / 100);
+  const paise = abs % 100;
+  const rounded = (paise > 50 ? rupees + 1 : rupees) * 100;
+  return neg ? -rounded : rounded;
+}
+
 /** "₹1,234.50" style text from paise. */
 export function fmtMoney(minor: number, opts: { symbol?: string; plain?: boolean } = {}): string {
   const sym = opts.plain ? '' : (opts.symbol ?? '₹');

@@ -1,4 +1,4 @@
-import { divRound, fmtMoney, fmtQty, bpToPct } from './money.ts';
+import { divRound, roundRupeeHalfDown, fmtMoney, fmtQty, bpToPct } from './money.ts';
 
 /**
  * GST calculation engine. Pure, deterministic, integer-only.
@@ -147,7 +147,7 @@ export function calcBill(inputs: CalcLineInput[], opts: CalcOptions): CalcResult
   const exact = sum((l) => l.totalMinor);
   let roundOff = 0;
   if ((opts.roundTotal ?? 'rupee') === 'rupee') {
-    roundOff = divRound(exact, 100) * 100 - exact;
+    roundOff = roundRupeeHalfDown(exact) - exact;
   }
   const total = exact + roundOff;
   if (roundOff !== 0) explain.push(`Round-off ${roundOff > 0 ? '+' : '−'}${fmtMoney(Math.abs(roundOff))} to the nearest rupee`);
