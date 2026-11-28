@@ -223,6 +223,7 @@ import { NotificationsPageView } from './components/notifications/NotificationsP
 import { submitExchange } from './api';
 import { ResponsiveNavbar } from './components/navigation/ResponsiveNavbar';
 import { VariantPickerModal } from './components/pos/VariantPickerModal.tsx';
+import { TemporaryProductModal } from './components/pos/TemporaryProductModal.tsx';
 import { TailoringModal } from './components/tailoring/TailoringModal.tsx';
 import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
 import { TextileReportsView } from './components/reports/TextileReportsView.tsx';
@@ -686,7 +687,7 @@ export interface PosCartItem {
   item: Item;
   qty: number;
   variant?: ProductVariant | null;
-  lineType?: 'item' | 'cutting_charge' | 'tailoring';
+  lineType?: 'item' | 'cutting_charge' | 'tailoring' | 'temporary';
   lengthUnit?: 'm' | 'yd';
   originalLength?: number;
   isReturn?: boolean;
@@ -695,6 +696,8 @@ export interface PosCartItem {
   origLineId?: string;
   restock?: boolean;
   returnReason?: string;
+  isTemporary?: boolean;
+  supplierInvoiceNumber?: string;
 }
 
 export function App() {
@@ -1214,6 +1217,7 @@ export function App() {
   }, [items]);
 
   const [showReturnExchangeModal, setShowReturnExchangeModal] = useState<boolean>(false);
+  const [showTemporaryProductModal, setShowTemporaryProductModal] = useState<boolean>(false);
   const showReturnExchangeModalRef = useRef(showReturnExchangeModal);
   useEffect(() => {
     showReturnExchangeModalRef.current = showReturnExchangeModal;
@@ -2385,6 +2389,18 @@ export function App() {
   const [showSupplierInvoiceConverter, setShowSupplierInvoiceConverter] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [deletingItem, setDeletingItem] = useState<Item | null>(null);
+  const [expandedProductIds, setExpandedProductIds] = useState<Set<string>>(new Set());
+  const toggleProductExpand = (id: string) => {
+    setExpandedProductIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [itemFormName, setItemFormName] = useState('');
@@ -4459,7 +4475,7 @@ export function App() {
     setCart((prev) => {
       const target = prev[cartIdx];
       if (!target) return prev;
-      if (delta > 0 && !target.isReturn) {
+      if (delta > 0 && !target.isReturn && !target.isTemporary) {
         const avail = target.variant?.stockMilli != null
           ? target.variant.stockMilli / 1000
           : getAvailableStockUnits(target.item.id, target.item);
@@ -4503,27 +4519,29 @@ export function App() {
     });
   };
 
-  const handleSelectVariantFromPicker = (variant: ProductVariant) => {
-    if (!variantPickerItem) return;
+  const handleSelectVariantFromPicker = (variant: ProductVariant, qty?: number, itemOverride?: Item) => {
+    const parent = itemOverride || variantPickerItem;
+    const qtyToAdd = typeof qty === 'number' && qty > 0 ? qty : 1;
+    if (!parent) return;
     setCart((prev) => {
-      const foundIdx = prev.findIndex((c) => c.item.id === variantPickerItem.id && c.variant?.id === variant.id);
+      const foundIdx = prev.findIndex((c) => c.item.id === parent.id && c.variant?.id === variant.id);
       if (foundIdx >= 0) {
         return prev.map((c, idx) =>
-          idx === foundIdx ? { ...c, qty: c.qty + 1 } : c
+          idx === foundIdx ? { ...c, qty: c.qty + qtyToAdd } : c
         );
       }
       const variantItem: Item = {
-        ...variantPickerItem,
+        ...parent,
         priceMinor: variant.priceMinor,
-        mrpMinor: variant.mrpMinor ?? variantPickerItem.mrpMinor,
-        currentStockMilli: variant.stockMilli ?? variantPickerItem.currentStockMilli,
-        sku: variant.sku || variantPickerItem.sku,
-        barcode: variant.barcode || variantPickerItem.barcode,
+        mrpMinor: variant.mrpMinor ?? parent.mrpMinor,
+        currentStockMilli: variant.stockMilli ?? parent.currentStockMilli,
+        sku: variant.sku || parent.sku,
+        barcode: variant.barcode || parent.barcode,
       };
-      return [...prev, { item: variantItem, qty: 1, variant }];
+      return [...prev, { item: variantItem, qty: qtyToAdd, variant }];
     });
     playSupermarketBeep();
-    showToast(`Added ${variantPickerItem.name} (${variant.size || ''} / ${variant.colour || ''})`);
+    showToast(`Added ${parent.name}${variant.size ? ` (${variant.size})` : ''} to cart`);
   };
 
   const handleExchangeVariant = (oldVariantId: string | null, newVariant: ProductVariant) => {
@@ -4568,6 +4586,38 @@ export function App() {
     } as Item;
     setCart((prev) => [...prev, { item: chargeItem, qty: 1, lineType: 'cutting_charge' }]);
     showToast(`Added Tailoring Charge of ₹${val.toFixed(2)}`);
+  };
+
+  const handleAddTemporaryProducts = (
+    supplierInvoiceNumber: string,
+    products: Array<{ name: string; sellingPrice: number; quantity: number }>
+  ) => {
+    const cleanInv = supplierInvoiceNumber.trim().toUpperCase();
+    const newItems: PosCartItem[] = products.map((p, idx) => {
+      const tempItem: Item = {
+        id: `temp-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        name: p.name.trim(),
+        priceMinor: Math.round(p.sellingPrice * 100),
+        mrpMinor: Math.round(p.sellingPrice * 100),
+        category: 'Non-Inventory',
+        unit: 'pcs',
+        trackStock: false,
+        active: true,
+        taxRateBp: 0,
+        taxInclusive: false,
+      } as Item;
+
+      return {
+        item: tempItem,
+        qty: p.quantity,
+        lineType: 'temporary',
+        isTemporary: true,
+        supplierInvoiceNumber: cleanInv,
+      };
+    });
+
+    setCart((prev) => [...prev, ...newItems]);
+    showToast(`Added ${products.length} non-inventory product${products.length === 1 ? '' : 's'} (Inv: ${cleanInv}) to cart`);
   };
 
   const handleAddRatioLinesToPurchase = (lines: any[]) => {
@@ -6501,10 +6551,13 @@ export function App() {
         const lineOfferDiscount = c.item.offerPercentage && c.item.offerPercentage > 0
           ? Math.round((c.item.priceMinor * c.item.offerPercentage) / 100) * c.qty
           : 0;
+        const isTemp = Boolean(c.isTemporary || c.item.id?.startsWith('temp-') || c.lineType === 'temporary');
         return {
-          itemId: c.item.id?.startsWith('custom-') ? undefined : c.item.id,
-          variantId: c.variant?.id || undefined,
-          lineType: c.lineType || 'item',
+          itemId: (isTemp || c.item.id?.startsWith('custom-')) ? undefined : c.item.id,
+          variantId: isTemp ? undefined : (c.variant?.id || undefined),
+          lineType: isTemp ? 'temporary' : (c.lineType || 'item'),
+          isTemporary: isTemp,
+          supplierInvoiceNumber: c.supplierInvoiceNumber || undefined,
           decimalQty: c.qty,
           name: c.variant ? `${c.item.name} (${c.variant.size}${c.variant.colour ? ` / ${c.variant.colour}` : ''})` : c.item.name,
           qtyMilli: Math.round(c.qty * 1000),
@@ -6856,6 +6909,31 @@ export function App() {
               const idx = catalogSelectedIndex >= 0 && catalogSelectedIndex < list.length ? catalogSelectedIndex : 0;
               const targetItem = list[idx];
               if (targetItem) {
+                const hasMultiple = (targetItem.variants && targetItem.variants.length > 1) || (targetItem.variantsCount != null && targetItem.variantsCount > 1);
+                if (hasMultiple) {
+                  setShowProductCatalogDrawer(false);
+                  setVariantPickerItem(targetItem);
+                  setVariantPickerCurrentVarId(null);
+                  setVariantPickerMode('add_to_cart');
+                  setIsVariantPickerOpen(true);
+                  setSearchQuery('');
+                  return;
+                }
+                if (targetItem.variants && targetItem.variants.length === 1) {
+                  handleSelectVariantFromPicker(targetItem.variants[0], 1, targetItem);
+                  setSearchQuery('');
+                  setCatalogSelectedIndex(0);
+                  return;
+                }
+                if (targetItem.itemType === 'variant') {
+                  setShowProductCatalogDrawer(false);
+                  setVariantPickerItem(targetItem);
+                  setVariantPickerCurrentVarId(null);
+                  setVariantPickerMode('add_to_cart');
+                  setIsVariantPickerOpen(true);
+                  setSearchQuery('');
+                  return;
+                }
                 const added = addToCart(targetItem);
                 if (added) {
                   playSupermarketBeep();
@@ -11249,6 +11327,26 @@ export function App() {
                           </button>
                           <button
                             type="button"
+                            style={{
+                              background: '#fffbeb',
+                              border: '1px solid #fde68a',
+                              color: '#b45309',
+                              padding: '0.35rem 0.65rem',
+                              borderRadius: '8px',
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            onClick={() => setShowTemporaryProductModal(true)}
+                            title="Add non-inventory product purchased from a supplier before stock import"
+                          >
+                            📦 + Non-Inventory Product
+                          </button>
+                          <button
+                            type="button"
                             className="bento-clear-cart-btn"
                             disabled={cart.length === 0}
                             onClick={() => {
@@ -11449,7 +11547,7 @@ export function App() {
                                 const unitFinalPrice = storePrice + unitGst;
                                 const lineSavings = isReturn ? 0 : Math.max(0, (mrp - unitFinalPrice) * qty);
                                 const availStock = isReturn ? qty : getAvailableStockUnits(item.id, item);
-                                const isMaxStock = isReturn || (availStock !== Infinity && qty >= availStock);
+                                const isMaxStock = isReturn || (!cartItem.isTemporary && availStock !== Infinity && qty >= availStock);
 
                                 const linePromo = promoEvalResult?.linePromotions?.[cartIdx];
                                 const promoDiscount = promoEvalResult?.lineDiscounts[cartIdx] || 0;
@@ -11499,7 +11597,40 @@ export function App() {
                                         {item.name}
                                       </div>
                                       <div className="bento-cart-item-meta" style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '3px' }}>
-                                        {isReturn ? (
+                                        {cartItem.isTemporary ? (
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                            <span
+                                              style={{
+                                                background: '#fef3c7',
+                                                color: '#92400e',
+                                                border: '1px solid #fde68a',
+                                                padding: '1px 6px',
+                                                borderRadius: '4px',
+                                                fontSize: '0.68rem',
+                                                fontWeight: 800,
+                                                letterSpacing: '0.2px',
+                                              }}
+                                            >
+                                              NON-INVENTORY
+                                            </span>
+                                            {cartItem.supplierInvoiceNumber && (
+                                              <span
+                                                style={{
+                                                  background: '#f0f9ff',
+                                                  color: '#0369a1',
+                                                  border: '1px solid #bae6fd',
+                                                  padding: '1px 6px',
+                                                  borderRadius: '4px',
+                                                  fontSize: '0.68rem',
+                                                  fontWeight: 700,
+                                                  fontFamily: 'monospace',
+                                                }}
+                                              >
+                                                Supplier Inv: {cartItem.supplierInvoiceNumber}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : isReturn ? (
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                             <span
                                               style={{
@@ -12211,6 +12342,37 @@ export function App() {
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                           </svg>
                           <span>Find Product / No Barcode (F2)</span>
+                        </button>
+
+                        {/* Add Non-Inventory Product Button */}
+                        <button
+                          type="button"
+                          className="bento-non-inventory-btn"
+                          onClick={() => setShowTemporaryProductModal(true)}
+                          title="Sell products purchased from supplier before inventory import"
+                          style={{
+                            width: '100%',
+                            marginTop: '8px',
+                            padding: '0.62rem 0.85rem',
+                            background: '#fffbeb',
+                            border: '1.5px dashed #f59e0b',
+                            borderRadius: '10px',
+                            color: '#92400e',
+                            fontSize: '0.82rem',
+                            fontWeight: 750,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '7px',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </svg>
+                          <span>Add Non-Inventory Product</span>
                         </button>
                       </div>
                     </div>
@@ -14127,12 +14289,35 @@ export function App() {
                               if (filteredItems.length === 1) {
                                 const itm = filteredItems[0];
                                 const itmAvail = getAvailableStockUnits(itm.id, itm);
-                                const existing = cart.find((c) => c.item.id === itm.id);
-                                const currQty = existing ? existing.qty : 0;
                                 if (itmAvail <= 0) {
                                   playAlertTone();
                                   showToast(`Insufficient stock for "${itm.name}". 0 units available.`, 'warning');
-                                } else if (currQty + 1 > itmAvail) {
+                                  return;
+                                }
+                                const hasMultiple = (itm.variants && itm.variants.length > 1) || (itm.variantsCount != null && itm.variantsCount > 1);
+                                if (hasMultiple) {
+                                  setShowProductCatalogDrawer(false);
+                                  setVariantPickerItem(itm);
+                                  setVariantPickerCurrentVarId(null);
+                                  setVariantPickerMode('add_to_cart');
+                                  setIsVariantPickerOpen(true);
+                                  return;
+                                }
+                                if (itm.variants && itm.variants.length === 1) {
+                                  handleSelectVariantFromPicker(itm.variants[0], 1, itm);
+                                  return;
+                                }
+                                if (itm.itemType === 'variant') {
+                                  setShowProductCatalogDrawer(false);
+                                  setVariantPickerItem(itm);
+                                  setVariantPickerCurrentVarId(null);
+                                  setVariantPickerMode('add_to_cart');
+                                  setIsVariantPickerOpen(true);
+                                  return;
+                                }
+                                const existing = cart.find((c) => c.item.id === itm.id);
+                                const currQty = existing ? existing.qty : 0;
+                                if (currQty + 1 > itmAvail) {
                                   playAlertTone();
                                   showToast(`Insufficient stock. Only ${itmAvail} unit${itmAvail === 1 ? '' : 's'} available.`, 'warning');
                                 } else {
@@ -14242,40 +14427,57 @@ export function App() {
                             const storePrice = item.priceMinor;
                             const savings = Math.max(0, mrp - storePrice);
                             const discountPercent = mrp > storePrice && mrp > 0 ? Math.round((savings / mrp) * 100) : 0;
-                            const inCartCount = cart.find((c) => c.item.id === item.id)?.qty || 0;
+                            const inCartCount = cart.filter((c) => c.item.id === item.id).reduce((s, c) => s + c.qty, 0);
                             const availStock = getAvailableStockUnits(item.id, item);
                             const isOutOfStock = availStock <= 0;
                             const isMaxStockReached = availStock !== Infinity && inCartCount >= availStock;
                             const displayName = item.name.replace(/\s+\d{10,15}$/, '');
 
+                            const handleSelectCatalogItem = (e?: React.MouseEvent) => {
+                              if (e) e.stopPropagation();
+                              if (isOutOfStock) {
+                                playAlertTone();
+                                showToast(`Insufficient stock for "${displayName}". 0 units available.`, 'warning');
+                                return;
+                              }
+                              const hasMultiple = (item.variants && item.variants.length > 1) || (item.variantsCount != null && item.variantsCount > 1);
+                              if (hasMultiple) {
+                                setShowProductCatalogDrawer(false);
+                                setVariantPickerItem(item);
+                                setVariantPickerCurrentVarId(null);
+                                setVariantPickerMode('add_to_cart');
+                                setIsVariantPickerOpen(true);
+                                return;
+                              }
+                              if (item.variants && item.variants.length === 1) {
+                                handleSelectVariantFromPicker(item.variants[0], 1, item);
+                                return;
+                              }
+                              if (item.itemType === 'variant') {
+                                setShowProductCatalogDrawer(false);
+                                setVariantPickerItem(item);
+                                setVariantPickerCurrentVarId(null);
+                                setVariantPickerMode('add_to_cart');
+                                setIsVariantPickerOpen(true);
+                                return;
+                              }
+                              if (isMaxStockReached) {
+                                playAlertTone();
+                                showToast(`Insufficient stock. Only ${availStock} unit${availStock === 1 ? '' : 's'} available.`, 'warning');
+                                return;
+                              }
+                              const added = addToCart(item);
+                              if (added) {
+                                playSupermarketBeep();
+                                showToast(`Added ${displayName} to cart`);
+                              }
+                            };
+
                             return (
                               <div
                                 key={item.id}
                                 className={`bento-product-tile ${inCartCount > 0 ? 'in-cart' : ''} ${isOutOfStock ? 'out-of-stock' : ''} ${catalogSelectedIndex === index ? 'keyboard-selected' : ''}`}
-                                onClick={() => {
-                                  if (isOutOfStock) {
-                                    playAlertTone();
-                                    showToast(`Insufficient stock for "${displayName}". 0 units available.`, 'warning');
-                                    return;
-                                  }
-                                  if (isMaxStockReached) {
-                                    playAlertTone();
-                                    showToast(`Insufficient stock. Only ${availStock} unit${availStock === 1 ? '' : 's'} available.`, 'warning');
-                                    return;
-                                  }
-                                  if (item.itemType === 'variant') {
-                                    setVariantPickerItem(item);
-                                    setVariantPickerCurrentVarId(null);
-                                    setVariantPickerMode('add_to_cart');
-                                    setIsVariantPickerOpen(true);
-                                    return;
-                                  }
-                                  const added = addToCart(item);
-                                  if (added) {
-                                    playSupermarketBeep();
-                                    showToast(`Added ${displayName} to cart`);
-                                  }
-                                }}
+                                onClick={() => handleSelectCatalogItem()}
                                 title={`Click to add ${displayName} to cart`}
                               >
                                 <div className="bento-tile-top">
@@ -14289,53 +14491,16 @@ export function App() {
                                   )}
                                 </div>
 
-                                {/* Product Image & Title Flex Row */}
-                                <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center', margin: '0.2rem 0' }}>
-                                  <div
-                                    style={{
-                                      width: '54px',
-                                      height: '54px',
-                                      borderRadius: '10px',
-                                      border: user?.role === 'cashier' ? '1.5px solid var(--border)' : '1px solid #e2e8f0',
-                                      background: user?.role === 'cashier' ? '#f8fafc' : '#f8fafc',
-                                      overflow: 'hidden',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      flexShrink: 0,
-                                      padding: '2px',
-                                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                                    }}
-                                  >
-                                    {(item.imageUrl || (item as any).image || item.custom?.image) ? (
-                                      <img
-                                        src={item.imageUrl || (item as any).image || item.custom?.image}
-                                        alt={displayName}
-                                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                                        onError={(e) => {
-                                          (e.currentTarget as HTMLImageElement).src =
-                                            'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
-                                        }}
-                                      />
-                                    ) : (
-                                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                                        <circle cx="8.5" cy="8.5" r="1.5" />
-                                        <polyline points="21 15 16 10 5 21" />
-                                      </svg>
-                                    )}
+                                {/* Product Title & Price (Image thumbnail removed) */}
+                                <div style={{ minWidth: 0, margin: '0.35rem 0', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                  <div className="bento-tile-title" title={item.name} style={{ margin: 0, fontSize: '0.98rem', fontWeight: 700, color: '#1e293b' }}>
+                                    {displayName}
                                   </div>
-
-                                  <div style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                    <div className="bento-tile-title" title={item.name} style={{ margin: 0 }}>
-                                      {displayName}
-                                    </div>
-                                    <div className="pricing-store-row" style={{ marginTop: '1px' }}>
-                                      <span className="pricing-store-val mono">{formatRupees(storePrice)}</span>
-                                      {mrp > storePrice && (
-                                        <span className="mrp-strikethrough mono">₹{(mrp / 100).toFixed(0)}</span>
-                                      )}
-                                    </div>
+                                  <div className="pricing-store-row" style={{ marginTop: '3px' }}>
+                                    <span className="pricing-store-val mono" style={{ fontSize: '1.05rem', fontWeight: 800 }}>{formatRupees(storePrice)}</span>
+                                    {mrp > storePrice && (
+                                      <span className="mrp-strikethrough mono">₹{(mrp / 100).toFixed(0)}</span>
+                                    )}
                                   </div>
                                 </div>
 
@@ -14374,26 +14539,7 @@ export function App() {
                                       type="button"
                                       className="bento-quick-add-btn"
                                       disabled={isOutOfStock}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (isOutOfStock) {
-                                          playAlertTone();
-                                          showToast(`Insufficient stock for "${displayName}". 0 units available.`, 'warning');
-                                          return;
-                                        }
-                                        if (item.itemType === 'variant') {
-                                          setVariantPickerItem(item);
-                                          setVariantPickerCurrentVarId(null);
-                                          setVariantPickerMode('add_to_cart');
-                                          setIsVariantPickerOpen(true);
-                                          return;
-                                        }
-                                        const added = addToCart(item);
-                                        if (added) {
-                                          playSupermarketBeep();
-                                          showToast(`Added ${displayName} to cart`);
-                                        }
-                                      }}
+                                      onClick={(e) => handleSelectCatalogItem(e)}
                                     >
                                       + Add
                                     </button>
@@ -14495,7 +14641,8 @@ export function App() {
                   (item.sku && item.sku.toLowerCase().includes(q)) ||
                   (item.barcode && item.barcode.includes(q)) ||
                   (item.hsn && item.hsn.includes(q)) ||
-                  (item.category && item.category.toLowerCase().includes(q));
+                  (item.category && item.category.toLowerCase().includes(q)) ||
+                  (item.variants && item.variants.some((v) => (v.sku && v.sku.toLowerCase().includes(q)) || (v.barcode && v.barcode.includes(q)) || (v.size && v.size.toLowerCase().includes(q)) || (v.colour && v.colour.toLowerCase().includes(q))));
                 const matchesCat = itemCatFilterMaster === 'ALL' || item.category === itemCatFilterMaster;
                 return matchesQ && matchesCat;
               });
@@ -14774,11 +14921,36 @@ export function App() {
                             </span>
                           </div>
                           <div className="product-mobile-spec-item">
-                            <span className="product-mobile-spec-label">Current Stock</span>
+                            <span className="product-mobile-spec-label">Total Stock</span>
                             <span className="product-mobile-spec-val stock">
-                              <span className={`badge ${i.currentStockMilli > 0 ? 'badge-emerald' : 'badge-amber'}`}>
-                                {i.currentStockMilli / 1000} {i.unit || 'pcs'}
+                              <span className={`badge ${((i.totalStockMilli ?? i.currentStockMilli) || 0) > 0 ? 'badge-emerald' : 'badge-amber'}`}>
+                                {((i.totalStockMilli ?? i.currentStockMilli) || 0) / 1000} {i.unit || 'pcs'}
                               </span>
+                            </span>
+                          </div>
+                          <div className="product-mobile-spec-item">
+                            <span className="product-mobile-spec-label">Variants</span>
+                            <span className="product-mobile-spec-val">
+                              <button
+                                type="button"
+                                onClick={() => toggleProductExpand(i.id)}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  padding: '0.15rem 0.45rem',
+                                  borderRadius: '12px',
+                                  border: '1px solid #c7d2fe',
+                                  background: expandedProductIds.has(i.id) ? '#4338ca' : '#eef2ff',
+                                  color: expandedProductIds.has(i.id) ? '#ffffff' : '#4338ca',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <span> {i.variantsCount || (i.variants?.length ?? 1)}</span>
+                                <span style={{ fontSize: '0.6rem' }}>{expandedProductIds.has(i.id) ? '▲' : '▼'}</span>
+                              </button>
                             </span>
                           </div>
                           <div className="product-mobile-spec-item">
@@ -14962,312 +15134,272 @@ export function App() {
                           <tr>
                             <th className="col-product-name col-sticky-name">Product Name</th>
                             <th className="col-nowrap">Category / Subcategory</th>
-                            <th className="col-nowrap">Type</th>
-                            <th className="col-nowrap">Material / Pattern</th>
-                            <th className="col-nowrap">Current Stock</th>
+                            <th className="col-nowrap">Variants</th>
+                            <th className="col-nowrap">Total Stock</th>
                             <th className="col-nowrap">SKU / Code</th>
                             {can(user?.role as any, 'purchases') && <th className="col-nowrap">Cost Price</th>}
                             <th className="col-nowrap">Selling Price</th>
-                            <th className="col-nowrap">Size</th>
                             <th className="col-nowrap">Offer %</th>
                             <th className="col-nowrap">Purchase Date</th>
                             <th className="col-nowrap">Status</th>
-                            <th className="col-nowrap" style={{ minWidth: '135px', textAlign: 'center' }}>Barcode Label</th>
                             <th className="col-nowrap col-sticky-actions" style={{ minWidth: '220px' }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredMasterItems.map((i) => (
-                            <tr key={i.id} style={{ opacity: i.active === false ? 0.75 : 1 }}>
-                              <td className="col-product-name col-sticky-name" style={{ fontWeight: 600 }}>
-                                <div style={{ color: '#0f172a', fontWeight: 600 }}>{i.name}</div>
-                                {i.description && (
-                                  <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>
-                                    {i.description}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="col-nowrap">
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                  <span className="badge badge-blue">{i.category || i.categoryName || 'General'}</span>
-                                  {i.subcategoryName && (
-                                    <span style={{ fontSize: '0.72rem', color: '#475569' }}>↳ {i.subcategoryName}</span>
+                            <React.Fragment key={i.id}>
+                              <tr style={{ opacity: i.active === false ? 0.75 : 1 }}>
+                                <td className="col-product-name col-sticky-name" style={{ fontWeight: 600 }}>
+                                  <div style={{ color: '#0f172a', fontWeight: 600 }}>{i.name}</div>
+                                  {i.description && (
+                                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '1px' }}>
+                                      {i.description}
+                                    </div>
                                   )}
-                                </div>
-                              </td>
-                              <td className="col-nowrap">
-                                <span className={`badge ${i.productType === 'Wholesale' ? 'badge-purple' : 'badge-slate'}`} style={{ fontWeight: 600 }}>
-                                  {i.productType || 'Retail'}
-                                </span>
-                              </td>
-                              <td className="col-nowrap" style={{ fontSize: '0.78rem', color: '#334155' }}>
-                                {(i.material || i.designPattern) ? (
-                                  <span>{[i.material, i.designPattern].filter(Boolean).join(' • ')}</span>
-                                ) : '—'}
-                              </td>
-                              <td className="col-nowrap">
-                                <span className={`badge ${i.currentStockMilli > 0 ? 'badge-emerald' : 'badge-amber'}`}>
-                                  {i.currentStockMilli / 1000} {i.unit || 'pcs'}
-                                </span>
-                              </td>
-                              <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 500 }}>{i.sku || '—'}</td>
-                              {can(user?.role as any, 'purchases') && (
-                                <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 600 }}>{i.costMinor ? formatRupees(i.costMinor) : '—'}</td>
-                              )}
-                              <td className="mono col-nowrap" style={{ fontWeight: 700, color: isSuperAdminUser ? '#49364A' : '#6d4aff' }}>
-                                {i.offerPercentage && i.offerPercentage > 0 ? (
-                                  <div>
-                                    <div style={{ color: '#059669', fontWeight: 800 }}>
-                                      {formatRupees(Math.round(i.priceMinor * (1 - i.offerPercentage / 100)))}
-                                    </div>
-                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8', textDecoration: 'line-through' }}>
-                                      {formatRupees(i.priceMinor)}
-                                    </div>
+                                </td>
+                                <td className="col-nowrap">
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    <span className="badge badge-blue">{i.category || i.categoryName || 'General'}</span>
+                                    {i.subcategoryName && (
+                                      <span style={{ fontSize: '0.72rem', color: '#475569' }}>↳ {i.subcategoryName}</span>
+                                    )}
                                   </div>
-                                ) : (
-                                  formatRupees(i.priceMinor)
-                                )}
-                              </td>
-                              <td className="mono col-nowrap" style={{ fontWeight: 600, color: '#334155' }}>
-                                {i.size ? (
-                                  <span className="badge badge-slate" style={{ fontWeight: 700 }}>
-                                    {i.size}
+                                </td>
+                                <td className="col-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleProductExpand(i.id)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      padding: '0.2rem 0.55rem',
+                                      borderRadius: '12px',
+                                      border: '1px solid #c7d2fe',
+                                      background: expandedProductIds.has(i.id) ? '#4338ca' : '#eef2ff',
+                                      color: expandedProductIds.has(i.id) ? '#ffffff' : '#4338ca',
+                                      fontSize: '0.74rem',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease',
+                                    }}
+                                    title="Click to view all variant sizes and colours"
+                                  >
+                                    <span> {(i.variants && i.variants.length > 0 ? i.variants.length : (i.variantsCount || 1))} Variant{((i.variants && i.variants.length > 0 ? i.variants.length : (i.variantsCount || 1)) !== 1) ? 's' : ''}</span>
+                                    <span style={{ fontSize: '0.65rem' }}>{expandedProductIds.has(i.id) ? '▲' : '▼'}</span>
+                                  </button>
+                                </td>
+                                <td className="col-nowrap">
+                                  <span className={`badge ${((i.totalStockMilli ?? i.currentStockMilli) || 0) > 0 ? 'badge-emerald' : 'badge-amber'}`}>
+                                    {((i.totalStockMilli ?? i.currentStockMilli) || 0) / 1000} {i.unit || 'pcs'}
                                   </span>
-                                ) : '—'}
-                              </td>
-                              <td className="mono col-nowrap" style={{ fontWeight: 600 }}>
-                                {i.offerPercentage && i.offerPercentage > 0 ? (
-                                  <span className="badge badge-emerald" style={{ fontWeight: 700 }}>
-                                    {i.offerPercentage}% Off
-                                  </span>
-                                ) : (
-                                  <span style={{ color: '#94a3b8' }}>0%</span>
+                                </td>
+                                <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 500 }}>{i.sku || '—'}</td>
+                                {can(user?.role as any, 'purchases') && (
+                                  <td className="mono col-nowrap" style={{ color: '#334155', fontWeight: 600 }}>{i.costMinor ? formatRupees(i.costMinor) : '—'}</td>
                                 )}
-                              </td>
-                              <td className="mono col-nowrap" style={{ fontSize: '0.78rem', color: '#475569' }}>
-                                {i.purchaseDate ? new Date(i.purchaseDate).toLocaleDateString('en-IN') : '—'}
-                              </td>
-                              <td className="col-nowrap">
-                                {i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? (
-                                  <span className="badge badge-emerald" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Active</span>
-                                ) : (
-                                  <span className="badge badge-amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Inactive</span>
-                                )}
-                              </td>
-                              <td className="col-nowrap" style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0.4rem 0.5rem' }}>
-                                {i.barcode && i.barcode.trim() ? (
-                                  <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-                                    <div
-                                      className="barcode-svg-preview"
+                                <td className="mono col-nowrap" style={{ fontWeight: 700, color: isSuperAdminUser ? '#49364A' : '#6d4aff' }}>
+                                  {i.offerPercentage && i.offerPercentage > 0 ? (
+                                    <div>
+                                      <div style={{ color: '#059669', fontWeight: 800 }}>
+                                        {formatRupees(Math.round(i.priceMinor * (1 - i.offerPercentage / 100)))}
+                                      </div>
+                                      <div style={{ fontSize: '0.7rem', color: '#94a3b8', textDecoration: 'line-through' }}>
+                                        {formatRupees(i.priceMinor)}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    formatRupees(i.priceMinor)
+                                  )}
+                                </td>
+                                <td className="mono col-nowrap" style={{ fontWeight: 600 }}>
+                                  {i.offerPercentage && i.offerPercentage > 0 ? (
+                                    <span className="badge badge-emerald" style={{ fontWeight: 700 }}>
+                                      {i.offerPercentage}% Off
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: '#94a3b8' }}>0%</span>
+                                  )}
+                                </td>
+                                <td className="mono col-nowrap" style={{ fontSize: '0.78rem', color: '#475569' }}>
+                                  {i.purchaseDate ? new Date(i.purchaseDate).toLocaleDateString('en-IN') : '—'}
+                                </td>
+                                <td className="col-nowrap">
+                                  {i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? (
+                                    <span className="badge badge-emerald" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Active</span>
+                                  ) : (
+                                    <span className="badge badge-amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>Inactive</span>
+                                  )}
+                                </td>
+                                <td className="col-nowrap col-sticky-actions" style={{ verticalAlign: 'middle' }}>
+                                  <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
+                                    <button
+                                      className="btn btn-secondary"
                                       style={{
+                                        padding: '0.25rem 0.55rem',
+                                        fontSize: '0.75rem',
                                         display: 'inline-flex',
-                                        justifyContent: 'center',
                                         alignItems: 'center',
-                                        background: '#ffffff',
-                                        padding: '2px 4px',
-                                        borderRadius: '3px',
-                                        border: '1px solid #e2e8f0',
-                                        maxWidth: '140px',
-                                        overflow: 'hidden',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.15s ease',
+                                        gap: '0.35rem',
+                                        fontWeight: 600,
                                       }}
-                                      title="Click to scan or change manufacturer barcode"
-                                      onClick={() => {
-                                        setScanMfrInitialItemId(i.id);
-                                        setShowScanMfrModal(true);
+                                      onClick={() => openEditItemModal(i)}
+                                      title="Edit product"
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M12 20h9" />
+                                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                      </svg>
+                                      <span>Edit</span>
+                                    </button>
+                                    <button
+                                      className="btn btn-secondary"
+                                      style={{
+                                        padding: '0.25rem 0.55rem',
+                                        fontSize: '0.75rem',
+                                        color: '#2563eb',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.35rem',
+                                        fontWeight: 600,
                                       }}
-                                      dangerouslySetInnerHTML={{ __html: renderBarcodeSvg(i.barcode) }}
+                                      onClick={() => setActiveTab('inventory')}
+                                      title="Open Inventory Hub"
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                                        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                                        <line x1="12" y1="22.08" x2="12" y2="12" />
+                                      </svg>
+                                      <span>Stock</span>
+                                    </button>
+                                    <ToggleSwitch
+                                      id={`toggle-item-active-${i.id}`}
+                                      checked={i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0)}
+                                      onChange={() => handleToggleItemActive(i)}
+                                      disabled={!can(user?.role as any, 'items.write') || togglingItemId === i.id || (i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0 && i.active === false)}
+                                      loading={togglingItemId === i.id}
+                                      title={
+                                        !can(user?.role as any, 'items.write')
+                                          ? "You don't have permission to change product status"
+                                          : (i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0)
+                                            ? 'Out of stock (Inactive) · Restock to activate'
+                                            : i.active !== false
+                                              ? 'Active · click to deactivate'
+                                              : 'Inactive · click to activate'
+                                      }
+                                      ariaLabel={i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? 'Active' : 'Inactive'}
                                     />
                                     <button
-                                      type="button"
+                                      className="btn btn-secondary btn-icon-delete"
                                       style={{
-                                        border: 'none',
-                                        background: 'transparent',
-                                        color: '#0d9488',
-                                        fontSize: '0.68rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        padding: '1px 4px',
-                                        borderRadius: '3px',
+                                        padding: '0.25rem 0.45rem',
+                                        fontSize: '0.75rem',
+                                        color: '#dc2626',
+                                        borderColor: '#fecaca',
                                         display: 'inline-flex',
                                         alignItems: 'center',
-                                        gap: '0.25rem',
+                                        justifyContent: 'center',
                                       }}
                                       onClick={() => {
-                                        setScanMfrInitialItemId(i.id);
-                                        setShowScanMfrModal(true);
+                                        setDeletingItem(i);
+                                        setDeleteError(null);
                                       }}
-                                      title="Scan new packaging barcode"
+                                      title="Delete product"
+                                      aria-label="Delete product"
                                     >
-                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                                        <circle cx="12" cy="13" r="4" />
+                                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M3 6h18" />
+                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                        <line x1="10" y1="11" x2="10" y2="17" />
+                                        <line x1="14" y1="11" x2="14" y2="17" />
                                       </svg>
-                                      <span>Scan Mfr</span>
                                     </button>
                                   </div>
-                                ) : (
-                                  <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-                                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                                      No barcode
-                                    </span>
-                                    <div style={{ display: 'inline-flex', gap: '0.3rem', alignItems: 'center' }}>
-                                      <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{
-                                          padding: '0.2rem 0.45rem',
-                                          fontSize: '0.7rem',
-                                          color: '#4f46e5',
-                                          fontWeight: 600,
-                                          borderRadius: '4px',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '0.25rem',
-                                        }}
-                                        onClick={async () => {
-                                          const code = '20' + Date.now().toString().slice(-10);
-                                          let sum = 0;
-                                          for (let k = 0; k < 12; k++) sum += parseInt(code[k], 10) * (k % 2 === 0 ? 1 : 3);
-                                          const fullBc = code + ((10 - (sum % 10)) % 10);
-                                          try {
-                                            await api(`/api/items/${i.id}`, { method: 'PATCH', body: JSON.stringify({ barcode: fullBc }) });
-                                            showToast(`Generated barcode for ${i.name} & saved to DB!`);
-                                            loadItems();
-                                          } catch (err: any) {
-                                            showToast(err.message || 'Failed to generate barcode');
-                                          }
-                                        }}
-                                        title="Generate and save an internal retail barcode to database"
-                                      >
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                          <line x1="12" y1="5" x2="12" y2="19" />
-                                          <line x1="5" y1="12" x2="19" y2="12" />
-                                        </svg>
-                                        <span>Generate</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{
-                                          padding: '0.2rem 0.45rem',
-                                          fontSize: '0.7rem',
-                                          color: '#0d9488',
-                                          fontWeight: 600,
-                                          borderRadius: '4px',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '0.25rem',
-                                        }}
-                                        onClick={() => {
-                                          setScanMfrInitialItemId(i.id);
-                                          setShowScanMfrModal(true);
-                                        }}
-                                        title="Scan manufacturer packaging barcode"
-                                      >
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                                          <circle cx="12" cy="13" r="4" />
-                                        </svg>
-                                        <span>Scan</span>
-                                      </button>
+                                </td>
+                              </tr>
+                              {expandedProductIds.has(i.id) && (
+                                <tr key={`variants-subtable-${i.id}`} style={{ background: '#f8fafc' }}>
+                                  <td colSpan={can(user?.role as any, 'purchases') ? 11 : 10} style={{ padding: '0.65rem 1rem 0.85rem 2.2rem' }}>
+                                    <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '0.75rem', boxShadow: '0 2px 4px rgba(0,0,0,0.04)' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.4rem' }}>
+                                        <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                          <span> Variants Matrix for &ldquo;{i.name}&rdquo;</span>
+                                          <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#64748b' }}>({(i.variants || []).length || 1} Variants)</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#475569' }}>
+                                          Total Stock: <strong>{((i.totalStockMilli ?? i.currentStockMilli) || 0) / 1000} {i.unit || 'pcs'}</strong>
+                                        </div>
+                                      </div>
+                                      <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
+                                          <thead>
+                                            <tr style={{ background: '#f1f5f9', color: '#475569', textAlign: 'left', borderBottom: '1px solid #cbd5e1' }}>
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>Size</th>
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>SKU</th>
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>Barcode</th>
+                                              {can(user?.role as any, 'purchases') && <th style={{ padding: '0.35rem 0.55rem' }}>Cost Price</th>}
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>Selling Price</th>
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>MRP</th>
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>Stock</th>
+                                              <th style={{ padding: '0.35rem 0.55rem' }}>Status</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {(i.variants && i.variants.length > 0 ? i.variants : [{
+                                              id: i.id,
+                                              size: i.size || 'Free Size',
+                                              colour: 'No Colour',
+                                              sku: i.sku || '—',
+                                              barcode: i.barcode || '—',
+                                              costMinor: i.costMinor,
+                                              priceMinor: i.priceMinor,
+                                              mrpMinor: i.mrpMinor,
+                                              stockMilli: i.currentStockMilli,
+                                              active: i.active !== false
+                                            }]).map((v: any, vIdx: number) => (
+                                              <tr key={v.id || vIdx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '0.35rem 0.55rem', fontWeight: 600 }}>
+                                                  <span className="badge badge-slate" style={{ fontSize: '0.72rem' }}>{v.size || 'Free Size'}</span>
+                                                </td>
+                                                <td style={{ padding: '0.35rem 0.55rem', fontFamily: 'monospace', color: '#475569' }}>{v.sku || '—'}</td>
+                                                <td style={{ padding: '0.35rem 0.55rem', fontFamily: 'monospace', color: '#475569' }}>{v.barcode || '—'}</td>
+                                                {can(user?.role as any, 'purchases') && (
+                                                  <td style={{ padding: '0.35rem 0.55rem', fontFamily: 'monospace', fontWeight: 600, color: '#334155' }}>
+                                                    {v.costMinor ? formatRupees(v.costMinor) : '—'}
+                                                  </td>
+                                                )}
+                                                <td style={{ padding: '0.35rem 0.55rem', fontWeight: 700, color: '#4338ca' }}>
+                                                  {formatRupees(v.priceMinor ?? i.priceMinor)}
+                                                </td>
+                                                <td style={{ padding: '0.35rem 0.55rem', color: '#64748b' }}>
+                                                  {v.mrpMinor ? formatRupees(v.mrpMinor) : '—'}
+                                                </td>
+                                                <td style={{ padding: '0.35rem 0.55rem' }}>
+                                                  <span className={`badge ${(v.stockMilli ?? 0) > 0 ? 'badge-emerald' : 'badge-amber'}`}>
+                                                    {(v.stockMilli ?? 0) / 1000} {i.unit || 'pcs'}
+                                                  </span>
+                                                </td>
+                                                <td style={{ padding: '0.35rem 0.55rem' }}>
+                                                  <span className={`badge ${v.active !== false && (v.stockMilli ?? 0) > 0 ? 'badge-emerald' : 'badge-amber'}`}>
+                                                    {v.active !== false && (v.stockMilli ?? 0) > 0 ? 'Active' : 'Inactive'}
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="col-nowrap col-sticky-actions" style={{ verticalAlign: 'middle' }}>
-                                <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
-                                  <button
-                                    className="btn btn-secondary"
-                                    style={{
-                                      padding: '0.25rem 0.55rem',
-                                      fontSize: '0.75rem',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.35rem',
-                                      fontWeight: 600,
-                                    }}
-                                    onClick={() => openEditItemModal(i)}
-                                    title="Edit product"
-                                  >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M12 20h9" />
-                                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                                    </svg>
-                                    <span>Edit</span>
-                                  </button>
-                                  <button
-                                    className="btn btn-secondary"
-                                    style={{
-                                      padding: '0.25rem 0.55rem',
-                                      fontSize: '0.75rem',
-                                      color: '#2563eb',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.35rem',
-                                      fontWeight: 600,
-                                    }}
-                                    onClick={() => setActiveTab('inventory')}
-                                    title="Open Inventory Hub"
-                                  >
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                                      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                                      <line x1="12" y1="22.08" x2="12" y2="12" />
-                                    </svg>
-                                    <span>Stock</span>
-                                  </button>
-                                  <ToggleSwitch
-                                    id={`toggle-item-active-${i.id}`}
-                                    checked={i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0)}
-                                    onChange={() => handleToggleItemActive(i)}
-                                    disabled={!can(user?.role as any, 'items.write') || togglingItemId === i.id || (i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0 && i.active === false)}
-                                    loading={togglingItemId === i.id}
-                                    title={
-                                      !can(user?.role as any, 'items.write')
-                                        ? "You don't have permission to change product status"
-                                        : (i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0)
-                                          ? 'Out of stock (Inactive) · Restock to activate'
-                                          : i.active !== false
-                                            ? 'Active · click to deactivate'
-                                            : 'Inactive · click to activate'
-                                    }
-                                    ariaLabel={i.active !== false && !(i.trackStock !== false && (i.currentStockMilli ?? 0) <= 0) ? 'Active' : 'Inactive'}
-                                  />
-                                  <button
-                                    className="btn btn-secondary btn-icon-delete"
-                                    style={{
-                                      padding: '0.25rem 0.45rem',
-                                      fontSize: '0.75rem',
-                                      color: '#dc2626',
-                                      borderColor: '#fecaca',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                    }}
-                                    onClick={() => {
-                                      setDeletingItem(i);
-                                      setDeleteError(null);
-                                    }}
-                                    title="Delete product"
-                                    aria-label="Delete product"
-                                  >
-                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M3 6h18" />
-                                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                                      <line x1="10" y1="11" x2="10" y2="17" />
-                                      <line x1="14" y1="11" x2="14" y2="17" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           ))}
                           {filteredMasterItems.length === 0 && (
                             <tr>
-                              <td colSpan={can(user?.role as any, 'purchases') ? 14 : 13} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
+                              <td colSpan={can(user?.role as any, 'purchases') ? 15 : 14} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
                                 No products match your search or filter criteria.
                               </td>
                             </tr>
@@ -19637,7 +19769,7 @@ export function App() {
                   {/* 1. Products */}
                   <div className="shortcuts-card-block">
                     <h4 className="shortcuts-group-title">
-                      <span>📦 1. Products (Search & Add)</span>
+                      <span> 1. Products (Search & Add)</span>
                     </h4>
                     <div className="shortcuts-list">
                       <div className="shortcut-row">
@@ -20671,7 +20803,7 @@ export function App() {
                             fontWeight: 600,
                           }}
                         >
-                          <option value="simple">📦 Simple Product (No variants, e.g. Containers, Household items)</option>
+                          <option value="simple"> Simple Product (No variants, e.g. Containers, Household items)</option>
                           <option value="variant">👗 Variant Product (Size × Colour Matrix, e.g. Readymade Dresses, Slippers)</option>
                         </select>
                       </div>
@@ -20755,7 +20887,6 @@ export function App() {
                                 <thead>
                                   <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'left' }}>
                                     <th style={{ padding: '6px 8px' }}>Size</th>
-                                    <th style={{ padding: '6px 8px' }}>Colour</th>
                                     <th style={{ padding: '6px 8px' }}>SKU</th>
                                     <th style={{ padding: '6px 8px' }}>Barcode</th>
                                     <th style={{ padding: '6px 8px' }}>Price ₹</th>
@@ -20775,17 +20906,6 @@ export function App() {
                                             setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, size: val } : item)));
                                           }}
                                           style={{ width: '55px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
-                                        />
-                                      </td>
-                                      <td style={{ padding: '4px 6px' }}>
-                                        <input
-                                          type="text"
-                                          value={v.colour || ''}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            setItemFormVariants((prev) => prev.map((item, i) => (i === vIdx ? { ...item, colour: val } : item)));
-                                          }}
-                                          style={{ width: '65px', padding: '2px 4px', fontSize: '0.75rem', border: '1px solid #cbd5e1', borderRadius: '4px' }}
                                         />
                                       </td>
                                       <td style={{ padding: '4px 6px' }}>
@@ -27589,6 +27709,13 @@ export function App() {
           onClose={() => setShowSizeRatioModal(false)}
           items={items}
           onAddLinesToPurchase={handleAddRatioLinesToPurchase}
+        />
+
+        {/* Temporary Product / Non-Inventory Billing Modal */}
+        <TemporaryProductModal
+          isOpen={showTemporaryProductModal}
+          onClose={() => setShowTemporaryProductModal(false)}
+          onAddProducts={handleAddTemporaryProducts}
         />
       </div>
     </BranchProvider>

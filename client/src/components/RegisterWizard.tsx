@@ -831,7 +831,7 @@ export const RegisterWizard: React.FC<RegisterWizardProps> = ({
                   {/* WHOLESALE */}
                   {selectedType === 'wholesale' && (
                     <div className="dynamic-module-box">
-                      <h4 className="module-title">📦 Wholesale B2B & Credit Ledger</h4>
+                      <h4 className="module-title"> Wholesale B2B & Credit Ledger</h4>
                       <div className="checkbox-option-row">
                         <label className="checkbox-label">
                           <input

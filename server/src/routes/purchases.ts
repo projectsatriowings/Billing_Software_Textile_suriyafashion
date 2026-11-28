@@ -225,183 +225,183 @@ export function registerPurchases(r: Router) {
       const branchId = V.optStr(b.branchId ?? b.branch_id, 'branchId') || scope.branchId;
       if (!branchId) throw bad('Branch is required for purchases', 'BRANCH_REQUIRED');
 
-    // Idempotency check
-    const idempotencyKey = V.optStr(b.idempotencyKey, 'Idempotency key', 100);
-    if (idempotencyKey) {
-      const existing = await ctx.db.one(
-        'SELECT * FROM purchases WHERE tenant_id = ? AND idempotency_key = ? AND status != \'voided\'',
-        [tenantId, idempotencyKey],
-      );
-      if (existing) {
-        const lines = await ctx.db.query(
-          'SELECT * FROM purchase_lines WHERE purchase_id = ? AND tenant_id = ? ORDER BY id ASC',
-          [existing.id, tenantId],
+      // Idempotency check
+      const idempotencyKey = V.optStr(b.idempotencyKey, 'Idempotency key', 100);
+      if (idempotencyKey) {
+        const existing = await ctx.db.one(
+          'SELECT * FROM purchases WHERE tenant_id = ? AND idempotency_key = ? AND status != \'voided\'',
+          [tenantId, idempotencyKey],
         );
-        return { idempotent: true, purchase: formatPurchase(existing, lines) };
+        if (existing) {
+          const lines = await ctx.db.query(
+            'SELECT * FROM purchase_lines WHERE purchase_id = ? AND tenant_id = ? ORDER BY id ASC',
+            [existing.id, tenantId],
+          );
+          return { idempotent: true, purchase: formatPurchase(existing, lines) };
+        }
       }
-    }
 
-    const supplierId = V.optStr(b.supplierId, 'Supplier', 60) || null;
-    const supplierInvoiceNumber = V.str(b.supplierInvoiceNumber || b.billNo || 'DIRECT', 'Supplier Invoice Number', { required: true, min: 1, max: 60 });
-    const supplierInvoiceDate = V.str(b.supplierInvoiceDate || b.bdate || new Date().toISOString().slice(0, 10), 'Supplier Invoice Date', { required: true, min: 10, max: 20 });
-    const purchaseDate = V.optStr(b.purchaseDate || b.bdate, 'Purchase Date', 20) || new Date().toISOString().slice(0, 10);
-    const note = V.optStr(b.note, 'Note', 500);
-    const linesInput = V.arr(b.lines, 'Purchase items', { min: 1 });
-    const paidMinor = V.int(b.paidMinor ?? 0, 'Paid amount (paise)', { min: 0 });
-    const paymentMethod = b.paymentMethod ? V.oneOf(b.paymentMethod, 'Payment method', ['cash', 'upi', 'card', 'bank'] as const) : 'cash';
-    const paymentReference = V.optStr(b.paymentReference || b.reference, 'Payment reference', 100);
+      const supplierId = V.optStr(b.supplierId, 'Supplier', 60) || null;
+      const supplierInvoiceNumber = V.str(b.supplierInvoiceNumber || b.billNo || 'DIRECT', 'Supplier Invoice Number', { required: true, min: 1, max: 60 });
+      const supplierInvoiceDate = V.str(b.supplierInvoiceDate || b.bdate || new Date().toISOString().slice(0, 10), 'Supplier Invoice Date', { required: true, min: 10, max: 20 });
+      const purchaseDate = V.optStr(b.purchaseDate || b.bdate, 'Purchase Date', 20) || new Date().toISOString().slice(0, 10);
+      const note = V.optStr(b.note, 'Note', 500);
+      const linesInput = V.arr(b.lines, 'Purchase items', { min: 1 });
+      const paidMinor = V.int(b.paidMinor ?? 0, 'Paid amount (paise)', { min: 0 });
+      const paymentMethod = b.paymentMethod ? V.oneOf(b.paymentMethod, 'Payment method', ['cash', 'upi', 'card', 'bank'] as const) : 'cash';
+      const paymentReference = V.optStr(b.paymentReference || b.reference, 'Payment reference', 100);
 
-    const otherChargesLabel = V.optStr(b.otherChargesLabel, 'Other charges label', 100);
-    const otherChargesMinor = V.int(b.otherChargesMinor ?? 0, 'Other charges amount', { min: 0 });
-    const otherChargesGstBp = V.int(b.otherChargesGstBp ?? 0, 'Other charges GST rate', { min: 0, max: 10000 });
-    const attachmentName = V.optStr(b.attachmentName, 'Attachment Name', 255);
-    const attachmentData = typeof b.attachmentData === 'string' ? b.attachmentData : null;
+      const otherChargesLabel = V.optStr(b.otherChargesLabel, 'Other charges label', 100);
+      const otherChargesMinor = V.int(b.otherChargesMinor ?? 0, 'Other charges amount', { min: 0 });
+      const otherChargesGstBp = V.int(b.otherChargesGstBp ?? 0, 'Other charges GST rate', { min: 0, max: 10000 });
+      const attachmentName = V.optStr(b.attachmentName, 'Attachment Name', 255);
+      const attachmentData = typeof b.attachmentData === 'string' ? b.attachmentData : null;
 
-    // Date validations
-    const todayStr = new Date().toISOString().slice(0, 10);
-    if (supplierInvoiceDate > todayStr) {
-      throw bad('Supplier invoice date cannot be in the future', 'INVALID_DATE');
-    }
-    if (purchaseDate < supplierInvoiceDate) {
-      throw bad('Purchase date cannot be before the supplier invoice date', 'INVALID_DATE');
-    }
+      // Date validations
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (supplierInvoiceDate > todayStr) {
+        throw bad('Supplier invoice date cannot be in the future', 'INVALID_DATE');
+      }
+      if (purchaseDate < supplierInvoiceDate) {
+        throw bad('Purchase date cannot be before the supplier invoice date', 'INVALID_DATE');
+      }
 
-    // 1. Verify supplier belongs to this business (optional for internal/direct inward)
-    const supplier = supplierId ? await ctx.db.one<{ id: string; name: string; gstin?: string; state_code?: string; stateCode?: string; address?: string }>(
-      'SELECT id, name, gstin, state_code, address FROM parties WHERE id = ? AND tenant_id = ?',
-      [supplierId, tenantId],
-    ) : null;
+      // 1. Verify supplier belongs to this business (optional for internal/direct inward)
+      const supplier = supplierId ? await ctx.db.one<{ id: string; name: string; gstin?: string; state_code?: string; stateCode?: string; address?: string }>(
+        'SELECT id, name, gstin, state_code, address FROM parties WHERE id = ? AND tenant_id = ?',
+        [supplierId, tenantId],
+      ) : null;
 
-    // 2. Duplicate Check: same supplier + same supplier invoice number already recorded (non-voided)
-    if (supplierId) {
-      const duplicate = await ctx.db.one<{ id: string; purchase_number?: string; purchaseNumber?: string; bdate?: string; purchase_date?: string; purchaseDate?: string }>(
-        `SELECT id, purchase_number, bdate, purchase_date
+      // 2. Duplicate Check: same supplier + same supplier invoice number already recorded (non-voided)
+      if (supplierId) {
+        const duplicate = await ctx.db.one<{ id: string; purchase_number?: string; purchaseNumber?: string; bdate?: string; purchase_date?: string; purchaseDate?: string }>(
+          `SELECT id, purchase_number, bdate, purchase_date
          FROM purchases
          WHERE tenant_id = ?
            AND supplier_id = ?
            AND lower(COALESCE(supplier_invoice_number, bill_no, '')) = lower(?)
            AND status != 'voided'`,
-        [tenantId, supplierId, supplierInvoiceNumber],
-      );
-      if (duplicate) {
-        const purNum = duplicate.purchaseNumber ?? duplicate.purchase_number ?? duplicate.id;
-        const purDate = duplicate.purchaseDate ?? duplicate.purchase_date ?? duplicate.bdate ?? '';
-        throw bad(
-          `Invoice ${supplierInvoiceNumber} from this supplier is already recorded as ${purNum} on ${purDate}.`,
-          'DUPLICATE_PURCHASE',
+          [tenantId, supplierId, supplierInvoiceNumber],
         );
-      }
-    }
-
-    // 3. Verify items and lines
-    let totalReceivedUnits = 0;
-    const formattedLines: Array<{
-      itemId: string;
-      variantId?: string | null;
-      name: string;
-      hsn: string | null;
-      unit: string;
-      billedQtyMilli: number;
-      receivedQtyMilli: number;
-      costMinor: number;
-      discountMinor: number;
-      taxRateBp: number;
-      inclusive: boolean;
-      batchNo: string | null;
-      expiry: string | null;
-    }> = [];
-
-    for (let i = 0; i < linesInput.length; i++) {
-      const l = linesInput[i];
-      const itemId = V.str(l.itemId, `Item ${i + 1} product ID`, { required: true });
-      const itemRow = await ctx.db.one<{ id: string; name: string; hsn?: string; unit?: string; track_batch?: boolean; trackBatch?: boolean }>(
-        'SELECT id, name, hsn, unit, track_batch FROM items WHERE id = ? AND tenant_id = ?',
-        [itemId, tenantId],
-      );
-      if (!itemRow) {
-        throw notFound(`Product ID "${itemId}" not found in your business`);
+        if (duplicate) {
+          const purNum = duplicate.purchaseNumber ?? duplicate.purchase_number ?? duplicate.id;
+          const purDate = duplicate.purchaseDate ?? duplicate.purchase_date ?? duplicate.bdate ?? '';
+          throw bad(
+            `Invoice ${supplierInvoiceNumber} from this supplier is already recorded as ${purNum} on ${purDate}.`,
+            'DUPLICATE_PURCHASE',
+          );
+        }
       }
 
-      const billedQtyMilli = V.int(l.billedQtyMilli ?? l.qtyMilli, `Item "${itemRow.name}" billed quantity`, { min: 1, required: true });
-      const receivedQtyMilli = V.int(l.receivedQtyMilli ?? billedQtyMilli, `Item "${itemRow.name}" received quantity`, { min: 0 });
-      totalReceivedUnits += receivedQtyMilli;
+      // 3. Verify items and lines
+      let totalReceivedUnits = 0;
+      const formattedLines: Array<{
+        itemId: string;
+        variantId?: string | null;
+        name: string;
+        hsn: string | null;
+        unit: string;
+        billedQtyMilli: number;
+        receivedQtyMilli: number;
+        costMinor: number;
+        discountMinor: number;
+        taxRateBp: number;
+        inclusive: boolean;
+        batchNo: string | null;
+        expiry: string | null;
+      }> = [];
 
-      const costMinor = V.int(l.costMinor, `Item "${itemRow.name}" purchase rate`, { min: 0, required: true });
-      const discountMinor = V.int(l.discountMinor ?? 0, `Item "${itemRow.name}" discount`, { min: 0 });
-      const taxRateBp = V.int(l.taxRateBp ?? 0, `Item "${itemRow.name}" tax rate`, { min: 0, max: 10000 });
-      const inclusive = V.bool(l.inclusive, false);
-      const batchNo = V.optStr(l.batchNo, 'Batch number', 40);
-      const expiry = V.optStr(l.expiry, 'Expiry date', 20);
+      for (let i = 0; i < linesInput.length; i++) {
+        const l = linesInput[i];
+        const itemId = V.str(l.itemId, `Item ${i + 1} product ID`, { required: true });
+        const itemRow = await ctx.db.one<{ id: string; name: string; hsn?: string; unit?: string; track_batch?: boolean; trackBatch?: boolean }>(
+          'SELECT id, name, hsn, unit, track_batch FROM items WHERE id = ? AND tenant_id = ?',
+          [itemId, tenantId],
+        );
+        if (!itemRow) {
+          throw notFound(`Product ID "${itemId}" not found in your business`);
+        }
 
-      // Batch tracked items validation
-      const isBatchTracked = Boolean(itemRow.trackBatch ?? itemRow.track_batch);
-      if (isBatchTracked && (!batchNo || !expiry)) {
-        throw bad(`Batch and expiry are required for batch-tracked item "${itemRow.name}"`, 'BATCH_REQUIRED');
+        const billedQtyMilli = V.int(l.billedQtyMilli ?? l.qtyMilli, `Item "${itemRow.name}" billed quantity`, { min: 1, required: true });
+        const receivedQtyMilli = V.int(l.receivedQtyMilli ?? billedQtyMilli, `Item "${itemRow.name}" received quantity`, { min: 0 });
+        totalReceivedUnits += receivedQtyMilli;
+
+        const costMinor = V.int(l.costMinor, `Item "${itemRow.name}" purchase rate`, { min: 0, required: true });
+        const discountMinor = V.int(l.discountMinor ?? 0, `Item "${itemRow.name}" discount`, { min: 0 });
+        const taxRateBp = V.int(l.taxRateBp ?? 0, `Item "${itemRow.name}" tax rate`, { min: 0, max: 10000 });
+        const inclusive = V.bool(l.inclusive, false);
+        const batchNo = V.optStr(l.batchNo, 'Batch number', 40);
+        const expiry = V.optStr(l.expiry, 'Expiry date', 20);
+
+        // Batch tracked items validation
+        const isBatchTracked = Boolean(itemRow.trackBatch ?? itemRow.track_batch);
+        if (isBatchTracked && (!batchNo || !expiry)) {
+          throw bad(`Batch and expiry are required for batch-tracked item "${itemRow.name}"`, 'BATCH_REQUIRED');
+        }
+
+        const variantId = V.optStr(l.variantId ?? l.variant_id, 'Variant ID', 60);
+
+        formattedLines.push({
+          itemId,
+          variantId,
+          name: itemRow.name,
+          hsn: itemRow.hsn ?? V.optStr(l.hsn, 'HSN', 20),
+          unit: itemRow.unit ?? 'pcs',
+          billedQtyMilli,
+          receivedQtyMilli,
+          costMinor,
+          discountMinor,
+          taxRateBp,
+          inclusive,
+          batchNo,
+          expiry,
+        });
       }
 
-      const variantId = V.optStr(l.variantId ?? l.variant_id, 'Variant ID', 60);
+      if (totalReceivedUnits === 0 && linesInput.length > 0) {
+        throw bad('Add at least one item with a quantity received above zero', 'ZERO_RECEIVED_QUANTITY');
+      }
 
-      formattedLines.push({
-        itemId,
-        variantId,
-        name: itemRow.name,
-        hsn: itemRow.hsn ?? V.optStr(l.hsn, 'HSN', 20),
-        unit: itemRow.unit ?? 'pcs',
-        billedQtyMilli,
-        receivedQtyMilli,
-        costMinor,
-        discountMinor,
-        taxRateBp,
-        inclusive,
-        batchNo,
-        expiry,
+      // 4. Exact Tax & ITC Calculations using shared purchase engine
+      const shop = await ctx.db.one<{ state_code?: string; stateCode?: string }>('SELECT state_code FROM tenants WHERE id = ?', [tenantId]);
+      const shopState = shop?.stateCode ?? shop?.state_code ?? '33';
+      const supplierState = supplier ? (supplier.stateCode ?? supplier.state_code ?? (supplier.gstin ? supplier.gstin.slice(0, 2) : shopState)) : shopState;
+
+      const calc = calcPurchase({
+        lines: formattedLines,
+        supplierGstin: supplier?.gstin,
+        supplierState,
+        shopState,
+        otherChargesLabel,
+        otherChargesMinor,
+        otherChargesGstBp,
       });
-    }
 
-    if (totalReceivedUnits === 0 && linesInput.length > 0) {
-      throw bad('Add at least one item with a quantity received above zero', 'ZERO_RECEIVED_QUANTITY');
-    }
+      if (paidMinor > calc.totalMinor) {
+        throw bad(`Paid amount cannot exceed the purchase total of ${fmtMoney(calc.totalMinor)}`, 'INVALID_PAID_AMOUNT');
+      }
 
-    // 4. Exact Tax & ITC Calculations using shared purchase engine
-    const shop = await ctx.db.one<{ state_code?: string; stateCode?: string }>('SELECT state_code FROM tenants WHERE id = ?', [tenantId]);
-    const shopState = shop?.stateCode ?? shop?.state_code ?? '33';
-    const supplierState = supplier ? (supplier.stateCode ?? supplier.state_code ?? (supplier.gstin ? supplier.gstin.slice(0, 2) : shopState)) : shopState;
+      const purchaseId = newId('pur');
+      const balanceMinor = Math.max(0, calc.totalMinor - paidMinor);
 
-    const calc = calcPurchase({
-      lines: formattedLines,
-      supplierGstin: supplier?.gstin,
-      supplierState,
-      shopState,
-      otherChargesLabel,
-      otherChargesMinor,
-      otherChargesGstBp,
-    });
+      let savedPurchaseNumber = '';
+      let savedPaymentNumber = '';
 
-    if (paidMinor > calc.totalMinor) {
-      throw bad(`Paid amount cannot exceed the purchase total of ${fmtMoney(calc.totalMinor)}`, 'INVALID_PAID_AMOUNT');
-    }
-
-    const purchaseId = newId('pur');
-    const balanceMinor = Math.max(0, calc.totalMinor - paidMinor);
-
-    let savedPurchaseNumber = '';
-    let savedPaymentNumber = '';
-
-    await ctx.db.tx(async (q) => {
-      // 5. Generate collision-free purchase number from number_series (PUR- prefix)
-      const seriesRow = await q.one<{ assignedNo?: number; assigned_no?: number }>(
-        `INSERT INTO number_series (tenant_id, series, next_no)
+      await ctx.db.tx(async (q) => {
+        // 5. Generate collision-free purchase number from number_series (PUR- prefix)
+        const seriesRow = await q.one<{ assignedNo?: number; assigned_no?: number }>(
+          `INSERT INTO number_series (tenant_id, series, next_no)
          VALUES (?, 'PUR', 2)
          ON CONFLICT (tenant_id, series) DO UPDATE SET next_no = number_series.next_no + 1
          RETURNING (next_no - 1) AS assigned_no`,
-        [tenantId],
-      );
-      const seqNo = Number(seriesRow?.assignedNo ?? seriesRow?.assigned_no ?? 1);
-      savedPurchaseNumber = `PUR-${1000 + seqNo}`;
+          [tenantId],
+        );
+        const seqNo = Number(seriesRow?.assignedNo ?? seriesRow?.assigned_no ?? 1);
+        savedPurchaseNumber = `PUR-${1000 + seqNo}`;
 
-      // Insert purchase master
-      await q.exec(
-        `INSERT INTO purchases (
+        // Insert purchase master
+        await q.exec(
+          `INSERT INTO purchases (
           id, tenant_id, branch_id, supplier_id, purchase_number, bill_no, supplier_invoice_number,
           supplier_invoice_date, purchase_date, bdate, status,
           subtotal_minor, discount_minor, taxable_minor, tax_minor,
@@ -410,189 +410,189 @@ export function registerPurchases(r: Router) {
           round_off_minor, total_minor, paid_minor, balance_minor,
           payment_method, note, attachment_name, attachment_data, created_by, idempotency_key, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())`,
-        [
-          purchaseId,
-          tenantId,
-          branchId,
-          supplierId,
-          savedPurchaseNumber,
-          supplierInvoiceNumber,
-          supplierInvoiceNumber,
-          supplierInvoiceDate,
-          purchaseDate,
-          purchaseDate,
-          calc.subtotalMinor,
-          calc.discountMinor,
-          calc.taxableMinor,
-          calc.taxMinor,
-          calc.cgstMinor,
-          calc.sgstMinor,
-          calc.igstMinor,
-          calc.itcMinor,
-          calc.otherChargesLabel,
-          calc.otherChargesMinor,
-          calc.otherChargesGstMinor,
-          calc.otherChargesGstBp,
-          calc.roundOffMinor,
-          calc.totalMinor,
-          paidMinor,
-          balanceMinor,
-          paidMinor > 0 ? paymentMethod : null,
-          note,
-          attachmentName || null,
-          attachmentData || null,
-          ctx.user!.id,
-          idempotencyKey || null,
-        ],
-      );
+          [
+            purchaseId,
+            tenantId,
+            branchId,
+            supplierId,
+            savedPurchaseNumber,
+            supplierInvoiceNumber,
+            supplierInvoiceNumber,
+            supplierInvoiceDate,
+            purchaseDate,
+            purchaseDate,
+            calc.subtotalMinor,
+            calc.discountMinor,
+            calc.taxableMinor,
+            calc.taxMinor,
+            calc.cgstMinor,
+            calc.sgstMinor,
+            calc.igstMinor,
+            calc.itcMinor,
+            calc.otherChargesLabel,
+            calc.otherChargesMinor,
+            calc.otherChargesGstMinor,
+            calc.otherChargesGstBp,
+            calc.roundOffMinor,
+            calc.totalMinor,
+            paidMinor,
+            balanceMinor,
+            paidMinor > 0 ? paymentMethod : null,
+            note,
+            attachmentName || null,
+            attachmentData || null,
+            ctx.user!.id,
+            idempotencyKey || null,
+          ],
+        );
 
-      // Insert purchase lines & stock inward moves
-      for (let i = 0; i < formattedLines.length; i++) {
-        const item = formattedLines[i];
-        const cl = calc.lines[i];
-        const lineId = newId('prl');
+        // Insert purchase lines & stock inward moves
+        for (let i = 0; i < formattedLines.length; i++) {
+          const item = formattedLines[i];
+          const cl = calc.lines[i];
+          const lineId = newId('prl');
 
-        await q.exec(
-          `INSERT INTO purchase_lines (
+          await q.exec(
+            `INSERT INTO purchase_lines (
             id, tenant_id, branch_id, purchase_id, item_id, name, hsn, unit,
             qty_milli, billed_qty_milli, received_qty_milli,
             cost_minor, discount_minor, tax_rate_bp,
             taxable_minor, tax_minor, cgst_minor, sgst_minor, igst_minor, total_minor,
             batch_no, expiry
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            lineId,
-            tenantId,
-            branchId,
-            purchaseId,
-            item.itemId,
-            item.name,
-            item.hsn,
-            item.unit,
-            item.receivedQtyMilli,
-            item.billedQtyMilli,
-            item.receivedQtyMilli,
-            item.costMinor,
-            item.discountMinor,
-            item.taxRateBp,
-            cl.taxableMinor,
-            cl.taxMinor,
-            cl.cgstMinor,
-            cl.sgstMinor,
-            cl.igstMinor,
-            cl.totalMinor,
-            item.batchNo,
-            item.expiry,
-          ],
-        );
+            [
+              lineId,
+              tenantId,
+              branchId,
+              purchaseId,
+              item.itemId,
+              item.name,
+              item.hsn,
+              item.unit,
+              item.receivedQtyMilli,
+              item.billedQtyMilli,
+              item.receivedQtyMilli,
+              item.costMinor,
+              item.discountMinor,
+              item.taxRateBp,
+              cl.taxableMinor,
+              cl.taxMinor,
+              cl.cgstMinor,
+              cl.sgstMinor,
+              cl.igstMinor,
+              cl.totalMinor,
+              item.batchNo,
+              item.expiry,
+            ],
+          );
 
-        // Stock inward: only for receivedQtyMilli > 0
-        if (item.receivedQtyMilli > 0) {
-          if ((item as any).variantId) {
+          // Stock inward: only for receivedQtyMilli > 0
+          if (item.receivedQtyMilli > 0) {
+            if ((item as any).variantId) {
+              await q.exec(
+                'UPDATE variants SET stock_milli = stock_milli + ?, updated_at = now() WHERE id = ? AND tenant_id = ?',
+                [item.receivedQtyMilli, (item as any).variantId, tenantId],
+              );
+            }
             await q.exec(
-              'UPDATE variants SET stock_milli = stock_milli + ?, updated_at = now() WHERE id = ? AND tenant_id = ?',
-              [item.receivedQtyMilli, (item as any).variantId, tenantId],
-            );
-          }
-          await q.exec(
-            `INSERT INTO stock_moves (
+              `INSERT INTO stock_moves (
               id, tenant_id, branch_id, item_id, location, qty_milli, kind,
               ref_type, ref_id, ref_line_id, batch_no, expiry, unit_cost_minor, user_id
             ) VALUES (?, ?, ?, ?, 'MAIN', ?, 'purchase', 'purchase', ?, ?, ?, ?, ?, ?)`,
+              [
+                newId('sm'),
+                tenantId,
+                branchId,
+                item.itemId,
+                item.receivedQtyMilli,
+                purchaseId,
+                lineId,
+                item.batchNo,
+                item.expiry,
+                item.costMinor,
+                ctx.user!.id,
+              ],
+            );
+
+            // Update Last purchase price on product master (Section 6.5) and update restocked_date
+            await q.exec(
+              'UPDATE items SET cost_minor = ?, restocked_date = now(), updated_at = now() WHERE id = ? AND tenant_id = ?',
+              [item.costMinor, item.itemId, tenantId],
+            );
+          }
+        }
+
+        // Synchronize product active status based on newly received stock (auto-reactivates out-of-stock items)
+        const purchaseItemIds = formattedLines.map((it: any) => it.itemId).filter(Boolean);
+        if (purchaseItemIds.length > 0) {
+          await syncItemStockStatus(q, tenantId, purchaseItemIds, branchId);
+        }
+
+        // 6. Record Payment at purchase time if paidMinor > 0
+        if (paidMinor > 0) {
+          const paySeriesRow = await q.one<{ assignedNo?: number; assigned_no?: number }>(
+            `INSERT INTO number_series (tenant_id, series, next_no)
+           VALUES (?, 'PAY', 2)
+           ON CONFLICT (tenant_id, series) DO UPDATE SET next_no = number_series.next_no + 1
+           RETURNING (next_no - 1) AS assigned_no`,
+            [tenantId],
+          );
+          const paySeqNo = Number(paySeriesRow?.assignedNo ?? paySeriesRow?.assigned_no ?? 1);
+          savedPaymentNumber = `PAY-${1000 + paySeqNo}`;
+
+          const paymentId = newId('pay');
+          await q.exec(
+            `INSERT INTO payments (
+            id, tenant_id, kind, method, amount_minor, purchase_id, party_id,
+            reference, bdate, payment_date, payment_number, status, created_by
+          ) VALUES (?, ?, 'supplier_payment', ?, ?, ?, ?, ?, ?, now(), ?, 'posted', ?)`,
             [
-              newId('sm'),
+              paymentId,
               tenantId,
-              branchId,
-              item.itemId,
-              item.receivedQtyMilli,
+              paymentMethod,
+              paidMinor,
               purchaseId,
-              lineId,
-              item.batchNo,
-              item.expiry,
-              item.costMinor,
+              supplierId,
+              paymentReference || (supplierInvoiceNumber ? `Inv #${supplierInvoiceNumber}` : null),
+              purchaseDate,
+              savedPaymentNumber,
               ctx.user!.id,
             ],
           );
 
-          // Update Last purchase price on product master (Section 6.5) and update restocked_date
           await q.exec(
-            'UPDATE items SET cost_minor = ?, restocked_date = now(), updated_at = now() WHERE id = ? AND tenant_id = ?',
-            [item.costMinor, item.itemId, tenantId],
-          );
-        }
-      }
-
-      // Synchronize product active status based on newly received stock (auto-reactivates out-of-stock items)
-      const purchaseItemIds = formattedLines.map((it: any) => it.itemId).filter(Boolean);
-      if (purchaseItemIds.length > 0) {
-        await syncItemStockStatus(q, tenantId, purchaseItemIds, branchId);
-      }
-
-      // 6. Record Payment at purchase time if paidMinor > 0
-      if (paidMinor > 0) {
-        const paySeriesRow = await q.one<{ assignedNo?: number; assigned_no?: number }>(
-          `INSERT INTO number_series (tenant_id, series, next_no)
-           VALUES (?, 'PAY', 2)
-           ON CONFLICT (tenant_id, series) DO UPDATE SET next_no = number_series.next_no + 1
-           RETURNING (next_no - 1) AS assigned_no`,
-          [tenantId],
-        );
-        const paySeqNo = Number(paySeriesRow?.assignedNo ?? paySeriesRow?.assigned_no ?? 1);
-        savedPaymentNumber = `PAY-${1000 + paySeqNo}`;
-
-        const paymentId = newId('pay');
-        await q.exec(
-          `INSERT INTO payments (
-            id, tenant_id, kind, method, amount_minor, purchase_id, party_id,
-            reference, bdate, payment_date, payment_number, status, created_by
-          ) VALUES (?, ?, 'supplier_payment', ?, ?, ?, ?, ?, ?, now(), ?, 'posted', ?)`,
-          [
-            paymentId,
-            tenantId,
-            paymentMethod,
-            paidMinor,
-            purchaseId,
-            supplierId,
-            paymentReference || (supplierInvoiceNumber ? `Inv #${supplierInvoiceNumber}` : null),
-            purchaseDate,
-            savedPaymentNumber,
-            ctx.user!.id,
-          ],
-        );
-
-        await q.exec(
-          `INSERT INTO supplier_payment_allocations (
+            `INSERT INTO supplier_payment_allocations (
             id, tenant_id, payment_id, purchase_id, supplier_id, amount_minor, status, created_at
           ) VALUES (?, ?, ?, ?, ?, ?, 'posted', now())`,
-          [
-            newId('spa'),
-            tenantId,
-            paymentId,
-            purchaseId,
+            [
+              newId('spa'),
+              tenantId,
+              paymentId,
+              purchaseId,
+              supplierId,
+              paidMinor,
+            ],
+          );
+        }
+
+        await audit(q, ctx, {
+          action: 'purchase.create',
+          entity: 'purchase',
+          entityId: purchaseId,
+          detail: {
+            purchaseNumber: savedPurchaseNumber,
+            supplierInvoiceNumber,
+            totalMinor: calc.totalMinor,
+            itcMinor: calc.itcMinor,
             supplierId,
+            linesCount: formattedLines.length,
             paidMinor,
-          ],
-        );
-      }
-
-      await audit(q, ctx, {
-        action: 'purchase.create',
-        entity: 'purchase',
-        entityId: purchaseId,
-        detail: {
-          purchaseNumber: savedPurchaseNumber,
-          supplierInvoiceNumber,
-          totalMinor: calc.totalMinor,
-          itcMinor: calc.itcMinor,
-          supplierId,
-          linesCount: formattedLines.length,
-          paidMinor,
-        },
+          },
+        });
       });
-    });
 
-    const created = await ctx.db.one(
-      `SELECT p.*,
+      const created = await ctx.db.one(
+        `SELECT p.*,
               part.name AS supplier_name,
               part.phone AS supplier_phone,
               part.gstin AS supplier_gstin,
@@ -600,13 +600,13 @@ export function registerPurchases(r: Router) {
        FROM purchases p
        LEFT JOIN parties part ON p.supplier_id = part.id AND part.tenant_id = p.tenant_id
        WHERE p.id = ? AND p.tenant_id = ?`,
-      [purchaseId, tenantId],
-    );
+        [purchaseId, tenantId],
+      );
 
-    const lines = await ctx.db.query(
-      'SELECT * FROM purchase_lines WHERE purchase_id = ? AND tenant_id = ? ORDER BY id ASC',
-      [purchaseId, tenantId],
-    );
+      const lines = await ctx.db.query(
+        'SELECT * FROM purchase_lines WHERE purchase_id = ? AND tenant_id = ? ORDER BY id ASC',
+        [purchaseId, tenantId],
+      );
 
       return { ok: true, purchase: formatPurchase(created, lines) };
     } catch (err: any) {

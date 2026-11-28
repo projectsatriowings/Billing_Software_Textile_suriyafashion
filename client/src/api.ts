@@ -394,9 +394,13 @@ export interface Item {
   itemType?: 'simple' | 'variant';
   productType?: 'Retail' | 'Wholesale' | string;
   size?: string | null;
+  colour?: string | null;
   material?: string | null;
   designPattern?: string | null;
   description?: string | null;
+  variants?: ProductVariant[];
+  variantsCount?: number;
+  totalStockMilli?: number;
   priceMinor: number;
   mrpMinor?: number | null;
   offerPercentage?: number | null;
@@ -1522,9 +1526,13 @@ export interface BulkImportRow {
   subcategory?: string | null;
   productType?: 'Retail' | 'Wholesale' | string | null;
   size?: string | null;
+  colour?: string | null;
   material?: string | null;
   designPattern?: string | null;
   description?: string | null;
+  variants?: ProductVariant[];
+  variantsCount?: number;
+  totalStockMilli?: number;
   barcodeType?: 'INTERNAL' | 'MANUFACTURER' | null;
   additionalBarcodes?: (string | AdditionalBarcode)[] | null;
   productNature?: 'BRANDED' | 'SHOP_PRODUCT' | null;
@@ -1576,6 +1584,7 @@ export interface BulkImportResult {
   restocked: number;
   skipped: number;
   barcodesSaved: number;
+  reconciledSalesCount?: number;
   results: BulkImportRowResult[];
 }
 
@@ -1584,6 +1593,7 @@ export const bulkImportItems = (
   importBatchId?: string,
   branchId?: string | null,
   supplierId?: string | null,
+  supplierInvoiceNumber?: string | null,
 ) =>
   api<BulkImportResult>('/api/items/bulk-import', {
     method: 'POST',
@@ -1592,8 +1602,46 @@ export const bulkImportItems = (
       importBatchId,
       branchId: branchId || undefined,
       supplierId: supplierId || undefined,
+      supplierInvoiceNumber: supplierInvoiceNumber || undefined,
     }),
   });
+
+export interface TemporaryProductSale {
+  id: string;
+  invoiceId: string;
+  invoiceLineId?: string;
+  invoiceNumber: string;
+  supplierInvoiceNumber: string;
+  productName: string;
+  normalizedName?: string;
+  sellingPriceMinor: number;
+  soldQuantity: number;
+  reconciledQuantity: number;
+  remainingQuantity: number;
+  reconciliationStatus: 'pending' | 'partially_reconciled' | 'reconciled';
+  matchedItemId?: string | null;
+  matchedVariantId?: string | null;
+  reconciledPurchaseId?: string | null;
+  createdAt: string;
+  saleDate?: string;
+  customerName?: string;
+}
+
+export const fetchPendingTemporarySales = (supplierInvoiceNumber?: string) =>
+  api<{ ok: boolean; pendingSales: TemporaryProductSale[]; count: number }>(
+    `/api/temporary-sales/pending${supplierInvoiceNumber ? `?supplierInvoiceNumber=${encodeURIComponent(supplierInvoiceNumber)}` : ''}`
+  );
+
+export const checkTemporarySalesMatch = (supplierInvoiceNumber: string) =>
+  api<{ ok: boolean; supplierInvoiceNumber: string; matches: TemporaryProductSale[]; totalUnreconciledQty: number; hasPendingSales: boolean }>(
+    `/api/temporary-sales/match?supplierInvoiceNumber=${encodeURIComponent(supplierInvoiceNumber)}`
+  );
+
+export const reconcileTemporarySaleManual = (id: string, body: { itemId: string; variantId: string; purchaseId?: string }) =>
+  api<{ ok: boolean; message: string; sale: TemporaryProductSale }>(
+    `/api/temporary-sales/${id}/reconcile-manual`,
+    { method: 'POST', body: JSON.stringify(body) }
+  );
 
 export const generateInternalBarcodeApi = (branchId?: string) =>
   api<{ barcode: string; barcodeType: string; branchId: string | null }>(
@@ -1796,6 +1844,20 @@ export interface TodayDashboardData {
     status: 'out_of_stock' | 'sold_today' | 'below_reorder' | 'not_configured';
     badgeText: string;
     badgeType: 'danger' | 'warning' | 'neutral';
+  }>;
+  temporarySalesPending?: Array<{
+    id: string;
+    invoiceId: string;
+    invoiceNumber: string;
+    productName: string;
+    supplierInvoiceNumber: string;
+    soldQuantity: number;
+    reconciledQuantity: number;
+    remainingQuantity: number;
+    reconciliationStatus: 'pending' | 'partially_reconciled' | 'reconciled';
+    sellingPriceMinor: number;
+    createdAt: string;
+    saleDate?: string;
   }>;
   shiftDrawer: {
     hasOpenShift: boolean;
@@ -3624,6 +3686,8 @@ export interface ProductVariant {
   priceMinor: number;
   mrpMinor?: number | null;
   costMinor: number;
+  offerPercentage?: number | null;
+  purchaseDate?: string | null;
   stockMilli: number;
   reorderLevelMilli?: number;
   active: boolean;

@@ -436,7 +436,9 @@ export function registerInvoices(r: Router) {
       const inclusive = false;
       const itemId = V.optStr(l.itemId, 'Item ID', 50);
       const unit = V.optStr(l.unit, 'Unit', 20);
-      return { name, qtyMilli, priceMinor, discountMinor, taxRateBp, inclusive, itemId, unit, hsn, variantId, lineType, decimalQty };
+      const isTemporary = Boolean(l.isTemporary ?? l.is_temporary ?? (lineType === 'temporary'));
+      const supplierInvoiceNumber = V.optStr(l.supplierInvoiceNumber ?? l.supplier_invoice_number, 'Supplier invoice number', 100);
+      return { name, qtyMilli, priceMinor, discountMinor, taxRateBp, inclusive, itemId, unit, hsn, variantId, lineType, decimalQty, isTemporary, supplierInvoiceNumber };
     });
 
     const calculated = calcBill(
@@ -843,8 +845,8 @@ export function registerInvoices(r: Router) {
             id, tenant_id, branch_id, invoice_id, pos, item_id, name, hsn, unit,
             qty_milli, price_minor, discount_minor, tax_rate_bp, inclusive,
             taxable_minor, cgst_minor, sgst_minor, igst_minor, total_minor,
-            variant_id, line_type, decimal_qty
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            variant_id, line_type, decimal_qty, is_temporary, supplier_invoice_number
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             lineId,
             tenantId,
@@ -868,8 +870,39 @@ export function registerInvoices(r: Router) {
             item.variantId || null,
             item.lineType || 'item',
             item.decimalQty != null ? item.decimalQty : (item.qtyMilli / 1000),
+            Boolean(item.isTemporary),
+            item.supplierInvoiceNumber || null,
           ],
         );
+
+        // Record temporary product sale line for later supplier invoice reconciliation
+        if (item.isTemporary && item.supplierInvoiceNumber) {
+          const tpsId = newId('tps');
+          const soldQty = item.decimalQty != null ? Number(item.decimalQty) : (item.qtyMilli / 1000);
+          const normalizedName = item.name.trim().toLowerCase().replace(/\s+/g, ' ');
+          await q.exec(
+            `INSERT INTO temporary_product_sales (
+              id, tenant_id, branch_id, invoice_id, invoice_line_id,
+              supplier_invoice_number, product_name, normalized_name,
+              selling_price_minor, sold_qty_milli, sold_quantity, reconciled_quantity, remaining_quantity,
+              reconciliation_status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'pending', now(), now())`,
+            [
+              tpsId,
+              tenantId,
+              invoiceBranchId,
+              invoiceId,
+              lineId,
+              String(item.supplierInvoiceNumber).trim().toUpperCase(),
+              item.name.trim(),
+              normalizedName,
+              item.priceMinor,
+              item.qtyMilli,
+              soldQty,
+              soldQty,
+            ],
+          );
+        }
 
         // Deduct variant stock if variantId is set
         if (item.variantId) {
