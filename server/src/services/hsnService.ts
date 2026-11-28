@@ -38,6 +38,54 @@ const CLARIFIED_DESCRIPTIONS: Record<string, string> = {
   '30049099': 'MEDICINES / TABLETS / CAPSULES / SYRUP (GENERAL)',
   '84713010': 'LAPTOP / PERSONAL COMPUTER',
   '85171219': 'SMARTPHONE / CELLULAR MOBILE PHONE',
+
+  // Textiles & Garments
+  '62052000': "MEN'S / BOYS' COTTON SHIRTS (WOVEN)",
+  '620520': "MEN'S / BOYS' COTTON SHIRTS (WOVEN)",
+  '6205': "MEN'S OR BOYS' SHIRTS (WOVEN)",
+  '61051000': "MEN'S / BOYS' COTTON SHIRTS (KNITTED)",
+  '610510': "MEN'S / BOYS' COTTON SHIRTS (KNITTED)",
+  '6105': "MEN'S / BOYS' SHIRTS (KNITTED OR CROCHETED)",
+  '61091000': "T-SHIRTS, POLO SHIRTS & VESTS OF COTTON (KNITTED)",
+  '610910': "T-SHIRTS, SINGLETS & VESTS OF COTTON",
+  '6109': "T-SHIRTS, SINGLETS & VESTS (KNITTED OR CROCHETED)",
+  '62034200': "MEN'S / BOYS' TROUSERS, JEANS & PANTS OF COTTON",
+  '620342': "COTTON PANTS / TROUSERS / JEANS",
+  '6203': "MEN'S OR BOYS' SUITS, TROUSERS, JEANS & JACKETS",
+  '62046200': "WOMEN'S / GIRLS' TROUSERS, JEANS & SALWAR OF COTTON",
+  '620462': "WOMEN'S COTTON TROUSERS, JEANS & SALWAR",
+  '6204': "WOMEN'S SUITS, DRESSES, SKIRTS & TROUSERS",
+  '62063000': "WOMEN'S BLOUSES, SHIRTS, KURTIS & TOPS OF COTTON",
+  '620630': "WOMEN'S COTTON KURTIS, TOPS & BLOUSES",
+  '6206': "WOMEN'S OR GIRLS' BLOUSES, SHIRTS & TOPS",
+  '62082100': "WOMEN'S NIGHTIES, NIGHTDRESSES & PAJAMAS OF COTTON",
+  '620821': "WOMEN'S COTTON NIGHTIES & NIGHTWEAR",
+  '6208': "WOMEN'S NIGHTDRESSES, PAJAMAS & INNERWEAR",
+  '61083100': "WOMEN'S KNITTED NIGHTIES & NIGHT DRESSES",
+  '610831': "WOMEN'S KNITTED NIGHTIES",
+  '62121000': "BRASSIERES / BRA",
+  '6212': "BRASSIERES, GIRDLES & CORSETS",
+  '61071100': "MEN'S UNDERWEAR / BRIEFS / TRUNKS OF COTTON",
+  '6107': "MEN'S UNDERPANTS, BRIEFS & NIGHTWEAR",
+  '61082100': "WOMEN'S PANTIES / BRIEFS OF COTTON",
+  '62081100': "WOMEN'S PETTICOATS / INSKIRTS OF COTTON",
+  '52081110': "DHOTI OF COTTON (UNBLEACHED)",
+  '52082110': "DHOTI OF COTTON (BLEACHED)",
+  '52081120': "SAREE OF COTTON (UNBLEACHED)",
+  '52082120': "SAREE OF COTTON (BLEACHED)",
+  '520852': "COTTON SAREE / PRINTED COTTON FABRIC",
+  '50072010': "SILK SAREE (PURE SILK)",
+  '5007': "WOVEN FABRICS OF SILK / SILK SAREE",
+  '54075200': "POLYESTER / SYNTHETIC SAREE (DYED)",
+  '540752': "SYNTHETIC SAREE / DYED POLYESTER FABRIC",
+  '63026000': "BATH TOWELS & HAND TOWELS (TERRY COTTON)",
+  '6302': "BED LINEN, TABLE LINEN & TOILET/BATH TOWELS",
+  '63041910': "BEDSHEETS & BED COVERS OF COTTON",
+  '63039100': "CURTAINS & DRAPES OF COTTON",
+  '63013000': "BLANKETS & TRAVELLING RUGS",
+  '62149090': "SHAWLS, DUPATTAS, STOLES & SCARVES",
+  '61112000': "BABIES' & KIDS' WEAR OF COTTON (KNITTED)",
+  '62092000': "BABIES' & KIDS' WEAR OF COTTON (WOVEN)",
 };
 
 const COMMON_ALIASES: Record<string, string[]> = {
@@ -174,11 +222,91 @@ const COMMON_ALIASES: Record<string, string[]> = {
   capsule: ['30049099', '3004'],
   ointment: ['30049099', '3004'],
 
-  // Textiles
-  shirt: ['620520', '610510', '6205', '6105'],
-  tshirt: ['610910', '6109'],
-  saree: ['540752', '520852', '5407'],
-  pant: ['620342', '6203'],
+  // Textiles & Garments
+  shirt: ['62052000', '6205', '61051000', '6105'],
+  shirts: ['62052000', '6205', '61051000', '6105'],
+  tshirt: ['61091000', '6109', '61099000'],
+  tshirts: ['61091000', '6109', '61099000'],
+  tee: ['61091000', '6109'],
+  polo: ['61091000', '6105'],
+  saree: ['52081120', '520852', '50072010', '5007', '54075200', '5407'],
+  sarees: ['52081120', '520852', '50072010', '5007', '54075200', '5407'],
+  sari: ['52081120', '520852', '5007', '540752'],
+  saris: ['52081120', '520852', '5007', '540752'],
+  pant: ['62034200', '6203', '62046200', '6204'],
+  pants: ['62034200', '6203', '62046200', '6204'],
+  trouser: ['62034200', '6203', '62046200'],
+  trousers: ['62034200', '6203', '62046200'],
+  jeans: ['62034200', '62046200', '6203'],
+  jean: ['62034200', '62046200', '6203'],
+  denim: ['62034200', '52094200', '6203'],
+  dhoti: ['52081110', '5208', '52091111'],
+  dhotis: ['52081110', '5208'],
+  veshti: ['52081110', '5208'],
+  lungi: ['52085290', '5208'],
+  lungis: ['52085290', '5208'],
+  kurti: ['62063000', '6204', '6206', '6106'],
+  kurtis: ['62063000', '6204', '6206', '6106'],
+  kurta: ['62052000', '6203', '6205'],
+  kurtas: ['62052000', '6203', '6205'],
+  salwar: ['62041200', '6204', '6104'],
+  churidar: ['62041200', '6204', '6104'],
+  chudidhar: ['62041200', '6204'],
+  chudidar: ['62041200', '6204'],
+  legging: ['61046200', '6115', '6104'],
+  leggings: ['61046200', '6115', '6104'],
+  nighty: ['62082100', '6208', '61083100'],
+  nighties: ['62082100', '6208', '61083100'],
+  nightdress: ['62082100', '6208', '61083100'],
+  nightwear: ['62082100', '6208', '6107'],
+  frock: ['62044200', '6204', '61044200'],
+  frocks: ['62044200', '6204'],
+  gown: ['62044200', '6204'],
+  gowns: ['62044200', '6204'],
+  dress: ['62044200', '6204', '6104'],
+  dresses: ['62044200', '6204'],
+  innerwear: ['61071100', '61091000', '61082100', '62121000'],
+  underwear: ['61071100', '61082100', '6107'],
+  brief: ['61071100', '6107'],
+  briefs: ['61071100', '6107'],
+  vest: ['61091000', '6109', '6107'],
+  vests: ['61091000', '6109'],
+  baniyan: ['61091000', '6109'],
+  bra: ['62121000', '6212'],
+  brassiere: ['62121000', '6212'],
+  panty: ['61082100', '6108'],
+  panties: ['61082100', '6108'],
+  inskirt: ['62081100', '6208'],
+  petticoat: ['62081100', '6208'],
+  petticoats: ['62081100', '6208'],
+  towel: ['63026000', '6302', '63029100'],
+  towels: ['63026000', '6302', '63029100'],
+  bedsheet: ['63041910', '6302', '6304'],
+  bedsheets: ['63041910', '6302', '6304'],
+  curtain: ['63039100', '6303'],
+  curtains: ['63039100', '6303'],
+  blanket: ['63013000', '6301'],
+  blankets: ['63013000', '6301'],
+  dupatta: ['62149090', '6214'],
+  dupattas: ['62149090', '6214'],
+  shawl: ['62149090', '6214'],
+  shawls: ['62149090', '6214'],
+  stole: ['62149090', '6214'],
+  stoles: ['62149090', '6214'],
+  blouse: ['62063000', '6206', '6106'],
+  blouses: ['62063000', '6206'],
+  cotton: ['5208', '520852', '5209', '62052000'],
+  silk: ['5007', '50072010', '5002'],
+  linen: ['5309', '53091900'],
+  polyester: ['5407', '5512'],
+  kidswear: ['61112000', '6111', '62092000', '6209'],
+  baby: ['61112000', '6111', '62092000', '6209'],
+  kids: ['61112000', '6111', '62092000', '6209'],
+  uniform: ['6203', '6204'],
+  socks: ['61159500', '6115'],
+  handkerchief: ['62132000', '6213'],
+  fabric: ['5208', '5407', '5515', '5007'],
+  cloth: ['5208', '5407', '5515'],
   shoe: ['640399', '640411', '6403', '6404'],
   chappal: ['640220', '6402'],
 
@@ -233,10 +361,25 @@ function loadHsnData() {
  * "Paracetamol 650mg strip" -> "paracetamol strip"
  */
 function extractSearchKeywords(input: string): string[] {
-  return input
+  const normalized = (input || '')
     .toLowerCase()
     .replace(/[0-9]+(\.[0-9]+)?\s*(kg|g|gm|mg|l|ltr|ml|m|cm|mm|pcs|nos|pack|strip|bottle|box)?/gi, '')
-    .replace(/[^a-z0-9\s]/gi, ' ')
+    .replace(/t[\s-_]?shirt/gi, ' tshirt ')
+    .replace(/bed[\s-_]?sheet/gi, ' bedsheet ')
+    .replace(/night[\s-_]?y/gi, ' nighty ')
+    .replace(/night[\s-_]?wear/gi, ' nighty ')
+    .replace(/night[\s-_]?dress/gi, ' nighty ')
+    .replace(/inner[\s-_]?wear/gi, ' innerwear ')
+    .replace(/under[\s-_]?wear/gi, ' innerwear ')
+    .replace(/salwar[\s-_]?suit/gi, ' salwar ')
+    .replace(/chudi[dt]h?ar/gi, ' churidar ')
+    .replace(/pillow[\s-_]?cover/gi, ' pillowcover ')
+    .replace(/bath[\s-_]?towel/gi, ' towel ')
+    .replace(/kids?[\s-_]?wear/gi, ' kidswear ')
+    .replace(/baby[\s-_]?wear/gi, ' kidswear ')
+    .replace(/[^a-z0-9\s]/gi, ' ');
+
+  return normalized
     .split(/\s+/)
     .map((w) => w.trim())
     .filter((w) => w.length > 1);
