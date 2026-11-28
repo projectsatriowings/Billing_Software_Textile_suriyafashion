@@ -1860,6 +1860,7 @@ export function App() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showCustomerPickerModal, setShowCustomerPickerModal] = useState(false);
   const [redeemPoints, setRedeemPoints] = useState(false);
+  const [customFinalRupees, setCustomFinalRupees] = useState<string>('');
   const [appliedDiscountPercent, setAppliedDiscountPercent] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('pos_draft_discount');
@@ -5271,7 +5272,16 @@ export function App() {
       return acc;
     }, 0);
   }, [normalCartItems]);
-  const discountMinor = cartOfferDiscountMinor + percentDiscountMinor + pointsDiscountMinor + promoDiscountMinor;
+  const preBillDiscountMinor = Math.max(0, cartTotalMinor - cartOfferDiscountMinor - pointsDiscountMinor - promoDiscountMinor);
+  const hasCustomFinal = customFinalRupees.trim() !== '' && !isNaN(parseFloat(customFinalRupees));
+  const customTargetMinor = hasCustomFinal
+    ? Math.min(preBillDiscountMinor, Math.max(0, Math.round(parseFloat(customFinalRupees)) * 100))
+    : 0;
+  const effectiveBillDiscountMinor = hasCustomFinal
+    ? Math.max(0, preBillDiscountMinor - customTargetMinor)
+    : percentDiscountMinor;
+
+  const discountMinor = cartOfferDiscountMinor + effectiveBillDiscountMinor + pointsDiscountMinor + promoDiscountMinor;
 
   // Amount payable on new items after discounts
   const newItemsPayableMinor = Math.max(0, cartTotalMinor - discountMinor);
@@ -6717,7 +6727,7 @@ export function App() {
           counterId: checkoutCounterId || selectedCounterId || undefined,
           branchId: activeBranch?.id || user?.branchId || undefined,
           billDiscountMinor: cartTotalMinor > 0
-            ? Math.round(((percentDiscountMinor + pointsDiscountMinor + (promoEvalResult?.billDiscountMinor || 0)) * cartTaxableMinor) / cartTotalMinor)
+            ? Math.round(((effectiveBillDiscountMinor + pointsDiscountMinor + (promoEvalResult?.billDiscountMinor || 0)) * cartTaxableMinor) / cartTotalMinor)
             : 0,
           appliedPromotions: promoEvalResult?.appliedPromotions || [],
           promotionDiscountMinor: promoDiscountMinor,
@@ -6744,6 +6754,7 @@ export function App() {
       }
       const itemsInBillCount = cart.reduce((acc, c) => acc + c.qty, 0);
       setCart([]);
+      setCustomFinalRupees('');
       setCashReceived('');
       setActiveQrAttempt(null);
       setUpiManualRef('');
@@ -11414,6 +11425,7 @@ export function App() {
                                   setCustomerSearch('');
                                   setQuickCustomerName('');
                                   setAppliedDiscountPercent(0);
+                                  setCustomFinalRupees('');
                                   setCashReceived('');
                                   setActiveQrAttempt(null);
                                   setUpiManualRef('');
@@ -12012,13 +12024,14 @@ export function App() {
                             <span className="summary-label">Bill Discount</span>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                               {[0, 5, 10, 15, 20].map((pct) => {
-                                const isActive = appliedDiscountPercent === pct;
+                                const isActive = !hasCustomFinal && appliedDiscountPercent === pct;
                                 return (
                                   <button
                                     key={pct}
                                     type="button"
                                     disabled={cart.length === 0 && pct > 0}
                                     onClick={() => {
+                                      setCustomFinalRupees('');
                                       const next = isActive && pct > 0 ? 0 : pct;
                                       setAppliedDiscountPercent(next);
                                       showToast(next > 0 ? `${next}% bill discount applied!` : 'Discount cleared');
@@ -12059,13 +12072,72 @@ export function App() {
                               >
                                 More…
                               </button>
+                              {cart.length > 0 && !isExchangeActive && (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', marginLeft: '0.2rem' }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    placeholder="Collect ₹"
+                                    value={customFinalRupees}
+                                    onChange={(e) => {
+                                      setCustomFinalRupees(e.target.value);
+                                    }}
+                                    title="Enter exact rounded final bill amount to collect (e.g. 250 or 240)"
+                                    style={{
+                                      width: '82px',
+                                      padding: '0.2rem 0.45rem',
+                                      borderRadius: '7px',
+                                      border: hasCustomFinal ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                                      background: hasCustomFinal ? '#f0fdf4' : '#ffffff',
+                                      fontSize: '0.76rem',
+                                      fontWeight: 700,
+                                      color: '#0f172a',
+                                      textAlign: 'right',
+                                    }}
+                                  />
+                                  {(() => {
+                                    const curRs = Math.round(finalPayableMinor / 100);
+                                    if (curRs <= 0 || curRs % 10 === 0) return null;
+                                    const down10 = Math.floor(curRs / 10) * 10;
+                                    const up10 = Math.ceil(curRs / 10) * 10;
+                                    const maxRs = Math.floor(preBillDiscountMinor / 100);
+                                    const chips = [down10, up10].filter((v) => v > 0 && v <= maxRs && v !== curRs);
+                                    return chips.map((v) => (
+                                      <button
+                                        key={v}
+                                        type="button"
+                                        onClick={() => {
+                                          setCustomFinalRupees(String(v));
+                                          showToast(`Final bill adjusted to ₹${v}`);
+                                        }}
+                                        style={{
+                                          padding: '0.2rem 0.45rem',
+                                          borderRadius: '7px',
+                                          fontSize: '0.73rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          border: '1px solid #bbf7d0',
+                                          background: '#f0fdf4',
+                                          color: '#166534',
+                                        }}
+                                        title={`Round final bill to ₹${v}`}
+                                      >
+                                        ₹{v}
+                                      </button>
+                                    ));
+                                  })()}
+                                </div>
+                              )}
                             </div>
                           </div>
 
-                          {appliedDiscountPercent > 0 && (
+                          {effectiveBillDiscountMinor > 0 && (
                             <div className="bento-summary-row discount-row">
-                              <span className="summary-label">Bill Discount ({appliedDiscountPercent}%)</span>
-                              <span className="summary-val mono text-success">-{formatRupees(percentDiscountMinor)}</span>
+                              <span className="summary-label">
+                                {hasCustomFinal ? 'Bill Discount (Custom)' : `Bill Discount (${appliedDiscountPercent}%)`}
+                              </span>
+                              <span className="summary-val mono text-success">-{formatRupees(effectiveBillDiscountMinor)}</span>
                             </div>
                           )}
 
