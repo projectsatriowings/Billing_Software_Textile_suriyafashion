@@ -232,7 +232,6 @@ function thermalCopy(bill: PrintableBill, tpl: PrintTemplate, L: Record<string, 
           <td class="col-qty">${qtyStr}</td>
           <td class="col-mrp">${mrpStr}</td>
           <td class="col-store">${storePriceStr}</td>
-          <td class="col-gst">${gstStr}</td>
           <td class="col-total">${totalPriceStr}</td>
         </tr>
       `;
@@ -323,7 +322,6 @@ function thermalCopy(bill: PrintableBill, tpl: PrintTemplate, L: Record<string, 
         <th class="col-qty">QTY</th>
         <th class="col-mrp">MRP</th>
         <th class="col-store">RATE</th>
-        <th class="col-gst">%</th>
         <th class="col-total">AMT</th>
       </tr>
     </thead>
@@ -796,11 +794,10 @@ const CSS = (paper: PrintTemplate['paper']) => {
 /* Product Table: NAME, QTY, MRP, RATE, GST, TOTAL PRICE */
 .th-bill-table{width:100%;border-collapse:collapse;margin:4px 0;table-layout:fixed;font-variant-numeric:tabular-nums}
 .th-bill-table thead th{border-bottom:1px dashed #444;padding:3px 2px;font-size:${fs - 1.8}px;font-weight:800;letter-spacing:0.1px;color:#000;line-height:1.2}
-.th-bill-table thead th.col-name{text-align:left;width:33%}
+.th-bill-table thead th.col-name{text-align:left;width:44%}
 .th-bill-table thead th.col-qty{text-align:center;width:9%}
 .th-bill-table thead th.col-mrp{text-align:left;width:15%}
 .th-bill-table thead th.col-store{text-align:left;width:15%}
-.th-bill-table thead th.col-gst{text-align:right;width:11%;padding-right:3px}
 .th-bill-table thead th.col-total{text-align:right;width:17%}
 
 .th-bill-table tbody td{vertical-align:top;padding:4px 2px;border-bottom:1px dashed #e2e8f0}
