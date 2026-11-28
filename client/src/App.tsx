@@ -12024,11 +12024,6 @@ export function App() {
                             </div>
                           )}
 
-                          <div className="bento-summary-row">
-                            <span className="summary-label">{isExchangeActive ? 'New Items Taxable Subtotal' : 'Total Taxable Value'}</span>
-                            <span className="summary-val mono">{formatRupees(cartTaxableMinor)}</span>
-                          </div>
-
                           {isExchangeActive && totalExchangeCreditMinor > 0 && (
                             <div className="bento-summary-row" style={{ background: '#f0fdf4', padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1px solid #bbf7d0', margin: '3px 0' }}>
                               <span className="summary-label" style={{ color: '#166534', fontWeight: 700 }}>
