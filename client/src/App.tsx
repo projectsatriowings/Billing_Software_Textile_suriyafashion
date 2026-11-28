@@ -11820,7 +11820,7 @@ export function App() {
                                                 Save {formatRupees(lineSavings)}
                                               </span>
                                             )}
-                                            {item.offerPercentage && item.offerPercentage > 0 && (
+                                            {item.offerPercentage != null && item.offerPercentage > 0 && (
                                               <span
                                                 className="bento-cart-savings-tag bento-cart-offer-tag"
                                                 style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', fontWeight: 750 }}
