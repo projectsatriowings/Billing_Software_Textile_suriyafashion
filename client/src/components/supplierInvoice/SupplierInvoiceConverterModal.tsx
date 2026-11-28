@@ -189,12 +189,24 @@ export function SupplierInvoiceConverterModal({
           : 'Preprocessing image, running local OCR & table extraction...'
       );
 
-      const res = await extractInvoiceJob(uploadRes.jobId, {
+      const extractPayload = {
         supplierId: selectedSupplierId || undefined,
         fileData,
         fileName: file.name,
         mimeType,
-      });
+      };
+      let res;
+      try {
+        res = await extractInvoiceJob(uploadRes.jobId, extractPayload);
+      } catch (firstErr: any) {
+        const msg = String(firstErr?.message || '');
+        if (/failed to fetch|networkerror|load failed|network/i.test(msg)) {
+          await new Promise((r) => setTimeout(r, 1200));
+          res = await extractInvoiceJob(uploadRes.jobId, extractPayload);
+        } else {
+          throw firstErr;
+        }
+      }
 
       if (!res.ok) {
         throw new Error('Invoice extraction failed');
@@ -229,17 +241,8 @@ export function SupplierInvoiceConverterModal({
 
       // Automatically open Bulk Product Import (Step 2: Review & Fix) with extracted products
       if (onOpenBulkImport && res.items.length > 0) {
-        const rows: string[][] = [
-          ['Product Name', 'Size', 'Cost', 'Stock'],
-          ...res.items.map((p) => [
-            p.name || '',
-            p.size ?? p.sizeWeightVolume ?? '',
-            p.costPrice || '',
-            p.openingStock || '0',
-          ]),
-        ];
         onClose();
-        onOpenBulkImport(rows);
+        onOpenBulkImport(buildBulkImportRows(res.items));
         return;
       }
 
@@ -429,19 +432,39 @@ export function SupplierInvoiceConverterModal({
     }
   };
 
+  const buildBulkImportRows = (itemsList: IntelligentInvoiceItem[]): string[][] => {
+    const hasHsn = itemsList.some((p) => Boolean((p.hsn || '').trim()));
+    return hasHsn
+      ? [
+          ['Product Name', 'HSN', 'Size', 'Cost', 'Stock'],
+          ...itemsList.map((p) => [
+            p.name || '',
+            (p.hsn || '').trim(),
+            p.size ?? p.sizeWeightVolume ?? '',
+            p.costPrice || '',
+            p.openingStock || '0',
+          ]),
+        ]
+      : [
+          ['Product Name', 'Size', 'Cost', 'Stock'],
+          ...itemsList.map((p) => [
+            p.name || '',
+            p.size ?? p.sizeWeightVolume ?? '',
+            p.costPrice || '',
+            p.openingStock || '0',
+          ]),
+        ];
+  };
+
+  const showHsnColumn = useMemo(
+    () => products.some((p) => Boolean((p.hsn || '').trim())),
+    [products]
+  );
+
   const handleOpenInBulkImport = () => {
     if (!onOpenBulkImport) return;
-    const rows: string[][] = [
-      ['Product Name', 'Size', 'Cost', 'Stock'],
-      ...products.map((p) => [
-        p.name || '',
-        p.size ?? p.sizeWeightVolume ?? '',
-        p.costPrice || '',
-        p.openingStock || '0',
-      ]),
-    ];
     onClose();
-    onOpenBulkImport(rows);
+    onOpenBulkImport(buildBulkImportRows(products));
   };
 
   // Verified items count (matches 4-column format: Product Name, Size, Cost, Stock)
@@ -594,7 +617,7 @@ export function SupplierInvoiceConverterModal({
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#ffffff', letterSpacing: '-0.01em' }}>
-                  Convert Supplier Invoice to Excel
+                  Import from Supplier Invoice
                 </h2>
                 <span style={{ fontSize: '0.68rem', fontWeight: 700, background: 'rgba(255, 255, 255, 0.16)', border: '1px solid rgba(255, 255, 255, 0.25)', color: '#ffffff', padding: '0.15rem 0.5rem', borderRadius: '6px', textTransform: 'uppercase' }}>
                   {capabilities?.aiConfigured ? 'Hybrid AI + OCR' : 'Local OCR + Parser'}
@@ -1258,6 +1281,7 @@ export function SupplierInvoiceConverterModal({
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', textAlign: 'left', position: 'sticky', top: 0, zIndex: 10 }}>
                       <th style={{ padding: '0.65rem 0.75rem', width: '38px', textAlign: 'center' }}>#</th>
                       <th style={{ padding: '0.65rem 0.75rem', minWidth: '240px' }}>Product Name <span style={{ color: '#ef4444' }}>*</span></th>
+                      {showHsnColumn && <th style={{ padding: '0.65rem 0.75rem', width: '105px' }}>HSN</th>}
                       <th style={{ padding: '0.65rem 0.75rem', width: '110px' }}>Size</th>
                       <th style={{ padding: '0.65rem 0.75rem', width: '120px' }}>Cost <span style={{ color: '#ef4444' }}>*</span></th>
                       <th style={{ padding: '0.65rem 0.75rem', width: '110px' }}>Stock <span style={{ color: '#ef4444' }}>*</span></th>
@@ -1268,7 +1292,7 @@ export function SupplierInvoiceConverterModal({
                   <tbody>
                     {products.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
+                        <td colSpan={showHsnColumn ? 8 : 7} style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#64748b' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '52px', height: '52px', borderRadius: '50%', background: '#fef2f2', color: '#ef4444', marginBottom: '0.85rem' }}>
                             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                           </div>
@@ -1336,6 +1360,26 @@ export function SupplierInvoiceConverterModal({
                                 }}
                               />
                             </td>
+
+                            {/* 1b. HSN (shown only when invoice contains HSN codes) */}
+                            {showHsnColumn && (
+                              <td style={{ padding: '0.4rem 0.5rem' }}>
+                                <input
+                                  type="text"
+                                  value={p.hsn || ''}
+                                  onChange={(e) => handleCellChange(idx, 'hsn', e.target.value)}
+                                  placeholder="HSN"
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.35rem 0.45rem',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    fontSize: '0.84rem',
+                                    textAlign: 'center',
+                                  }}
+                                />
+                              </td>
+                            )}
 
                             {/* 2. SIZE */}
                             <td style={{ padding: '0.4rem 0.5rem' }}>

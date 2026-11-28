@@ -749,23 +749,7 @@ export function registerCreditNotes(r: Router) {
         );
       }
 
-      // 12.5 Reverse loyalty points earned on returned products
-      if (partyId) {
-        const shop = await q.one<any>('SELECT * FROM tenants WHERE id = ?', [tenantId]);
-        const isLoyaltyActive = Boolean(shop?.loyaltyEnabled ?? shop?.loyalty_enabled ?? true);
-        const ptsPer100 = Number(shop?.loyaltyPointsPer100 ?? shop?.loyalty_points_per_100 ?? 10);
-        if (isLoyaltyActive && ptsPer100 > 0 && calculated.totalCreditMinor > 0) {
-          const pointsToReverse = Math.floor((calculated.totalCreditMinor * ptsPer100) / 10000);
-          if (pointsToReverse > 0) {
-            await q.exec(
-              `UPDATE parties
-               SET loyalty_points = GREATEST(0, loyalty_points - ?)
-               WHERE id = ? AND tenant_id = ?`,
-              [pointsToReverse, partyId, tenantId]
-            );
-          }
-        }
-      }
+      // 12.5 Loyalty points disabled
 
       // 12. Audit
       await audit(q, ctx, {

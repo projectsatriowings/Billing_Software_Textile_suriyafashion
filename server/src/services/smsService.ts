@@ -821,11 +821,7 @@ export async function sendInvoiceBillSms(
     ? `${params.shopName} (${params.branchName})`
     : params.shopName;
   const amountStr = (params.totalMinor / 100).toFixed(2);
-  const points = Math.max(0, params.earnedLoyaltyPoints || 0);
-
-  // Exact DLT template requirement:
-  // "Thank you, [Customer Name], for shopping at [Shop Name]. Bill No: [Invoice No]. Amount: Rs.[Amount]. Loyalty Points Earned: [Points]. Visit again!"
-  const text = `Thank you, ${custName}, for shopping at ${storeDisplay}. Bill No: ${params.invoiceNumber}. Amount: Rs.${amountStr}. Loyalty Points Earned: ${points}. Visit again!`;
+  const text = `Thank you, ${custName}, for shopping at ${storeDisplay}. Bill No: ${params.invoiceNumber}. Amount: Rs.${amountStr}. Visit again!`;
 
   return sendSms(db, {
     tenantId: params.tenantId,
@@ -840,7 +836,6 @@ export async function sendInvoiceBillSms(
       shop: storeDisplay,
       bill_no: params.invoiceNumber,
       amount: amountStr,
-      points: String(points),
     },
     creditType: 'trial',
   });

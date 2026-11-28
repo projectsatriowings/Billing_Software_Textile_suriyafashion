@@ -985,7 +985,7 @@ export function ScanManufacturerBarcodeModal({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#4f46e5',
+                color: 'var(--primary)',
                 flexShrink: 0,
               }}
             >
@@ -1125,7 +1125,7 @@ export function ScanManufacturerBarcodeModal({
                     transition: 'all 0.15s ease',
                   }}
                   onFocusCapture={(e) => {
-                    e.currentTarget.style.borderColor = '#6366f1';
+                    e.currentTarget.style.borderColor = 'var(--primary)';
                     e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.12)';
                   }}
                   onBlurCapture={(e) => {
@@ -1264,9 +1264,9 @@ export function ScanManufacturerBarcodeModal({
                 style={{
                   padding: '0.35rem 0.75rem',
                   borderRadius: '20px',
-                  border: filterStatus === 'all' ? '1.5px solid #6366f1' : '1px solid #e2e8f0',
-                  background: filterStatus === 'all' ? '#eef2ff' : '#ffffff',
-                  color: filterStatus === 'all' ? '#4f46e5' : '#64748b',
+                  border: filterStatus === 'all' ? '1.5px solid var(--primary)' : '1px solid #e2e8f0',
+                  background: filterStatus === 'all' ? 'var(--primary-light)' : '#ffffff',
+                  color: filterStatus === 'all' ? 'var(--primary)' : '#64748b',
                   fontWeight: 600,
                   fontSize: '0.78rem',
                   cursor: 'pointer',
@@ -1396,7 +1396,7 @@ export function ScanManufacturerBarcodeModal({
                       style={{
                         padding: '0.75rem 0.9rem',
                         borderRadius: '12px',
-                        border: isSelected ? '1.5px solid #6366f1' : '1px solid #e2e8f0',
+                        border: isSelected ? '1.5px solid var(--primary)' : '1px solid #e2e8f0',
                         background: isSelected ? 'linear-gradient(135deg, #ffffff 0%, #f5f3ff 100%)' : '#ffffff',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
@@ -1420,7 +1420,7 @@ export function ScanManufacturerBarcodeModal({
                             top: 0,
                             bottom: 0,
                             width: '4px',
-                            background: '#6366f1',
+                            background: 'var(--primary)',
                             borderRadius: '0 4px 4px 0',
                           }}
                         />
@@ -1430,7 +1430,7 @@ export function ScanManufacturerBarcodeModal({
                         <strong
                           style={{
                             fontSize: '0.88rem',
-                            color: isSelected ? '#1e1b4b' : '#0f172a',
+                            color: isSelected ? 'var(--text-main)' : '#0f172a',
                             fontWeight: 700,
                             lineHeight: 1.3,
                             overflow: 'hidden',
@@ -1696,9 +1696,9 @@ export function ScanManufacturerBarcodeModal({
                                 fontWeight: 700,
                                 padding: '1px 6px',
                                 borderRadius: '6px',
-                                background: '#e0e7ff',
+                                background: 'var(--accent-purple-light)',
                                 color: '#3730a3',
-                                border: '1px solid #c7d2fe',
+                                border: '1px solid var(--border-light)',
                               }}
                             >
                               {detectBarcodeType(selectedTarget.barcode)}
@@ -1922,7 +1922,7 @@ export function ScanManufacturerBarcodeModal({
                   id="scan-active-capture-panel"
                   style={{
                     background: 'linear-gradient(135deg, #f8faff 0%, #f5f3ff 100%)',
-                    border: '1.5px solid #6366f1',
+                    border: '1.5px solid var(--primary)',
                     borderRadius: '16px',
                     padding: '1.1rem 1.25rem',
                     display: 'flex',
@@ -1974,12 +1974,12 @@ export function ScanManufacturerBarcodeModal({
                           width: '8px',
                           height: '8px',
                           borderRadius: '50%',
-                          background: isCameraActive ? '#10b981' : '#6366f1',
-                          boxShadow: isCameraActive ? '0 0 8px #10b981' : '0 0 6px #6366f1',
+                          background: isCameraActive ? '#10b981' : 'var(--primary)',
+                          boxShadow: isCameraActive ? '0 0 8px #10b981' : '0 0 6px var(--primary)',
                           display: 'inline-block',
                         }}
                       />
-                      <strong style={{ fontSize: '0.94rem', color: '#1e1b4b' }}>
+                      <strong style={{ fontSize: '0.94rem', color: 'var(--text-main)' }}>
                         Assign Barcode to &quot;{selectedTarget.name}&quot;
                       </strong>
                     </div>
@@ -1988,7 +1988,7 @@ export function ScanManufacturerBarcodeModal({
                     <div
                       style={{
                         display: 'inline-flex',
-                        background: '#e0e7ff',
+                        background: 'var(--accent-purple-light)',
                         padding: '3px',
                         borderRadius: '10px',
                         gap: '2px',
@@ -2003,7 +2003,7 @@ export function ScanManufacturerBarcodeModal({
                           borderRadius: '8px',
                           border: 'none',
                           background: scanMode === 'camera' ? '#ffffff' : 'transparent',
-                          color: scanMode === 'camera' ? '#4338ca' : '#475569',
+                          color: scanMode === 'camera' ? 'var(--deep-purple)' : '#475569',
                           fontWeight: 700,
                           fontSize: '0.78rem',
                           cursor: 'pointer',
@@ -2041,7 +2041,7 @@ export function ScanManufacturerBarcodeModal({
                           borderRadius: '8px',
                           border: 'none',
                           background: scanMode === 'gun' ? '#ffffff' : 'transparent',
-                          color: scanMode === 'gun' ? '#4338ca' : '#475569',
+                          color: scanMode === 'gun' ? 'var(--deep-purple)' : '#475569',
                           fontWeight: 700,
                           fontSize: '0.78rem',
                           cursor: 'pointer',
@@ -2071,7 +2071,7 @@ export function ScanManufacturerBarcodeModal({
                           borderRadius: '8px',
                           border: 'none',
                           background: scanMode === 'mobile' ? '#ffffff' : 'transparent',
-                          color: scanMode === 'mobile' ? '#4338ca' : '#475569',
+                          color: scanMode === 'mobile' ? 'var(--deep-purple)' : '#475569',
                           fontWeight: 700,
                           fontSize: '0.78rem',
                           cursor: 'pointer',
@@ -2135,7 +2135,7 @@ export function ScanManufacturerBarcodeModal({
                               zIndex: 15,
                             }}
                           >
-                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple)" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
                               <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
                               <path d="M12 2a10 10 0 0 1 10 10" />
                             </svg>
@@ -2149,7 +2149,7 @@ export function ScanManufacturerBarcodeModal({
                             style={{
                               position: 'absolute',
                               inset: 0,
-                              background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)',
+                              background: 'linear-gradient(180deg, #0f172a 0%, var(--text-main) 100%)',
                               display: 'flex',
                               flexDirection: 'column',
                               alignItems: 'center',
@@ -2193,7 +2193,7 @@ export function ScanManufacturerBarcodeModal({
                                 padding: '0.45rem 1.25rem',
                                 borderRadius: '9px',
                                 border: 'none',
-                                background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                                background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%)',
                                 color: '#ffffff',
                                 fontWeight: 700,
                                 fontSize: '0.84rem',
@@ -2242,10 +2242,10 @@ export function ScanManufacturerBarcodeModal({
                               }}
                             >
                               {/* 4 Corner Brackets */}
-                              <div style={{ position: 'absolute', top: -2, left: -2, width: '16px', height: '16px', borderTop: '3px solid #6366f1', borderLeft: '3px solid #6366f1' }} />
-                              <div style={{ position: 'absolute', top: -2, right: -2, width: '16px', height: '16px', borderTop: '3px solid #6366f1', borderRight: '3px solid #6366f1' }} />
-                              <div style={{ position: 'absolute', bottom: -2, left: -2, width: '16px', height: '16px', borderBottom: '3px solid #6366f1', borderLeft: '3px solid #6366f1' }} />
-                              <div style={{ position: 'absolute', bottom: -2, right: -2, width: '16px', height: '16px', borderBottom: '3px solid #6366f1', borderRight: '3px solid #6366f1' }} />
+                              <div style={{ position: 'absolute', top: -2, left: -2, width: '16px', height: '16px', borderTop: '3px solid var(--primary)', borderLeft: '3px solid var(--primary)' }} />
+                              <div style={{ position: 'absolute', top: -2, right: -2, width: '16px', height: '16px', borderTop: '3px solid var(--primary)', borderRight: '3px solid var(--primary)' }} />
+                              <div style={{ position: 'absolute', bottom: -2, left: -2, width: '16px', height: '16px', borderBottom: '3px solid var(--primary)', borderLeft: '3px solid var(--primary)' }} />
+                              <div style={{ position: 'absolute', bottom: -2, right: -2, width: '16px', height: '16px', borderBottom: '3px solid var(--primary)', borderRight: '3px solid var(--primary)' }} />
 
                               {/* Animated Red Laser Scanning Beam */}
                               <div
@@ -2473,7 +2473,7 @@ export function ScanManufacturerBarcodeModal({
                               left: '12px',
                               top: '50%',
                               transform: 'translateY(-50%)',
-                              color: '#6366f1',
+                              color: 'var(--primary)',
                               display: 'flex',
                               alignItems: 'center',
                             }}
@@ -2512,7 +2512,7 @@ export function ScanManufacturerBarcodeModal({
                               width: '100%',
                               padding: '0.7rem 0.85rem 0.7rem 2.5rem',
                               borderRadius: '10px',
-                              border: '2px solid #6366f1',
+                              border: '2px solid var(--primary)',
                               fontSize: '0.98rem',
                               fontFamily: 'monospace',
                               fontWeight: 700,
@@ -2539,7 +2539,7 @@ export function ScanManufacturerBarcodeModal({
                             padding: '0.7rem 1.3rem',
                             borderRadius: '10px',
                             border: 'none',
-                            background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                            background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%)',
                             color: '#ffffff',
                             fontWeight: 700,
                             fontSize: '0.9rem',
@@ -2625,7 +2625,7 @@ export function ScanManufacturerBarcodeModal({
                               borderRadius: '7px',
                               border: 'none',
                               background: mobileConnectionType === 'tunnel' ? '#ffffff' : 'transparent',
-                              color: mobileConnectionType === 'tunnel' ? '#4338ca' : '#64748b',
+                              color: mobileConnectionType === 'tunnel' ? 'var(--deep-purple)' : '#64748b',
                               fontWeight: 800,
                               fontSize: '0.76rem',
                               cursor: 'pointer',
@@ -2648,7 +2648,7 @@ export function ScanManufacturerBarcodeModal({
                               borderRadius: '7px',
                               border: 'none',
                               background: mobileConnectionType === 'wifi' ? '#ffffff' : 'transparent',
-                              color: mobileConnectionType === 'wifi' ? '#4338ca' : '#64748b',
+                              color: mobileConnectionType === 'wifi' ? 'var(--deep-purple)' : '#64748b',
                               fontWeight: 700,
                               fontSize: '0.76rem',
                               cursor: 'pointer',
@@ -2678,8 +2678,8 @@ export function ScanManufacturerBarcodeModal({
                             dangerouslySetInnerHTML={{ __html: qrSvg(activeMobileUrl, { size: 135, margin: 1 }) }}
                           />
                         ) : (
-                          <div style={{ width: '135px', height: '135px', background: '#f8fafc', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', color: '#6366f1', gap: '8px', padding: '10px', textAlign: 'center' }}>
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                          <div style={{ width: '135px', height: '135px', background: '#f8fafc', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: '0.78rem', color: 'var(--primary)', gap: '8px', padding: '10px', textAlign: 'center' }}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
                               <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
                               <path d="M12 2a10 10 0 0 1 10 10" />
                             </svg>
@@ -2825,7 +2825,7 @@ export function ScanManufacturerBarcodeModal({
                                 rel="noreferrer"
                                 style={{
                                   fontSize: '0.76rem',
-                                  color: '#4f46e5',
+                                  color: 'var(--primary)',
                                   fontWeight: 600,
                                   textDecoration: 'underline',
                                 }}
@@ -2861,7 +2861,7 @@ export function ScanManufacturerBarcodeModal({
                     style={{
                       width: '18px',
                       height: '18px',
-                      accentColor: '#6366f1',
+                      accentColor: 'var(--primary)',
                       cursor: 'pointer',
                       borderRadius: '4px',
                     }}
@@ -2912,8 +2912,8 @@ export function ScanManufacturerBarcodeModal({
                 style={{
                   fontSize: '0.74rem',
                   fontWeight: 700,
-                  color: progressPercent === 100 ? '#15803d' : '#4f46e5',
-                  background: progressPercent === 100 ? '#ecfdf5' : '#eef2ff',
+                  color: progressPercent === 100 ? '#15803d' : 'var(--primary)',
+                  background: progressPercent === 100 ? '#ecfdf5' : 'var(--primary-light)',
                   padding: '2px 7px',
                   borderRadius: '10px',
                 }}
@@ -2935,7 +2935,7 @@ export function ScanManufacturerBarcodeModal({
                 style={{
                   width: `${progressPercent}%`,
                   height: '100%',
-                  background: progressPercent === 100 ? '#10b981' : 'linear-gradient(90deg, #6366f1 0%, #10b981 100%)',
+                  background: progressPercent === 100 ? '#10b981' : 'linear-gradient(90deg, var(--primary) 0%, #10b981 100%)',
                   borderRadius: '9999px',
                   transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 }}
@@ -2989,7 +2989,7 @@ export function ScanManufacturerBarcodeModal({
                 padding: '0.6rem 1.8rem',
                 borderRadius: '10px',
                 border: 'none',
-                background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary) 100%)',
                 color: '#ffffff',
                 fontWeight: 700,
                 fontSize: '0.9rem',

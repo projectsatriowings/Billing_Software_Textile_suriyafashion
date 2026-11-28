@@ -78,7 +78,7 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
   // State
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'has_points' | 'zero_points' | 'inactive'>('all');
-  const [sortBy, setSortBy] = useState<'points_desc' | 'points_asc' | 'name_asc'>('points_desc');
+  const [sortBy, setSortBy] = useState<'points_desc' | 'points_asc' | 'name_asc'>('name_asc');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [selectedCustomer, setSelectedCustomer] = useState<Party | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -245,48 +245,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
           <div className="kpi-label">Total Customers</div>
           <div className="kpi-sub">Customers registered with name &amp; phone</div>
         </div>
-
-        {/* Total Active Reward Points */}
-        <div
-          className={`customer-kpi-card amber ${filterMode === 'has_points' ? 'selected' : ''}`}
-          onClick={() => setFilterMode('has_points')}
-          title="Click to filter customers who have points"
-        >
-          <div className="kpi-card-header">
-            <span className="kpi-icon-box amber">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path>
-                <line x1="12" y1="6" x2="12" y2="8"></line>
-                <line x1="12" y1="16" x2="12" y2="18"></line>
-              </svg>
-            </span>
-            <span className="kpi-tag amber">{kpiStats.hasPointsCount} Customers</span>
-          </div>
-          <div className="kpi-val mono text-amber">
-            {kpiStats.totalPoints.toLocaleString()} <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>pts</span>
-          </div>
-          <div className="kpi-label">Active Points Balance</div>
-          <div className="kpi-sub">
-            {activeLoyaltyEnabled ? `Scheme: ${activePointsPer100} pts per ₹100 spent` : 'Loyalty Program Paused'}
-          </div>
-        </div>
-
-        {/* Total Points Redeemable Value (INR) */}
-        <div className="customer-kpi-card emerald">
-          <div className="kpi-card-header">
-            <span className="kpi-icon-box emerald">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="1" x2="12" y2="23"></line>
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-              </svg>
-            </span>
-            <span className="kpi-tag emerald">1 pt = ₹{activePointValRupees.toFixed(2)}</span>
-          </div>
-          <div className="kpi-val mono text-emerald">{formatRupees(Math.round(kpiStats.totalRupeesValue * 100))}</div>
-          <div className="kpi-label">Points Cash Value</div>
-          <div className="kpi-sub">Redeemable counter discount value</div>
-        </div>
       </div>
 
       {/* 2. CONTROLS, SEARCH & FILTER TOOLBAR */}
@@ -302,7 +260,7 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
             </div>
             <div>
               <p className="header-subtitle" style={{ margin: 0 }}>
-                Customer Name, Mobile Number, and Automatically Earned Points from Purchases
+                Customer Name and Mobile Number Directory
               </p>
             </div>
           </div>
@@ -321,31 +279,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
             </button>
 
             <div className="customer-sub-actions-row">
-              {onUpdateLoyaltySettings && (
-                <button
-                  type="button"
-                  className="btn-loyalty-rules"
-                  onClick={() => setIsLoyaltyModalOpen(true)}
-                  title="Configure custom loyalty points rules for your shop"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                  </svg>
-                  <span className="loyalty-rule-text">Loyalty Scheme</span>
-                  <span
-                    className="loyalty-rule-badge"
-                    style={{
-                      background: activeLoyaltyEnabled ? undefined : '#f1f5f9',
-                      color: activeLoyaltyEnabled ? undefined : '#64748b',
-                      borderColor: activeLoyaltyEnabled ? undefined : '#cbd5e1',
-                    }}
-                  >
-                    {activeLoyaltyEnabled ? `₹100 = ${activePointsPer100} pts` : 'Disabled'}
-                  </span>
-                </button>
-              )}
-
               <button
                 type="button"
                 className="btn-export-csv"
@@ -372,21 +305,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
               onClick={() => setFilterMode('all')}
             >
               All Customers <span className="pill-count">{kpiStats.totalCustomers}</span>
-            </button>
-            <button
-              type="button"
-              className={`filter-pill amber ${filterMode === 'has_points' ? 'active' : ''}`}
-              onClick={() => setFilterMode('has_points')}
-            >
-              <span className="pill-dot amber"></span>
-              Has Points <span className="pill-count">{kpiStats.hasPointsCount}</span>
-            </button>
-            <button
-              type="button"
-              className={`filter-pill slate ${filterMode === 'zero_points' ? 'active' : ''}`}
-              onClick={() => setFilterMode('zero_points')}
-            >
-              Zero Points <span className="pill-count">{kpiStats.zeroPointsCount}</span>
             </button>
             {kpiStats.inactiveCount > 0 && (
               <button
@@ -426,8 +344,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                 >
-                  <option value="points_desc">Highest Points</option>
-                  <option value="points_asc">Lowest Points</option>
                   <option value="name_asc">Name (A–Z)</option>
                 </select>
               </div>
@@ -543,25 +459,8 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
                   </div>
                 </div>
 
-                {/* Card Body: Points badge & Spend metrics */}
+                {/* Card Body: Spend metrics */}
                 <div className="customer-m-stats-row">
-                  <div className="customer-m-stat-box points">
-                    <span className="stat-label">Loyalty Points</span>
-                    <div className="stat-value-wrap">
-                      <span className="points-coin-icon">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <path d="M12 6v12M15 9.5a2.5 2.5 0 0 0-5 0c0 4 5 2 5 6a2.5 2.5 0 0 1-5 0"></path>
-                        </svg>
-                      </span>
-                      <span className="stat-val-bold mono">{data.points.toLocaleString()}</span>
-                      <span className="stat-unit">pts</span>
-                    </div>
-                    <div className="customer-m-val-sub">
-                      ✓ Value: {pointsValueStr}
-                    </div>
-                  </div>
-
                   <div className="customer-m-stat-box spend">
                     <span className="stat-label">Total Spend</span>
                     <div className="stat-val-bold mono" style={{ color: '#0f172a' }}>
@@ -635,10 +534,9 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
           <table className="customer-modern-table">
             <thead>
               <tr>
-                <th className="col-sticky-customer" style={{ width: '38%', minWidth: '200px' }}>CUSTOMER NAME</th>
-                <th style={{ width: '28%', minWidth: '170px' }}>MOBILE NUMBER</th>
-                <th style={{ width: '22%', minWidth: '150px' }}>LOYALTY POINTS</th>
-                <th style={{ width: '12%', minWidth: '130px', textAlign: 'right' }}>ACTIONS</th>
+                <th className="col-sticky-customer" style={{ width: '48%', minWidth: '220px' }}>CUSTOMER NAME</th>
+                <th style={{ width: '36%', minWidth: '180px' }}>MOBILE NUMBER</th>
+                <th style={{ width: '16%', minWidth: '130px', textAlign: 'right' }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -696,25 +594,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
                         ) : (
                           <span className="text-muted">No mobile registered</span>
                         )}
-                      </div>
-                    </td>
-
-                    {/* Loyalty Points Balance & Cash Value */}
-                    <td>
-                      <div className="loyalty-points-cell">
-                        <div className="points-badge-row">
-                          <span className="points-coin-icon">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="#f59e0b" stroke="#d97706" strokeWidth="2">
-                              <circle cx="12" cy="12" r="10"></circle>
-                              <path d="M12 6v12M15 9.5a2.5 2.5 0 0 0-5 0c0 4 5 2 5 6a2.5 2.5 0 0 1-5 0"></path>
-                            </svg>
-                          </span>
-                          <span className="points-number mono">{data.points.toLocaleString()}</span>
-                          <span className="points-unit">pts</span>
-                        </div>
-                        <div className="points-value-pill" title={`Store rule: ₹100 spent = ${activePointsPer100} pts | 1 pt = ${formatRupees(activePointValMinor)}`}>
-                          ✓ Value: {pointsValueStr}
-                        </div>
                       </div>
                     </td>
 
@@ -844,16 +723,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
                       </svg>
                     </div>
 
-                    <div className="card-middle-points">
-                      <div className="card-points-label">AVAILABLE LOYALTY POINTS</div>
-                      <div className="card-points-val mono">
-                        {data.points.toLocaleString()} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>POINTS</span>
-                      </div>
-                      <div className="card-cash-equiv">
-                        Redeemable Cash Value: <strong>{formatPointsValue(data.points)}</strong>
-                      </div>
-                    </div>
-
                     <div className="card-bottom-row">
                       <div className="card-holder-info">
                         <span className="c-label">CUSTOMER NAME</span>
@@ -867,19 +736,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
                   </div>
                 );
               })()}
-
-              {/* Automatic Points Rule Callout */}
-              <div className="auto-points-info-card">
-                <span style={{ fontSize: '1.25rem' }}>⚡</span>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.84rem', color: '#0f172a' }}>
-                    Shop Scheme: {activePointsPer100} Points per ₹100 Spent
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
-                    Purchases at checkout automatically earn points. 1 point = ₹{activePointValRupees.toFixed(2)} counter discount.
-                  </div>
-                </div>
-              </div>
 
               {/* Customer Contact */}
               <div className="drawer-section">
@@ -910,11 +766,10 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
 
                 return (
                   <div className="drawer-section">
-                    <h4 className="section-heading">Recent Purchases (Automatic Points)</h4>
+                    <h4 className="section-heading">Recent Purchases</h4>
                     <div className="points-history-list">
                       {data.invoices && data.invoices.length > 0 ? (
                         data.invoices.slice(0, 5).map((inv) => {
-                          const pts = activePointsPer100 > 0 ? Math.floor(((inv.totalMinor || 0) * activePointsPer100) / 10000) : 0;
                           return (
                             <div key={inv.id} className="history-item-row">
                               <div className="history-item-left">
@@ -926,15 +781,12 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
                                   </div>
                                 </div>
                               </div>
-                              <div className="history-points-val mono earned">
-                                +{pts} pts
-                              </div>
                             </div>
                           );
                         })
                       ) : (
                         <div style={{ fontSize: '0.82rem', color: '#94a3b8', fontStyle: 'italic', padding: '0.5rem 0' }}>
-                          No purchases recorded yet. Points will be automatically credited on checkout!
+                          No purchases recorded yet.
                         </div>
                       )}
                     </div>
@@ -963,14 +815,6 @@ export const CustomerDirectory: React.FC<CustomerDirectoryProps> = ({
         </div>
       )}
 
-      {/* 4. CUSTOM LOYALTY PROGRAM RULES CONFIGURATION MODAL */}
-      <LoyaltySchemeModal
-        isOpen={isLoyaltyModalOpen}
-        onClose={() => setIsLoyaltyModalOpen(false)}
-        shop={shop}
-        onSave={onUpdateLoyaltySettings || (async () => {})}
-        onRefresh={onRefresh}
-      />
     </div>
   );
 };

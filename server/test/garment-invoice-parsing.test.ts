@@ -8,6 +8,7 @@ import {
   parseQtyRateAmountRow,
 } from '../src/services/supplierInvoiceParser.ts';
 import { normalizeAiLineItems, resolveDittoMarks } from '../src/modules/invoice-converter/services/ai-extractor.ts';
+import { suggestCategory } from '../../shared/bulkImport.ts';
 
 // OCR text of a handwritten garment invoice (SL | PARTICULARS | HSN / CODE | SIZE | BOX | PCS | RATE | AMOUNT)
 // with a header line OCR could not read and a footnote section after the table.
@@ -97,4 +98,45 @@ test('AI normalizer repairs size-as-quantity and amount ÷ size cost, drops foot
       ['Cotton Shirt', 'M', 150, 20, null],
     ]
   );
+});
+
+test('Local parser: separates HSN from product name for letter, numeric, and Free Size rows', () => {
+  const lines = [
+    'SL PARTICULARS HSN SIZE PCS RATE AMOUNT',
+    "1 Men's Cotton Formal Shirt 6205 M 25 350.00 8750.00",
+    '2 Boys Denim Shorts 6203 30 30 180.00 5400.00',
+    '3 5L Plastic Storage Container 3924 Free Size 20 110.00 2200.00',
+  ];
+  const { headers, columnMap, dataLines } = detectTableColumns(lines);
+  const items = parseLineItems(dataLines, columnMap, headers).filter(isValidProductRow);
+  assert.deepEqual(
+    items.map((p) => [p.name, p.hsn || '', p.size || '', p.costPrice, p.openingStock]),
+    [
+      ["Men's Cotton Formal Shirt", '6205', 'M', '350.00', '25'],
+      ['Boys Denim Shorts', '6203', '30', '180.00', '30'],
+      ['5L Plastic Storage Container', '3924', 'Free Size', '110.00', '20'],
+    ]
+  );
+});
+
+test('suggestCategory matches by first+last word, last word, and first word', () => {
+  const cats = [
+    { id: 'c1', name: "MEN'S WEAR" },
+    { id: 'c2', name: 'SHORTS' },
+    { id: 'c3', name: 'KURTIS' },
+    { id: 'c4', name: 'SHIRTS' },
+    { id: 'c5', name: "MEN'S SLIPPERS" },
+    { id: 'c6', name: 'PLASTIC' },
+  ];
+
+  assert.equal(suggestCategory("Men's Cotton Formal Shirt", cats)?.name, 'SHIRTS');
+  assert.equal(suggestCategory("Men's Rubber Slippers", cats)?.name, "MEN'S SLIPPERS");
+  assert.equal(suggestCategory('Floral Printed Kurti', cats)?.name, 'KURTIS');
+  assert.equal(suggestCategory('Boys Denim Shorts', cats)?.name, 'SHORTS');
+  assert.equal(suggestCategory('5L Plastic Storage Container', cats)?.name, 'PLASTIC');
+  assert.equal(suggestCategory("Men's Formal Blazer", cats)?.name, "MEN'S WEAR");
+
+  // When both "SHIRTS" and "MEN'S SHIRTS" exist, first+last word picks "MEN'S SHIRTS"
+  const withMensShirts = [...cats, { id: 'c7', name: "MEN'S SHIRTS" }];
+  assert.equal(suggestCategory("Men's Cotton Formal Shirt", withMensShirts)?.name, "MEN'S SHIRTS");
 });

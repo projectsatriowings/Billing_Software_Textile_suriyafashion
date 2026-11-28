@@ -231,3 +231,45 @@ test('Product classification: accurately classifies branded products vs shop-sel
   assert.equal(nandini.confidence, 'HIGH');
 });
 
+
+test('Category suggestion: garment store with duplicate subcategory names under different parents', () => {
+  // Mirrors a clothing shop's real layout: "Shirts" / "T-Shirts" exist under both Men's Wear and Boys' Wear
+  const cats = [
+    { id: 'boys', name: "Boys' Wear", parentName: null },
+    { id: 'boys-shirts', name: 'Shirts', parentName: "Boys' Wear" },
+    { id: 'boys-shorts', name: 'Shorts', parentName: "Boys' Wear" },
+    { id: 'boys-tshirts', name: 'T-Shirts', parentName: "Boys' Wear" },
+    { id: 'footwear', name: 'Footwear', parentName: null },
+    { id: 'mens-slippers', name: "Men's Slippers", parentName: 'Footwear' },
+    { id: 'womens-slippers', name: "Women's Slippers", parentName: 'Footwear' },
+    { id: 'mens', name: "Men's Wear", parentName: null },
+    { id: 'jeans', name: 'Jeans', parentName: "Men's Wear" },
+    { id: 'mens-shirts', name: 'Shirts', parentName: "Men's Wear" },
+    { id: 'mens-tshirts', name: 'T-Shirts', parentName: "Men's Wear" },
+    { id: 'womens', name: "Women's Wear", parentName: null },
+    { id: 'kurtis', name: 'Kurtis', parentName: "Women's Wear" },
+  ];
+  assert.equal(suggestCategory("Men's Cotton Formal Shirt", cats)?.id, 'mens-shirts');
+  assert.equal(suggestCategory('Mens Cotton Shirt', cats)?.id, 'mens-shirts');
+  assert.equal(suggestCategory('Boys Cotton Shirt', cats)?.id, 'boys-shirts');
+  assert.equal(suggestCategory("Men's Polo T-Shirt", cats)?.id, 'mens-tshirts');
+  assert.equal(suggestCategory("Men's Rubber Slippers", cats)?.id, 'mens-slippers');
+  assert.equal(suggestCategory('Floral Printed Kurti', cats)?.id, 'kurtis');
+  assert.equal(suggestCategory('Boys Denim Shorts', cats)?.id, 'boys-shorts');
+  // Same-name duplicates with no audience word still get a category (first in store order)
+  assert.equal(suggestCategory('Shirt', cats)?.name, 'Shirts');
+  assert.equal(suggestCategory('Mystery Metallic Fastener Bolt 5mm', cats), null);
+});
+
+test('Category suggestion: "MEN\'S SHIRTS" style categories win over "MEN\'S WEAR"', () => {
+  const cats = [
+    { id: 'mw', name: "MEN'S WEAR" },
+    { id: 'ms', name: "MEN'S SHIRTS" },
+    { id: 'sh', name: 'SHIRTS' },
+    { id: 'msl', name: "MEN'S SLIPPERS" },
+  ];
+  assert.equal(suggestCategory("Men's Cotton Formal Shirt", cats)?.id, 'ms');
+  assert.equal(suggestCategory("Men's Rubber Slippers", cats)?.id, 'msl');
+  assert.equal(suggestCategory("Men's Cotton Formal Shirt", [cats[0], cats[2]])?.id, 'sh');
+  assert.equal(suggestCategory("Men's Cotton Formal Shirt", [cats[0]])?.id, 'mw');
+});

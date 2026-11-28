@@ -1700,7 +1700,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
               <table className={`inventory-data-table ${isOverviewRefreshing ? 'table-refreshing-dim' : 'skeleton-fade-in'}`}>
                 <thead>
                   <tr>
-                    <th style={{ width: '64px', minWidth: '64px', textAlign: 'center' }} className="col-sticky-img">Image</th>
                     <th style={{ minWidth: '170px' }} className="col-sticky-prod">Product & Identifiers</th>
                     <th style={{ minWidth: '130px', textAlign: 'left', whiteSpace: 'nowrap' }}>Branch</th>
                     <th style={{ minWidth: '140px', width: '150px', textAlign: 'left', whiteSpace: 'nowrap' }}>Category</th>
@@ -1721,32 +1720,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
 
                     return (
                       <tr key={item.id} className="item-row">
-                        <td style={{ width: '64px', minWidth: '64px', textAlign: 'center', verticalAlign: 'middle', padding: '0.45rem' }} className="col-sticky-img">
-                          {(() => {
-                            const matchedGlobal = items?.find((it) => it.id === item.id);
-                            const imgUrl = item.imageUrl || (item as any).image || matchedGlobal?.imageUrl || (matchedGlobal as any)?.image;
-                            return (
-                              <div className="product-table-image-cell">
-                                {imgUrl ? (
-                                  <img
-                                    src={imgUrl}
-                                    alt={item.name}
-                                    referrerPolicy="no-referrer"
-                                    className="product-thumb-img"
-                                    onError={(e) => handleProductImageError(e, imgUrl)}
-                                  />
-                                ) : null}
-                                <div
-                                  className="product-thumb-placeholder"
-                                  style={{ display: imgUrl ? 'none' : 'inline-flex' }}
-                                  title="Product Image Placeholder"
-                                >
-                                  <ImageIcon size={18} />
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
                         <td style={{ minWidth: '170px', maxWidth: '240px' }} className="col-sticky-prod">
                           <div className="item-cell-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
                           <div className="item-cell-sub" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -2091,7 +2064,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
               <table className="inventory-data-table replenishment-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '64px', minWidth: '64px', textAlign: 'center' }} className="col-sticky-img">Image</th>
                     <th>Product & Identifiers</th>
                     <th style={{ minWidth: '130px', textAlign: 'left', whiteSpace: 'nowrap' }}>Branch</th>
                     <th style={{ minWidth: '140px', width: '150px', textAlign: 'left', whiteSpace: 'nowrap' }}>Category</th>
@@ -2121,32 +2093,6 @@ export const InventoryDashboard: React.FC<InventoryDashboardProps> = ({
 
                     return (
                       <tr key={r.itemId}>
-                        <td style={{ width: '64px', minWidth: '64px', textAlign: 'center', verticalAlign: 'middle', padding: '0.45rem' }} className="col-sticky-img">
-                          {(() => {
-                            const matchedItem = items.find((it) => it.id === r.itemId);
-                            const imgUrl = matchedItem?.imageUrl || (matchedItem as any)?.image || (r as any).imageUrl || (r as any).image;
-                            return (
-                              <div className="product-table-image-cell">
-                                {imgUrl ? (
-                                  <img
-                                    src={imgUrl}
-                                    alt={r.name}
-                                    referrerPolicy="no-referrer"
-                                    className="product-thumb-img"
-                                    onError={(e) => handleProductImageError(e, imgUrl)}
-                                  />
-                                ) : null}
-                                <div
-                                  className="product-thumb-placeholder"
-                                  style={{ display: imgUrl ? 'none' : 'inline-flex' }}
-                                  title="Product Image Placeholder"
-                                >
-                                  <ImageIcon size={18} />
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
                         <td>
                           <div className="item-cell-title">{r.name}</div>
                           <div className="item-cell-sub">

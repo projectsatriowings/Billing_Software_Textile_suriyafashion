@@ -13796,6 +13796,37 @@ body.theme-super-admin .app-sidebar.icon-only .sidebar-action-row-btn.active:hov
   box-shadow: 0 1px 0 var(--border, #e2e8f0);
 }
 
+/* Product Catalogue: unified X+Y scroll container so both top header and left Product Name column stick cleanly */
+.product-catalog-table-wrapper.table-scroll-x {
+  overflow: auto;
+  max-height: calc(100vh - 260px);
+}
+
+.product-catalog-table-wrapper .table-scroll-y {
+  max-height: none;
+  overflow: visible;
+  width: max-content;
+  min-width: 100%;
+}
+
+.product-catalog-table-wrapper .col-sticky-name {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: #ffffff;
+  box-shadow: 2px 0 6px -2px rgba(15, 23, 42, 0.08);
+}
+
+.product-catalog-table-wrapper thead th.col-sticky-name {
+  z-index: 20;
+  background: #f8fafc;
+  box-shadow: 2px 0 6px -2px rgba(15, 23, 42, 0.08), 0 1px 0 var(--border, #e2e8f0);
+}
+
+.product-catalog-table-wrapper tbody tr:hover td.col-sticky-name {
+  background: #f8fafc;
+}
+
 /* Product Name column: may wrap, min/max width 200–240px */
 .table-scroll-y .col-product-name {
   min-width: 200px;

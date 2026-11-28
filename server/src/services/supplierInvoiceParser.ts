@@ -1432,6 +1432,12 @@ export function parseQtyRateAmountRow(line: string, hints: TableLayoutHints = {}
     head = head.slice(0, -1);
   }
 
+  // If HSN preceded a text/letter size (e.g. "Men's Cotton Formal Shirt 6205 M 25 350 8750"),
+  // the numeric scan stopped at the size token, leaving the 4-8 digit HSN at the end of `head`.
+  if (!hsn && head.length >= 2 && /^\d{4,8}$/.test(head[head.length - 1])) {
+    hsn = head.pop()!;
+  }
+
   let size = textSize;
   let box = '';
   if (preTokens.length >= 2) {

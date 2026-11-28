@@ -6637,24 +6637,11 @@ export function App() {
       setCustomerSearch('');
       setQuickCustomerName('');
       loadInvoices();
-      loadParties(); // Refresh customer loyalty points dynamically from backend
+      loadParties(); // Refresh customer directory from backend
       loadReports();
       loadItems(); // refresh stock
-      const earnedPoints = res.earnedLoyaltyPoints ?? 0;
-      let pointsMsg = '';
-      if (res.partyId || selectedPartyId || checkoutPhone) {
-        if (pointsActuallyRedeemed > 0) {
-          pointsMsg = ` • Redeemed ${pointsActuallyRedeemed} pts (-${formatRupees(pointsDiscountMinor)}) & earned +${earnedPoints} pts!`;
-        } else if (earnedPoints > 0) {
-          if (res.isNewCustomer) {
-            pointsMsg = ` • 🎉 New member enrolled! +${earnedPoints} loyalty points started!`;
-          } else {
-            pointsMsg = ` • +${earnedPoints} loyalty points added!`;
-          }
-        }
-      }
       const smsSuffix = res.sms?.sent ? ' • 📲 SMS Sent!' : '';
-      showToast(isKot ? `KOT & Bill Generated: ${res.number}` : `Invoice ${res.number} generated!${pointsMsg}${smsSuffix}`);
+      showToast(isKot ? `KOT & Bill Generated: ${res.number}` : `Invoice ${res.number} generated!${smsSuffix}`);
       window.dispatchEvent(new CustomEvent('bill_completed', { detail: res }));
 
       // Trigger Checkout Success Modal for final bill (Section 4.1: Restaurant flow triggers after final bill, not KOT)
@@ -10941,7 +10928,7 @@ export function App() {
                     {displayTab === 'items' && 'Product & Stock Catalog'}
                     {displayTab === 'purchases' && 'Purchases & Stock Inward'}
                     {displayTab === 'invoices' && 'Sales Invoices & Bills'}
-                    {displayTab === 'customers' && 'Customer Directory & Loyalty Points'}
+                    {displayTab === 'customers' && 'Customer Directory'}
                     {displayTab === 'suppliers' && 'Supplier Directory'}
                     {displayTab === 'reports' && 'Business Analytics & Reports'}
                     {displayTab === 'settings' && 'Business Configuration & Settings'}
@@ -10962,7 +10949,7 @@ export function App() {
                     {displayTab === 'items' && 'Manage your catalog, stock balances, tax rates, and barcodes'}
                     {displayTab === 'purchases' && 'Record supplier invoices, inward goods stock into ledger, and track purchase GST'}
                     {displayTab === 'invoices' && 'View issued invoices, audit trails, and print thermal receipts'}
-                    {displayTab === 'customers' && 'Manage customer directory, contact numbers, GSTINs, and loyalty points'}
+                    {displayTab === 'customers' && 'Manage customer directory, contact numbers, and GSTINs'}
                     {displayTab === 'suppliers' && 'Manage vendors, purchase distributors, GSTIN verification, and credit limits'}
                     {displayTab === 'reports' && 'Real-time sales revenue, tax breakdown, and top selling items'}
                     {displayTab === 'settings' && 'Store profile, GST settings, and tailored trade packs'}
@@ -11837,98 +11824,6 @@ export function App() {
                             </div>
                           )}
 
-                          {/* LOYALTY POINTS EARNED / ADJUSTED ON BILL */}
-                          {shopLoyaltyActive && cart.length > 0 && (
-                            <div
-                              className="bento-summary-row loyalty-earn-row"
-                              style={{
-                                background: netLoyaltyPointsToEarn >= 0 ? 'linear-gradient(135deg, #faf5ff 0%, #fdf4ff 100%)' : '#fef2f2',
-                                padding: '0.35rem 0.65rem',
-                                borderRadius: '6px',
-                                border: netLoyaltyPointsToEarn >= 0 ? '1px solid #f0abfc' : '1px solid #fecaca',
-                                margin: '3px 0',
-                              }}
-                            >
-
-                              <div className="loyalty-label-row">
-                                <svg
-                                  className="loyalty-gift-icon"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke={netLoyaltyPointsToEarn >= 0 ? '#86198f' : '#b91c1c'}
-                                  strokeWidth="2.2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                >
-                                  <polyline points="20 12 20 22 4 22 4 12" />
-                                  <rect x="2" y="7" width="20" height="5" />
-                                  <line x1="12" y1="22" x2="12" y2="7" />
-                                  <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
-                                  <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
-                                </svg>
-
-                                <div className="loyalty-label-content">
-                                  <span
-                                    className="loyalty-summary-label"
-                                    style={{
-                                      color: netLoyaltyPointsToEarn >= 0 ? '#86198f' : '#b91c1c'
-                                    }}
-                                  >
-                                    {isExchangeActive
-                                      ? (netLoyaltyPointsToEarn >= 0
-                                        ? 'Loyalty Points on Bill (Net)'
-                                        : 'Loyalty Points Adjustment')
-                                      : 'Loyalty Points on Bill'}
-                                  </span>
-
-                                  <span
-                                    className="loyalty-conversion-rate"
-                                    style={{
-                                      color: netLoyaltyPointsToEarn >= 0 ? '#a21caf' : '#991b1b'
-                                    }}
-                                  >
-                                    ({shopPointsPer100} pts/₹100)
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span className="summary-val mono" style={{ color: netLoyaltyPointsToEarn >= 0 ? '#86198f' : '#b91c1c', fontWeight: 800 }}>
-                                  {netLoyaltyPointsToEarn >= 0 ? `+${netLoyaltyPointsToEarn} pts` : `${netLoyaltyPointsToEarn} pts`}
-                                </span>
-                                {netLoyaltyPointsToEarn !== 0 && (
-                                  <span style={{ fontSize: '0.7rem', color: netLoyaltyPointsToEarn > 0 ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
-                                    (≈ {formatRupees(Math.abs(netLoyaltyPointsToEarn) * shopPointValMinor)})
-                                  </span>
-                                )}
-                                {selectedParty && (selectedParty.loyaltyPoints ?? 0) >= shopMinRedeem && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const next = !redeemPoints;
-                                      setRedeemPoints(next);
-                                      showToast(next ? `🪙 Points redeemed (-${formatRupees(potentialDiscountMinor)})!` : 'Points redemption removed');
-                                    }}
-                                    style={{
-                                      marginLeft: '4px',
-                                      padding: '2px 8px',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 800,
-                                      borderRadius: '5px',
-                                      border: redeemPoints ? '1px solid #10b981' : '1px solid #d97706',
-                                      background: redeemPoints ? '#ecfdf5' : '#fef3c7',
-                                      color: redeemPoints ? '#047857' : '#92400e',
-                                      cursor: 'pointer',
-                                    }}
-                                    title={redeemPoints ? 'Cancel redemption' : `Redeem available points for ${formatRupees(potentialDiscountMinor)} discount`}
-                                  >
-                                    {redeemPoints ? '✓ Redeemed' : `Redeem (${selectedParty.loyaltyPoints} pts)`}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
                           {/* Overall Customer Savings Celebration */}
                           {totalMrpSavingsMinor > 0 && (
                             <div className="bento-savings-alert">
@@ -12531,79 +12426,14 @@ export function App() {
                               </div>
                             </div>
 
-                            {/* Recognized Customer Loyalty Details Footer & Redeem Points Option */}
+                            {/* Recognized Customer Details Footer */}
                             {selectedParty ? (
-                              <div style={{ marginTop: '0.45rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem', color: '#15803d', fontWeight: 650 }}>
-                                  <span>Linked Member: <strong>{selectedParty.name}</strong></span>
-                                  <span>Available Points: <strong>{selectedParty.loyaltyPoints ?? 0} pts</strong> ({formatRupees((selectedParty.loyaltyPoints ?? 0) * shopPointValMinor)})</span>
-                                </div>
-
-                                {shopLoyaltyActive && (selectedParty.loyaltyPoints ?? 0) >= shopMinRedeem && (
-                                  <button
-                                    type="button"
-                                    className={`pos-redeem-points-btn ${redeemPoints ? 'redeeming' : ''}`}
-                                    onClick={() => {
-                                      const next = !redeemPoints;
-                                      setRedeemPoints(next);
-                                      if (next) {
-                                        showToast(`🪙 ${pointsActuallyRedeemed || maxRedeemablePoints} points redeemed (-${formatRupees(potentialDiscountMinor)})!`);
-                                      } else {
-                                        showToast('Points redemption removed');
-                                      }
-                                    }}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      padding: '0.42rem 0.65rem',
-                                      borderRadius: '8px',
-                                      border: redeemPoints ? '1.5px solid #10b981' : '1.5px solid #f59e0b',
-                                      background: redeemPoints ? '#ecfdf5' : '#fffbeb',
-                                      color: redeemPoints ? '#065f46' : '#92400e',
-                                      cursor: 'pointer',
-                                      width: '100%',
-                                      boxSizing: 'border-box',
-                                      transition: 'all 0.15s ease',
-                                    }}
-                                  >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <span style={{ fontSize: '0.95rem' }}>{redeemPoints ? '✓' : '🪙'}</span>
-                                      <div style={{ textAlign: 'left' }}>
-                                        <div style={{ fontWeight: 800, fontSize: '0.78rem', lineHeight: 1.2 }}>
-                                          {redeemPoints ? `${pointsActuallyRedeemed || maxRedeemablePoints} Points Redeemed` : 'Redeem Loyalty Points'}
-                                        </div>
-                                        <div style={{ fontSize: '0.68rem', opacity: 0.9, fontWeight: 600 }}>
-                                          {redeemPoints
-                                            ? `Saving ${formatRupees(pointsDiscountMinor || potentialDiscountMinor)} on bill`
-                                            : `Use ${maxRedeemablePoints} pts to save ${formatRupees(potentialDiscountMinor)}`}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <span
-                                      style={{
-                                        fontSize: '0.7rem',
-                                        fontWeight: 800,
-                                        padding: '2px 7px',
-                                        borderRadius: '5px',
-                                        background: redeemPoints ? '#fee2e2' : '#fef3c7',
-                                        color: redeemPoints ? '#dc2626' : '#b45309',
-                                      }}
-                                    >
-                                      {redeemPoints ? 'Cancel ✕' : `Save ${formatRupees(potentialDiscountMinor)}`}
-                                    </span>
-                                  </button>
-                                )}
-
-                                {shopLoyaltyActive && (selectedParty.loyaltyPoints ?? 0) > 0 && (selectedParty.loyaltyPoints ?? 0) < shopMinRedeem && (
-                                  <div style={{ fontSize: '0.7rem', color: '#b45309', background: '#fffbeb', border: '1px solid #fef3c7', padding: '0.25rem 0.5rem', borderRadius: '6px' }}>
-                                    ℹ️ Customer has {selectedParty.loyaltyPoints} pts (min. {shopMinRedeem} pts required to redeem)
-                                  </div>
-                                )}
+                              <div style={{ marginTop: '0.45rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem', color: '#15803d', fontWeight: 650 }}>
+                                <span>Linked Customer: <strong>{selectedParty.name}</strong></span>
+                                {selectedParty.phone && <span className="mono">{selectedParty.phone}</span>}
                               </div>
                             ) : (
                               <div style={{ marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.71rem', color: '#64748b' }}>
-
                               </div>
                             )}
                           </div>
@@ -14589,7 +14419,7 @@ export function App() {
                           id="convert-supplier-invoice-btn"
                           className="btn btn-secondary product-catalog-action-btn convert-invoice-btn"
                           onClick={() => setShowSupplierInvoiceConverter(true)}
-                          title="Convert Supplier Invoice (PDF, JPG, PNG) to Excel import template"
+                          title="Import products directly from a Supplier Invoice (PDF, JPG, PNG)"
                         >
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -14598,7 +14428,7 @@ export function App() {
                             <line x1="8" y1="17" x2="16" y2="17" />
                             <polyline points="10 9 9 9 8 9" />
                           </svg>
-                          <span>Convert Supplier Invoice to Excel</span>
+                          <span>Import from Supplier Invoice</span>
                         </button>
                       </div>
                     </div>
@@ -21951,12 +21781,12 @@ export function App() {
                   <h3 className="card-title" style={{ margin: 0 }}>
                     {editingParty
                       ? `✏️ Edit ${partyModalType === 'supplier' ? 'Supplier' : 'Customer Member'}: ${editingParty.name}`
-                      : `+ Add New ${partyModalType === 'supplier' ? 'Supplier / Vendor' : 'Customer / Loyalty Member'}`}
+                      : `+ Add New ${partyModalType === 'supplier' ? 'Supplier / Vendor' : 'Customer'}`}
                   </h3>
                   <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
                     {partyModalType === 'supplier'
                       ? 'Enter supplier contact, GSTIN, and business address'
-                      : 'Customer name and 10-digit mobile number for loyalty points and digital bills'}
+                      : 'Customer name and 10-digit mobile number for billing and digital receipts'}
                   </div>
                 </div>
                 <button
@@ -22030,27 +21860,6 @@ export function App() {
                         placeholder="e.g. 50000.00"
                       />
                     </div>
-                  </div>
-                )}
-
-                {partyModalType === 'customer' && (
-                  <div className="form-group">
-                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>🪙 Customer Loyalty Points Balance</span>
-                      <span style={{ fontSize: '0.78rem', color: '#b45309', fontWeight: 700 }}>
-                        Worth {formatRupees((Number(partyFormLoyaltyPoints) || 0) * shopPointValMinor)} discount (1 pt = {formatRupees(shopPointValMinor)})
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      className="form-input mono bold"
-                      style={{ color: '#b45309', fontSize: '0.95rem' }}
-                      value={partyFormLoyaltyPoints}
-                      onChange={(e) => setPartyFormLoyaltyPoints(e.target.value)}
-                      placeholder="e.g. 250"
-                    />
                   </div>
                 )}
 
@@ -24330,23 +24139,6 @@ export function App() {
                         {formatRupees(checkoutSuccess.totalMinor)}
                       </span>
                     </div>
-
-                    {/* Loyalty Points Automatically Credited */}
-                    {shopLoyaltyActive && ((checkoutSuccess.earnedLoyaltyPoints ?? 0) > 0 || (checkoutSuccess.customerName && checkoutSuccess.customerName !== 'Walk-in Customer' && Math.floor(((checkoutSuccess.totalMinor || 0) * shopPointsPer100) / 10000) > 0)) && (() => {
-                      const pts = (checkoutSuccess.earnedLoyaltyPoints ?? 0) > 0
-                        ? checkoutSuccess.earnedLoyaltyPoints!
-                        : Math.floor(((checkoutSuccess.totalMinor || 0) * shopPointsPer100) / 10000);
-                      return (
-                        <div style={{ padding: '0.45rem 0.75rem', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.82rem', color: '#92400e' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontWeight: 700 }}>
-                            🪙 Loyalty Points Credited:
-                          </span>
-                          <span className="mono" style={{ fontWeight: 800, fontSize: '0.88rem', color: '#d97706' }}>
-                            +{pts} pts ({formatRupees(pts * shopPointValMinor)})
-                          </span>
-                        </div>
-                      );
-                    })()}
 
                     {/* Multiple / Split Payments Breakdown */}
                     {checkoutSuccess.payments && checkoutSuccess.payments.length > 1 && (
