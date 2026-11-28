@@ -1499,6 +1499,7 @@ export function App() {
     let isMounted = true;
     const checkTopOverdue = async () => {
       try {
+        if (!getToken() || !user) return;
         const branch = selectedBranchScope || 'MAIN';
         const res = await fetchDayClosingCompliance({ branchId: branch });
         if (isMounted) {
