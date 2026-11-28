@@ -11,7 +11,7 @@ echo "🔨 [Deploy] Building client bundle..."
 npm run build
 
 echo "🔄 [Deploy] Reloading PM2 process..."
-pm2 reload billing-textile --update-env 2>/dev/null || pm2 restart billing-textile --update-env
+pm2 reload textilebilling --update-env 2>/dev/null || pm2 restart textilebilling --update-env
 
 echo "⏳ [Deploy] Verifying server health..."
 PORT=${PORT:-5023}
@@ -23,4 +23,4 @@ for i in {1..15}; do
   sleep 1
 done
 
-echo "⚠️ [Deploy] Server took longer than expected to start. Please check 'pm2 logs billing-textile'."
+echo "⚠️ [Deploy] Server took longer than expected to start. Please check 'pm2 logs textilebilling'."

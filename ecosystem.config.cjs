@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'billing-textile',
+      name: 'textilebilling',
       script: 'server/src/index.ts',
       interpreter: 'node',
       interpreter_args: '--import tsx',
