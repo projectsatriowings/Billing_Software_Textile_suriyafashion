@@ -174,9 +174,9 @@ export function TemporaryProductModal({
               }}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                <rect x="2" y="3" width="20" height="5" rx="1" />
+                <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+                <path d="M10 12h4" />
               </svg>
             </div>
             <div>
@@ -363,20 +363,27 @@ export function TemporaryProductModal({
                       onClick={() => handleRemoveRow(row.id)}
                       title="Remove row"
                       style={{
-                        background: 'transparent',
+                        background: rows.length > 1 ? '#fee2e2' : 'transparent',
                         border: 'none',
-                        cursor: 'pointer',
-                        color: rows.length > 1 ? '#ef4444' : '#cbd5e1',
-                        fontSize: '1.1rem',
-                        padding: '4px',
-                        borderRadius: '6px',
+                        cursor: rows.length > 1 ? 'pointer' : 'not-allowed',
+                        color: rows.length > 1 ? '#dc2626' : '#cbd5e1',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '8px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        transition: 'all 0.15s ease',
                       }}
                       disabled={rows.length <= 1}
                     >
-                      🗑️
+                      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
                     </button>
                   </div>
                 ))}

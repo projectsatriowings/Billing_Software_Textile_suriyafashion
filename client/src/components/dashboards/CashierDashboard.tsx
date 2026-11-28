@@ -326,7 +326,7 @@ export const CashierDashboard: React.FC<CashierDashboardProps> = ({
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <span style={{ fontSize: '1.25rem' }}>💵</span>
+              <span style={{ fontSize: '1.25rem' }}></span>
               <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
                 Cash Register & Shift Status
               </h2>
@@ -564,7 +564,7 @@ export const CashierDashboard: React.FC<CashierDashboardProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '1.2rem' }}>💵</span>
+                  <span style={{ fontSize: '1.2rem' }}></span>
                   <div>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>Cash Sales</div>
                     <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Direct in drawer</div>

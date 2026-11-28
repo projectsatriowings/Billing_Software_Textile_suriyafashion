@@ -171,9 +171,10 @@ body {
   font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.25;
 }
 
 .sidebar-brand-subtitle {
@@ -269,10 +270,10 @@ body {
   font-size: 14px;
   font-weight: 700;
   color: #ffffff;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.2;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.25;
 }
 
 .sidebar-store-badge {
@@ -30267,9 +30268,10 @@ select.expense-input-control {
     display: block !important;
     font-size: 0.95rem !important;
     font-weight: 700 !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    line-height: 1.25 !important;
   }
 
   .app-sidebar.mobile-open .sidebar-collapse-toggle,

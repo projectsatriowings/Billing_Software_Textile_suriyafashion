@@ -57,7 +57,7 @@ export function registerReports(r: Router) {
        FROM payments
        WHERE tenant_id = ?
          AND (status IS NULL OR status = 'posted')
-         AND (bdate = ? OR (payment_date IS NOT NULL AND payment_date::date = ?::date) OR created_at::date = ?::date)
+         AND (bdate = ? OR (bdate IS NULL AND (payment_date IS NOT NULL AND payment_date::date = ?::date)) OR (bdate IS NULL AND created_at::date = ?::date))
          ${branchFilterSql}`,
       [tenantId, todayStr, todayStr, todayStr, ...branchParams],
     );

@@ -543,6 +543,10 @@ export interface Invoice {
   invoiceType?: 'retail' | 'wholesale';
   profileSnapshot?: Record<string, any> | null;
   custom?: Record<string, any>;
+  isLateSale?: boolean;
+  lateSaleReason?: string | null;
+  lateSaleEntryAt?: string | null;
+  lateSaleEnteredBy?: string | null;
 }
 
 export interface ReturnInfoLine {
@@ -2854,6 +2858,26 @@ export const fetchDayClosingPreview = (params: {
   if (params.cashierId) q.set('cashierId', params.cashierId);
   if (params.counterId) q.set('counterId', params.counterId);
   return api<any>(`/api/day-closing/preview?${q.toString()}`);
+};
+
+export interface ClosedBusinessDate {
+  bdate: string;
+  dayClosingId: string;
+  status: string;
+  closedAt: string;
+  closedByName: string;
+  originalSalesTotalMinor: number;
+  originalNetSalesMinor: number;
+  originalCashMinor: number;
+  invoicesCount: number;
+  lateSalesCount: number;
+  lateSalesTotalMinor: number;
+}
+
+export const getClosedBusinessDates = (branchId?: string) => {
+  const q = new URLSearchParams();
+  if (branchId) q.set('branchId', branchId);
+  return api<{ closedDates: ClosedBusinessDate[] }>(`/api/day-closing/closed-dates?${q.toString()}`);
 };
 
 export const submitDayClosing = (data: {

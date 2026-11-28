@@ -1610,14 +1610,6 @@ export const TodayDashboardView: React.FC<TodayDashboardViewProps> = ({
                   <span className="section-subtitle">Temporary POS sales awaiting supplier invoice reconciliation</span>
                 </div>
               </div>
-              <button
-                type="button"
-                className="section-link-pill-btn"
-                onClick={onNavigateToInventory}
-              >
-                <span>Inventory Hub</span>
-                <span className="pill-arrow">→</span>
-              </button>
             </div>
 
             <div className="temporary-sales-list" key={`temp-sales-${chartAnimKey}`}>
