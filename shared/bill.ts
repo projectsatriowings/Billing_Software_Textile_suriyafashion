@@ -757,11 +757,11 @@ const CSS = (paper: PrintTemplate['paper']) => {
     return `${page}${base}
 @media screen {
   body { background:#cbd5e1; padding:24px 12px; display:flex; flex-direction:column; align-items:center; min-height:100vh }
-  .copy { width:${w === '58mm' ? '58mm' : '80mm'}!important; background:#ffffff; box-shadow:0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1); padding:16px 14px!important; border-radius:6px; margin:0 auto 24px auto!important; border:1px solid #94a3b8 }
+  .copy { width:${w === '58mm' ? '72mm' : '110mm'}!important; max-width:96vw!important; background:#ffffff; box-shadow:0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1); padding:18px 18px!important; border-radius:6px; margin:0 auto 24px auto!important; border:1px solid #94a3b8 }
 }
 @media print {
   body { background:#fff; padding:0 }
-  .copy { width:${w === '58mm' ? '54mm' : '76mm'}!important; box-shadow:none!important; border-radius:0!important; padding:2mm 0!important; margin:0 auto!important; border:none!important }
+  .copy { width:${w === '58mm' ? '56mm' : '80mm'}!important; box-shadow:none!important; border-radius:0!important; padding:2mm 1mm!important; margin:0 auto!important; border:none!important }
 }
 .copy{margin:0 auto;font-size:${fs}px;line-height:1.35;page-break-after:always;position:relative;font-variant-numeric:tabular-nums}.copy:last-child{page-break-after:auto}
 .c{text-align:center}.sm{font-size:${fs - 1}px}.xs{font-size:${fs - 2}px;color:#333}.b{font-weight:700}
