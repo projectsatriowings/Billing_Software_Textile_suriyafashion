@@ -2579,4 +2579,16 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_supplier_replacements_return ON supplier_replacements (return_id)`,
     ],
   },
+  {
+    version: 92,
+    statements: [
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS is_late_sale BOOLEAN NOT NULL DEFAULT FALSE`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS late_sale_reason TEXT`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS late_sale_entry_at TIMESTAMPTZ`,
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS late_sale_entered_by TEXT REFERENCES users(id)`,
+      `CREATE INDEX IF NOT EXISTS idx_invoices_late_sale ON invoices (tenant_id, is_late_sale, bdate)`,
+      `ALTER TABLE payments ADD COLUMN IF NOT EXISTS is_late_sale BOOLEAN NOT NULL DEFAULT FALSE`,
+      `ALTER TABLE stock_moves ADD COLUMN IF NOT EXISTS bdate TEXT`,
+    ],
+  },
 ];

@@ -91,6 +91,10 @@ export function registerInvoices(r: Router) {
         counter: r.counter || 'COUNTER-1',
         shareToken: r.shareToken ?? r.share_token,
         invoiceType: r.invoiceType ?? r.invoice_type ?? 'retail',
+        isLateSale: Boolean(r.isLateSale ?? r.is_late_sale),
+        lateSaleReason: r.lateSaleReason ?? r.late_sale_reason ?? null,
+        lateSaleEntryAt: r.lateSaleEntryAt ?? r.late_sale_entry_at ?? null,
+        lateSaleEnteredBy: r.lateSaleEnteredBy ?? r.late_sale_entered_by ?? null,
       })),
     };
   });
@@ -232,6 +236,10 @@ export function registerInvoices(r: Router) {
         whatsappLastSentBy: inv.whatsappLastSentBy ?? inv.whatsapp_last_sent_by,
         shareToken: inv.shareToken ?? inv.share_token,
         invoiceType: inv.invoiceType ?? inv.invoice_type ?? 'retail',
+        isLateSale: Boolean(inv.isLateSale ?? inv.is_late_sale),
+        lateSaleReason: inv.lateSaleReason ?? inv.late_sale_reason ?? null,
+        lateSaleEntryAt: inv.lateSaleEntryAt ?? inv.late_sale_entry_at ?? null,
+        lateSaleEnteredBy: inv.lateSaleEnteredBy ?? inv.late_sale_entered_by ?? null,
         tender: (typeof inv.custom === 'string' ? JSON.parse(inv.custom || '{}') : (inv.custom || {}))?.tender || null,
       },
       lines: lines.map((l: any) => ({
@@ -268,13 +276,31 @@ export function registerInvoices(r: Router) {
     const b = ctx.body ?? {};
     const tenantId = ctx.user!.tenantId;
     const isWholesale = (b.invoiceType || b.invoice_type) === 'wholesale';
+    const isLateSale = Boolean(b.isLateSale ?? b.is_late_sale);
+    const lateSaleBusinessDate = isLateSale ? String(b.businessDate ?? b.business_date ?? b.bdate ?? '').trim() : null;
+    const lateSaleReason = isLateSale ? String(b.lateSaleReason ?? b.late_sale_reason ?? b.reason ?? 'Post-day-close customer purchase').trim() : null;
 
-    // POS billing requires an open cashier shift; wholesale billing can use shift or branch directly
+    if (isLateSale) {
+      const userRole = String(ctx.user!.role || '').toLowerCase();
+      const isAuthorized = ['owner', 'super_admin', 'store_manager', 'manager', 'admin'].includes(userRole);
+      if (!isAuthorized) {
+        throw bad('Only Store Managers and Owners are authorized to enter Late Sales for closed business dates.', 'FORBIDDEN');
+      }
+      if (!lateSaleBusinessDate || !/^\d{4}-\d{2}-\d{2}$/.test(lateSaleBusinessDate)) {
+        throw bad('A valid closed business date (YYYY-MM-DD) is required for Late Sale Entry.', 'INVALID_BUSINESS_DATE');
+      }
+      const todayIsoStr = new Date().toISOString().slice(0, 10);
+      if (lateSaleBusinessDate >= todayIsoStr) {
+        throw bad('Late Sale Entry is only permitted for previously closed past dates.', 'DATE_NOT_CLOSED');
+      }
+    }
+
+    // POS billing requires an open cashier shift; wholesale billing and late sales do not require an active shift
     const activeShift = await ctx.db.one<any>(
       "SELECT id, branch_id, counter_id, counter, counter_name_snapshot FROM shifts WHERE tenant_id = ? AND user_id = ? AND status = 'open' FOR SHARE",
       [tenantId, ctx.user!.id],
     );
-    if (!activeShift && !isWholesale) {
+    if (!activeShift && !isWholesale && !isLateSale) {
       throw bad('An open cashier shift is required to create a bill. Please start your shift at POS Counter.', 'SHIFT_REQUIRED');
     }
     let invoiceBranchId = activeShift?.branchId ?? activeShift?.branch_id ?? b.branchId ?? b.branch_id ?? ctx.user!.branchId;
@@ -296,6 +322,21 @@ export function registerInvoices(r: Router) {
     );
     if (invoiceBranchRow?.id) invoiceBranchId = invoiceBranchRow.id;
     const invoiceBranchCode: string = invoiceBranchRow?.code || String(invoiceBranchId);
+
+    let closedDayRecord: any = null;
+    if (isLateSale) {
+      closedDayRecord = await ctx.db.one<any>(
+        `SELECT id, bdate, status, closed_at, gross_sales_minor, actual_cash_minor
+         FROM day_closings
+         WHERE tenant_id = ? AND (branch_id = ? OR branch_id = ?) AND bdate = ? AND status IN ('closed', 'approved', 'submitted')
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenantId, invoiceBranchId, invoiceBranchCode, lateSaleBusinessDate],
+      );
+      if (!closedDayRecord) {
+        throw bad(`No completed Day Close record found for business date ${lateSaleBusinessDate}. Late sale entry is only permitted for closed dates.`, 'DAY_NOT_CLOSED');
+      }
+    }
+
     const linesInput = V.arr(b.lines, 'Bill items', { min: 1 });
     const paymentsInput = V.arr(b.payments ?? [], 'Payments');
     let partyId = V.optStr(b.partyId ?? b.party_id ?? b.customerId ?? b.customer_id, 'Customer party', 50);
@@ -460,6 +501,7 @@ export function registerInvoices(r: Router) {
     const invoiceId = newId('inv');
     const shareToken = newId('tok');
     const todayStr = new Date().toISOString().slice(0, 10);
+    const invoiceBdate = isLateSale ? lateSaleBusinessDate! : todayStr;
 
     let assignedNumber = '';
     let totalPaidMinor = 0;
@@ -718,6 +760,14 @@ export function registerInvoices(r: Router) {
 
       const invoiceCustom = {
         ...(tenderData ? { tender: tenderData } : {}),
+        ...(isLateSale ? {
+          isLateSale: true,
+          lateSaleReason,
+          businessDate: invoiceBdate,
+          entryDateTime: new Date().toISOString(),
+          enteredBy: ctx.user!.id,
+          enteredByName: ctx.user!.name || ctx.user!.email,
+        } : {}),
         ...(b.custom && typeof b.custom === 'object' ? b.custom : {}),
         ...(isWholesale ? {
           invoiceType: 'wholesale',
@@ -741,7 +791,8 @@ export function registerInvoices(r: Router) {
           round_off_minor, rounding_minor, total_minor,
           paid_minor, balance_minor, payment_status, rule_version, calc, share_token, created_by, location, counter, counter_id, counter_name_snapshot, shift_id, custom,
           applied_promotions, promotion_discount_minor,
-          invoice_type, profile_snapshot
+          invoice_type, profile_snapshot,
+          is_late_sale, late_sale_reason, late_sale_entry_at, late_sale_entered_by
         ) VALUES (
           ?, ?, ?, ?, ?, 'sale', 'posted', ?, ?, ?,
           ?, ?, ?, ?, ?, ?, ?,
@@ -749,7 +800,8 @@ export function registerInvoices(r: Router) {
           ?, ?, ?,
           ?, ?, ?, '1.0', ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?::jsonb,
           ?::jsonb, ?,
-          ?, ?::jsonb
+          ?, ?::jsonb,
+          ?, ?, ?, ?
         )`,
         [
           invoiceId,
@@ -757,7 +809,7 @@ export function registerInvoices(r: Router) {
           invoiceBranchId,
           newId('cid'),
           assignedNumber,
-          todayStr,
+          invoiceBdate,
           isWholesale ? null : (partyId || null),
           isWholesale ? (wholesaleCustomerRow?.id || wholesaleCustomerId || null) : null,
           customerName || null,
@@ -786,12 +838,16 @@ export function registerInvoices(r: Router) {
           resolvedCounterCode,
           resolvedCounterId,
           resolvedCounterName,
-          activeShift?.id || null,
+          isLateSale ? null : (activeShift?.id || null),
           j(invoiceCustom),
           j(appliedPromotionsInput),
           promotionDiscountMinor,
           isWholesale ? 'wholesale' : 'retail',
           j(profileSnapshot),
+          isLateSale,
+          isLateSale ? lateSaleReason : null,
+          isLateSale ? new Date() : null,
+          isLateSale ? ctx.user!.id : null,
         ],
       );
 
@@ -917,9 +973,9 @@ export function registerInvoices(r: Router) {
           const itemExists = await q.one('SELECT id FROM items WHERE id = ? AND tenant_id = ? LIMIT 1', [item.itemId, tenantId]);
           if (itemExists) {
             await q.exec(
-              `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, user_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'sale', 'invoice', ?, ?)`,
-              [newId('sm'), tenantId, invoiceBranchId, item.itemId, location, -item.qtyMilli, invoiceId, ctx.user!.id],
+              `INSERT INTO stock_moves (id, tenant_id, branch_id, item_id, location, qty_milli, kind, ref_type, ref_id, user_id, bdate, notes, variant_id)
+               VALUES (?, ?, ?, ?, ?, ?, 'sale', 'invoice', ?, ?, ?, ?, ?)`,
+              [newId('sm'), tenantId, invoiceBranchId, item.itemId, location, -item.qtyMilli, invoiceId, ctx.user!.id, invoiceBdate, isLateSale ? `Late Sale (${invoiceBdate}): ${lateSaleReason}` : null, item.variantId || null],
             );
           }
         }
@@ -954,12 +1010,12 @@ export function registerInvoices(r: Router) {
         }
 
         await q.exec(
-          `INSERT INTO payments (id, tenant_id, branch_id, kind, method, mode, amount_minor, invoice_id, party_id, wholesale_customer_id, reference, shift_id, bdate, created_by, location, counter, counter_id, counter_name_snapshot)
-           VALUES (?, ?, ?, 'receipt', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [newId('pay'), tenantId, invoiceBranchId, method, method, amt, invoiceId, isWholesale ? null : (partyId || null), isWholesale ? (wholesaleCustomerRow?.id || wholesaleCustomerId || null) : null, p.reference || null, activeShift?.id || null, todayStr, ctx.user!.id, location, resolvedCounterCode, resolvedCounterId, resolvedCounterName],
+          `INSERT INTO payments (id, tenant_id, branch_id, kind, method, mode, amount_minor, invoice_id, party_id, wholesale_customer_id, reference, shift_id, bdate, created_by, location, counter, counter_id, counter_name_snapshot, is_late_sale)
+           VALUES (?, ?, ?, 'receipt', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [newId('pay'), tenantId, invoiceBranchId, method, method, amt, invoiceId, isWholesale ? null : (partyId || null), isWholesale ? (wholesaleCustomerRow?.id || wholesaleCustomerId || null) : null, p.reference || null, isLateSale ? null : (activeShift?.id || null), invoiceBdate, ctx.user!.id, location, resolvedCounterCode, resolvedCounterId, resolvedCounterName, isLateSale],
         );
 
-        if (activeShift?.id && resolvedCounterId && (activeShift.counterId !== resolvedCounterId || activeShift.counter_id !== resolvedCounterId)) {
+        if (!isLateSale && activeShift?.id && resolvedCounterId && (activeShift.counterId !== resolvedCounterId || activeShift.counter_id !== resolvedCounterId)) {
           await q.exec(
             'UPDATE shifts SET counter_id = ?, counter = ?, counter_name_snapshot = ?, updated_at = now() WHERE id = ?',
             [resolvedCounterId, resolvedCounterCode, resolvedCounterName, activeShift.id],
@@ -1019,11 +1075,21 @@ export function registerInvoices(r: Router) {
         customerLoyaltyPoints = Number(updatedCust?.loyaltyPoints ?? updatedCust?.loyalty_points ?? 0);
       }
 
+      // 6.5 Record post-closing adjustment record if this is a Late Sale
+      if (isLateSale && closedDayRecord?.id) {
+        await q.exec(
+          `INSERT INTO day_closing_adjustments (
+            id, tenant_id, day_closing_id, invoice_id, adjustment_type, amount_minor, reason, created_by, created_at
+          ) VALUES (?, ?, ?, ?, 'late_sale', ?, ?, ?, now())`,
+          [newId('dca'), tenantId, closedDayRecord.id, invoiceId, calculated.totalMinor, lateSaleReason, ctx.user!.id],
+        );
+      }
+
       // Invalidate cache
       invalidateTodayDashboardCache(tenantId);
 
       await audit(q, ctx, {
-        action: 'invoice.create',
+        action: isLateSale ? 'invoice.late_sale_create' : 'invoice.create',
         entity: 'invoice',
         entityId: invoiceId,
         detail: {
@@ -1032,6 +1098,11 @@ export function registerInvoices(r: Router) {
           lines: formattedLines.length,
           earnedLoyaltyPoints,
           redeemedPoints,
+          isLateSale,
+          businessDate: invoiceBdate,
+          lateSaleReason: isLateSale ? lateSaleReason : undefined,
+          entryDateTime: isLateSale ? new Date().toISOString() : undefined,
+          dayClosingId: closedDayRecord?.id,
         },
       });
     });
@@ -1132,6 +1203,7 @@ export function registerInvoices(r: Router) {
     const createdAt = inv.createdAt ?? inv.created_at;
     const customObj = typeof inv.custom === 'string' ? JSON.parse(inv.custom || '{}') : (inv.custom || {});
     const tender = customObj?.tender || null;
+    const isLate = Boolean(inv.is_late_sale || inv.isLateSale);
 
     const profileSnapshot = typeof inv.profileSnapshot === 'string'
       ? JSON.parse(inv.profileSnapshot)
@@ -1170,6 +1242,19 @@ export function registerInvoices(r: Router) {
     const invCounter = inv.counter || customObj?.counter;
     if (invCounter) {
       customFields.push({ label: 'Counter', value: String(invCounter) });
+    }
+
+    if (isLate) {
+      customFields.push({ label: 'Type', value: 'LATE SALE (Post-Day-Close)' });
+      const entryTimeFormatted = new Date(inv.created_at || inv.createdAt).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+      customFields.push({ label: 'Entered On', value: entryTimeFormatted });
+      if (inv.late_sale_reason || inv.lateSaleReason) {
+        customFields.push({ label: 'Reason', value: String(inv.late_sale_reason || inv.lateSaleReason) });
+      }
     }
 
     const partyCustom = (partyRow?.custom && typeof partyRow.custom === 'object') ? partyRow.custom : {};
@@ -1213,7 +1298,9 @@ export function registerInvoices(r: Router) {
       number: inv.number,
       kind: 'sale',
       invoiceType: isWholesale ? 'wholesale' : 'retail',
-      dateText: new Date(createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }),
+      dateText: isLate
+        ? `${inv.bdate} (Business Date)`
+        : new Date(createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }),
       shop: {
         name: isWholesale
           ? (wholesaleDisplayName || wholesaleLegalName || shop.wholesaleBusinessName || shop.wholesale_business_name || shop.name)

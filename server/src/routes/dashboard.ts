@@ -429,7 +429,7 @@ export function registerDashboard(r: Router) {
           COALESCE(SUM(CASE WHEN i.kind = 'credit_note' THEN i.igst_minor ELSE 0 END), 0)::bigint AS returns_igst
          FROM invoices i
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND ${RETAIL_CONDITION}
@@ -445,7 +445,7 @@ export function registerDashboard(r: Router) {
           COALESCE(SUM(CASE WHEN i.kind = 'credit_note' THEN i.total_minor ELSE 0 END), 0)::bigint AS returns_total
          FROM invoices i
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND i.created_at <= ?
@@ -470,7 +470,7 @@ export function registerDashboard(r: Router) {
              JOIN invoices i ON i.id = il.invoice_id
              LEFT JOIN items it ON it.id = il.item_id AND it.tenant_id = il.tenant_id
              WHERE i.tenant_id = ?
-               AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+               AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
                AND i.status = 'posted'
                AND i.kind IN ('sale', 'credit_note')
                AND ${RETAIL_CONDITION}
@@ -493,7 +493,7 @@ export function registerDashboard(r: Router) {
          FROM invoice_lines il
          JOIN invoices i ON i.id = il.invoice_id
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind = 'sale'
            AND ${RETAIL_CONDITION}
@@ -511,7 +511,7 @@ export function registerDashboard(r: Router) {
             i.total_minor
           FROM invoices i
           WHERE i.tenant_id = ?
-            AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+            AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
             AND i.status = 'posted'
             AND i.kind IN ('sale', 'credit_note')
             AND ${RETAIL_CONDITION}
@@ -539,7 +539,7 @@ export function registerDashboard(r: Router) {
           JOIN invoices i ON i.id = il.invoice_id
           LEFT JOIN items it ON it.id = il.item_id AND it.tenant_id = il.tenant_id
           WHERE i.tenant_id = ?
-            AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+            AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
             AND i.status = 'posted'
             AND i.kind IN ('sale', 'credit_note')
             AND ${RETAIL_CONDITION}
@@ -567,7 +567,7 @@ export function registerDashboard(r: Router) {
             i.total_minor
           FROM invoices i
           WHERE i.tenant_id = ?
-            AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+            AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
             AND i.status = 'posted'
             AND i.kind IN ('sale', 'credit_note')
             AND ${RETAIL_CONDITION}
@@ -595,7 +595,7 @@ export function registerDashboard(r: Router) {
           JOIN invoices i ON i.id = il.invoice_id
           LEFT JOIN items it ON it.id = il.item_id AND it.tenant_id = il.tenant_id
           WHERE i.tenant_id = ?
-            AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+            AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
             AND i.status = 'posted'
             AND i.kind IN ('sale', 'credit_note')
             AND ${RETAIL_CONDITION}
@@ -625,9 +625,9 @@ export function registerDashboard(r: Router) {
            AND (p.status IS NULL OR p.status = 'posted')
            AND COALESCE(p.kind, 'receipt') = 'receipt'
            AND (
-             (p.invoice_id IS NOT NULL AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date) AND i.status = 'posted' AND i.kind = 'sale' AND ${RETAIL_CONDITION})
+             (p.invoice_id IS NOT NULL AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date)) AND i.status = 'posted' AND i.kind = 'sale' AND ${RETAIL_CONDITION})
              OR
-             (p.invoice_id IS NULL AND (p.bdate = ? OR (p.created_at AT TIME ZONE ?)::date = ?::date))
+             (p.invoice_id IS NULL AND (p.bdate = ? OR (p.bdate IS NULL AND (p.created_at AT TIME ZONE ?)::date = ?::date)))
            )
            ${payBranchClause}
          GROUP BY LOWER(COALESCE(p.mode, p.method, 'cash'))`,
@@ -641,7 +641,7 @@ export function registerDashboard(r: Router) {
           COALESCE(SUM(refund_amount_minor), 0)::bigint AS total_refund_minor
          FROM invoices
          WHERE tenant_id = ?
-           AND (bdate = ? OR (created_at AT TIME ZONE ?)::date = ?::date)
+           AND (bdate = ? OR (bdate IS NULL AND (created_at AT TIME ZONE ?)::date = ?::date))
            AND kind = 'credit_note'
            AND status = 'posted'
            AND refund_amount_minor > 0
@@ -675,7 +675,7 @@ export function registerDashboard(r: Router) {
          JOIN invoices i ON i.id = il.invoice_id
          LEFT JOIN items it ON it.id = il.item_id AND it.tenant_id = il.tenant_id
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND ${RETAIL_CONDITION}
@@ -703,7 +703,7 @@ export function registerDashboard(r: Router) {
           FROM invoice_lines il
           JOIN invoices i ON i.id = il.invoice_id
           WHERE i.tenant_id = ?
-            AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+            AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
             AND i.status = 'posted'
             AND i.kind = 'sale'
             AND ${RETAIL_CONDITION}
@@ -764,7 +764,7 @@ export function registerDashboard(r: Router) {
            i.created_at
          FROM invoices i
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND ${RETAIL_CONDITION}
@@ -787,7 +787,7 @@ export function registerDashboard(r: Router) {
           COALESCE(SUM(CASE WHEN i.kind = 'sale' THEN i.paid_minor ELSE 0 END), 0)::bigint AS paid_amount
          FROM invoices i
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND ${WHOLESALE_CONDITION}
@@ -809,7 +809,7 @@ export function registerDashboard(r: Router) {
          FROM invoice_lines il
          JOIN invoices i ON i.id = il.invoice_id
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND ${WHOLESALE_CONDITION}
@@ -824,7 +824,7 @@ export function registerDashboard(r: Router) {
           COALESCE(SUM(CASE WHEN i.kind = 'sale' THEN i.total_minor WHEN i.kind = 'credit_note' THEN -i.total_minor ELSE 0 END), 0)::bigint AS total_sales
          FROM invoices i
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND i.created_at <= ?
@@ -857,7 +857,7 @@ export function registerDashboard(r: Router) {
          JOIN invoices i ON i.id = il.invoice_id
          LEFT JOIN items it ON it.id = il.item_id AND it.tenant_id = il.tenant_id
          WHERE i.tenant_id = ?
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND i.kind IN ('sale', 'credit_note')
            AND ${WHOLESALE_CONDITION}
@@ -879,7 +879,7 @@ export function registerDashboard(r: Router) {
          WHERE p.tenant_id = ?
            AND (p.status IS NULL OR p.status = 'posted')
            AND COALESCE(p.kind, 'receipt') = 'receipt'
-           AND (i.bdate = ? OR (i.created_at AT TIME ZONE ?)::date = ?::date)
+           AND (i.bdate = ? OR (i.bdate IS NULL AND (i.created_at AT TIME ZONE ?)::date = ?::date))
            AND i.status = 'posted'
            AND ${WHOLESALE_CONDITION}
            ${payBranchClause}

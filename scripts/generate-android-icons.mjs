@@ -138,13 +138,13 @@ for (const d of DENSITIES) {
 const oldForegroundVec = path.join(resDir, 'drawable-v24', 'ic_launcher_foreground.xml');
 if (fs.existsSync(oldForegroundVec)) {
   fs.unlinkSync(oldForegroundVec);
-  console.log('🗑️ Removed legacy drawable-v24/ic_launcher_foreground.xml');
+  console.log(' Removed legacy drawable-v24/ic_launcher_foreground.xml');
 }
 
 const oldBackgroundVec = path.join(resDir, 'drawable', 'ic_launcher_background.xml');
 if (fs.existsSync(oldBackgroundVec)) {
   fs.unlinkSync(oldBackgroundVec);
-  console.log('🗑️ Removed legacy drawable/ic_launcher_background.xml');
+  console.log(' Removed legacy drawable/ic_launcher_background.xml');
 }
 
 console.log('All Android launcher icons successfully generated and verified!');

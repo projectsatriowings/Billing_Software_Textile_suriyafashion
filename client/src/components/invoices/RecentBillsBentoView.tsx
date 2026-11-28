@@ -387,7 +387,7 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
           </div>
         </div>
 
-        <div className="invoices-context-right">
+        <div className="invoices-context-right" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
             type="button"
             className="invoices-quick-pos-btn"
@@ -700,6 +700,22 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
                         {inv.status === 'voided' && (
                           <span className="invoices-tag-voided">VOID</span>
                         )}
+                        {inv.isLateSale && (
+                          <span
+                            style={{
+                              backgroundColor: '#fef3c7',
+                              color: '#b45309',
+                              border: '1px solid #fde68a',
+                              borderRadius: '4px',
+                              padding: '1px 5px',
+                              fontSize: '0.66rem',
+                              fontWeight: 800,
+                            }}
+                            title={`Late Sale: entered on ${inv.lateSaleEntryAt ? new Date(inv.lateSaleEntryAt).toLocaleString('en-IN') : 'later'}${inv.lateSaleReason ? ` (${inv.lateSaleReason})` : ''}`}
+                          >
+                            LATE SALE
+                          </span>
+                        )}
                         <span className="invoices-branch-tag">
                           <Building2Icon size={11} style={{ color: 'var(--primary, #0F766E)' }} />
                           <span>{branchCode}</span>
@@ -707,20 +723,33 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
                       </div>
 
                       <div className="invoices-m-datetime">
-                        <span className="invoices-date-text">
-                          {new Date(inv.createdAt).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
-                        </span>
-                        <span className="invoices-time-text">
-                          {new Date(inv.createdAt).toLocaleTimeString('en-IN', {
-                            hour: 'numeric',
-                            minute: '2-digit',
-                            hour12: true,
-                          })}
-                        </span>
+                        {inv.isLateSale ? (
+                          <div style={{ textAlign: 'right' }}>
+                            <span className="invoices-date-text" style={{ color: '#b45309', fontWeight: 700 }}>
+                               B-Date: {inv.bdate}
+                            </span>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                              Entry: {new Date(inv.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="invoices-date-text">
+                              {new Date(inv.createdAt).toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </span>
+                            <span className="invoices-time-text">
+                              {new Date(inv.createdAt).toLocaleTimeString('en-IN', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -864,6 +893,22 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
                           {inv.status === 'voided' && (
                             <span className="invoices-tag-voided">VOID</span>
                           )}
+                          {inv.isLateSale && (
+                            <span
+                              style={{
+                                backgroundColor: '#fef3c7',
+                                color: '#b45309',
+                                border: '1px solid #fde68a',
+                                borderRadius: '4px',
+                                padding: '1px 5px',
+                                fontSize: '0.64rem',
+                                fontWeight: 800,
+                              }}
+                              title={`Late Sale: entered on ${inv.lateSaleEntryAt ? new Date(inv.lateSaleEntryAt).toLocaleString('en-IN') : 'later'}${inv.lateSaleReason ? ` (${inv.lateSaleReason})` : ''}`}
+                            >
+                              LATE SALE
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -881,22 +926,33 @@ export const RecentBillsBentoView: React.FC<RecentBillsBentoViewProps> = ({
 
                       {/* Date & Time */}
                       <td>
-                        <div className="invoices-datetime-wrap">
-                          <span className="invoices-date-text">
-                            {new Date(inv.createdAt).toLocaleDateString('en-IN', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                            })}
-                          </span>
-                          <span className="invoices-time-text">
-                            {new Date(inv.createdAt).toLocaleTimeString('en-IN', {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true,
-                            })}
-                          </span>
-                        </div>
+                        {inv.isLateSale ? (
+                          <div style={{ lineHeight: 1.3 }}>
+                            <div style={{ fontWeight: 800, color: '#b45309', fontSize: '0.78rem' }}>
+                               {inv.bdate}
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
+                              Entry: {new Date(inv.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="invoices-datetime-wrap">
+                            <span className="invoices-date-text">
+                              {new Date(inv.createdAt).toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </span>
+                            <span className="invoices-time-text">
+                              {new Date(inv.createdAt).toLocaleTimeString('en-IN', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Customer */}
