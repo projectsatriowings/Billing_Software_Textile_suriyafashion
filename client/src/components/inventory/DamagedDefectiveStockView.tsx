@@ -56,6 +56,17 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
     loadData();
   }, [loadData]);
 
+  const formatDate = (val?: string | Date | null) => {
+    if (!val) return '—';
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return String(val);
+    }
+  };
+
   const handleScrap = async (item: DamagedStockItem) => {
     const dmgNum = item.damageNumber || item.damage_number;
     const name = item.itemName || item.item_name;
@@ -322,7 +333,7 @@ export const DamagedDefectiveStockView: React.FC<DamagedDefectiveStockViewProps>
                 <tr key={item.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                     <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.damageNumber || item.damage_number}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.damageDate || item.damage_date}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{formatDate(item.damageDate || item.damage_date)}</div>
                   </td>
                   <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                     <div style={{ fontWeight: 600, color: '#0f172a' }}>{item.itemName || item.item_name}</div>

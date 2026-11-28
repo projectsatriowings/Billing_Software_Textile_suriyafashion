@@ -35,6 +35,17 @@ export const SupplierReplacementsView: React.FC<SupplierReplacementsViewProps> =
     loadData();
   }, [loadData]);
 
+  const formatDate = (val?: string | Date | null) => {
+    if (!val) return '—';
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return String(val);
+    }
+  };
+
   const getConditionBadge = (condition: string) => {
     switch (condition) {
       case 'GOOD':
@@ -226,7 +237,7 @@ export const SupplierReplacementsView: React.FC<SupplierReplacementsViewProps> =
                   <tr key={rep.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                       <div style={{ fontWeight: 700, color: '#0f172a' }}>{repNum}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{recDate}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{formatDate(recDate)}</div>
                     </td>
                     <td style={{ padding: '0.85rem 1rem', verticalAlign: 'top' }}>
                       <div style={{ fontWeight: 600, color: '#2563eb' }}>{retNum || '—'}</div>

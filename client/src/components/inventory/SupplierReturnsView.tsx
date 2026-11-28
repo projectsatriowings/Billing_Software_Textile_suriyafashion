@@ -57,6 +57,17 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
     loadData();
   }, [loadData]);
 
+  const formatDate = (val?: string | Date | null) => {
+    if (!val) return '—';
+    try {
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch {
+      return String(val);
+    }
+  };
+
   const handleDispatch = async (ret: SupplierReturn) => {
     const retNum = ret.returnNumber || ret.return_number;
     const dispatchRef = window.prompt(
@@ -267,7 +278,7 @@ export const SupplierReturnsView: React.FC<SupplierReturnsViewProps> = ({
                       <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>
                         {retNum}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Date: {retDate}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Date: {formatDate(retDate)}</div>
                     </div>
 
                     <div>
