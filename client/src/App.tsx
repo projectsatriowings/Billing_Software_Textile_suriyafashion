@@ -223,6 +223,7 @@ import { NotificationsPageView } from './components/notifications/NotificationsP
 import { submitExchange } from './api';
 import { ResponsiveNavbar } from './components/navigation/ResponsiveNavbar';
 import { VariantPickerModal } from './components/pos/VariantPickerModal.tsx';
+import { TemporaryProductModal } from './components/pos/TemporaryProductModal.tsx';
 import { TailoringModal } from './components/tailoring/TailoringModal.tsx';
 import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
 import { TextileReportsView } from './components/reports/TextileReportsView.tsx';
@@ -686,7 +687,7 @@ export interface PosCartItem {
   item: Item;
   qty: number;
   variant?: ProductVariant | null;
-  lineType?: 'item' | 'cutting_charge' | 'tailoring';
+  lineType?: 'item' | 'cutting_charge' | 'tailoring' | 'temporary';
   lengthUnit?: 'm' | 'yd';
   originalLength?: number;
   isReturn?: boolean;
@@ -695,6 +696,8 @@ export interface PosCartItem {
   origLineId?: string;
   restock?: boolean;
   returnReason?: string;
+  isTemporary?: boolean;
+  supplierInvoiceNumber?: string;
 }
 
 export function App() {
@@ -1214,6 +1217,7 @@ export function App() {
   }, [items]);
 
   const [showReturnExchangeModal, setShowReturnExchangeModal] = useState<boolean>(false);
+  const [showTemporaryProductModal, setShowTemporaryProductModal] = useState<boolean>(false);
   const showReturnExchangeModalRef = useRef(showReturnExchangeModal);
   useEffect(() => {
     showReturnExchangeModalRef.current = showReturnExchangeModal;
@@ -4468,7 +4472,7 @@ export function App() {
     setCart((prev) => {
       const target = prev[cartIdx];
       if (!target) return prev;
-      if (delta > 0 && !target.isReturn) {
+      if (delta > 0 && !target.isReturn && !target.isTemporary) {
         const avail = target.variant?.stockMilli != null
           ? target.variant.stockMilli / 1000
           : getAvailableStockUnits(target.item.id, target.item);
@@ -4579,6 +4583,38 @@ export function App() {
     } as Item;
     setCart((prev) => [...prev, { item: chargeItem, qty: 1, lineType: 'cutting_charge' }]);
     showToast(`Added Tailoring Charge of ₹${val.toFixed(2)}`);
+  };
+
+  const handleAddTemporaryProducts = (
+    supplierInvoiceNumber: string,
+    products: Array<{ name: string; sellingPrice: number; quantity: number }>
+  ) => {
+    const cleanInv = supplierInvoiceNumber.trim().toUpperCase();
+    const newItems: PosCartItem[] = products.map((p, idx) => {
+      const tempItem: Item = {
+        id: `temp-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        name: p.name.trim(),
+        priceMinor: Math.round(p.sellingPrice * 100),
+        mrpMinor: Math.round(p.sellingPrice * 100),
+        category: 'Non-Inventory',
+        unit: 'pcs',
+        trackStock: false,
+        active: true,
+        taxRateBp: 0,
+        taxInclusive: false,
+      } as Item;
+
+      return {
+        item: tempItem,
+        qty: p.quantity,
+        lineType: 'temporary',
+        isTemporary: true,
+        supplierInvoiceNumber: cleanInv,
+      };
+    });
+
+    setCart((prev) => [...prev, ...newItems]);
+    showToast(`Added ${products.length} non-inventory product${products.length === 1 ? '' : 's'} (Inv: ${cleanInv}) to cart`);
   };
 
   const handleAddRatioLinesToPurchase = (lines: any[]) => {
@@ -6512,10 +6548,13 @@ export function App() {
         const lineOfferDiscount = c.item.offerPercentage && c.item.offerPercentage > 0
           ? Math.round((c.item.priceMinor * c.item.offerPercentage) / 100) * c.qty
           : 0;
+        const isTemp = Boolean(c.isTemporary || c.item.id?.startsWith('temp-') || c.lineType === 'temporary');
         return {
-          itemId: c.item.id?.startsWith('custom-') ? undefined : c.item.id,
-          variantId: c.variant?.id || undefined,
-          lineType: c.lineType || 'item',
+          itemId: (isTemp || c.item.id?.startsWith('custom-')) ? undefined : c.item.id,
+          variantId: isTemp ? undefined : (c.variant?.id || undefined),
+          lineType: isTemp ? 'temporary' : (c.lineType || 'item'),
+          isTemporary: isTemp,
+          supplierInvoiceNumber: c.supplierInvoiceNumber || undefined,
           decimalQty: c.qty,
           name: c.variant ? `${c.item.name} (${c.variant.size}${c.variant.colour ? ` / ${c.variant.colour}` : ''})` : c.item.name,
           qtyMilli: Math.round(c.qty * 1000),
@@ -11207,6 +11246,26 @@ export function App() {
                           </button>
                           <button
                             type="button"
+                            style={{
+                              background: '#fffbeb',
+                              border: '1px solid #fde68a',
+                              color: '#b45309',
+                              padding: '0.35rem 0.65rem',
+                              borderRadius: '8px',
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            onClick={() => setShowTemporaryProductModal(true)}
+                            title="Add non-inventory product purchased from a supplier before stock import"
+                          >
+                            📦 + Non-Inventory Product
+                          </button>
+                          <button
+                            type="button"
                             className="bento-clear-cart-btn"
                             disabled={cart.length === 0}
                             onClick={() => {
@@ -11407,7 +11466,7 @@ export function App() {
                                 const unitFinalPrice = storePrice + unitGst;
                                 const lineSavings = isReturn ? 0 : Math.max(0, (mrp - unitFinalPrice) * qty);
                                 const availStock = isReturn ? qty : getAvailableStockUnits(item.id, item);
-                                const isMaxStock = isReturn || (availStock !== Infinity && qty >= availStock);
+                                const isMaxStock = isReturn || (!cartItem.isTemporary && availStock !== Infinity && qty >= availStock);
 
                                 const linePromo = promoEvalResult?.linePromotions?.[cartIdx];
                                 const promoDiscount = promoEvalResult?.lineDiscounts[cartIdx] || 0;
@@ -11457,7 +11516,40 @@ export function App() {
                                         {item.name}
                                       </div>
                                       <div className="bento-cart-item-meta" style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '3px' }}>
-                                        {isReturn ? (
+                                        {cartItem.isTemporary ? (
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                            <span
+                                              style={{
+                                                background: '#fef3c7',
+                                                color: '#92400e',
+                                                border: '1px solid #fde68a',
+                                                padding: '1px 6px',
+                                                borderRadius: '4px',
+                                                fontSize: '0.68rem',
+                                                fontWeight: 800,
+                                                letterSpacing: '0.2px',
+                                              }}
+                                            >
+                                              NON-INVENTORY
+                                            </span>
+                                            {cartItem.supplierInvoiceNumber && (
+                                              <span
+                                                style={{
+                                                  background: '#f0f9ff',
+                                                  color: '#0369a1',
+                                                  border: '1px solid #bae6fd',
+                                                  padding: '1px 6px',
+                                                  borderRadius: '4px',
+                                                  fontSize: '0.68rem',
+                                                  fontWeight: 700,
+                                                  fontFamily: 'monospace',
+                                                }}
+                                              >
+                                                Supplier Inv: {cartItem.supplierInvoiceNumber}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ) : isReturn ? (
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                             <span
                                               style={{
@@ -12169,6 +12261,37 @@ export function App() {
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                           </svg>
                           <span>Find Product / No Barcode (F2)</span>
+                        </button>
+
+                        {/* Add Non-Inventory Product Button */}
+                        <button
+                          type="button"
+                          className="bento-non-inventory-btn"
+                          onClick={() => setShowTemporaryProductModal(true)}
+                          title="Sell products purchased from supplier before inventory import"
+                          style={{
+                            width: '100%',
+                            marginTop: '8px',
+                            padding: '0.62rem 0.85rem',
+                            background: '#fffbeb',
+                            border: '1.5px dashed #f59e0b',
+                            borderRadius: '10px',
+                            color: '#92400e',
+                            fontSize: '0.82rem',
+                            fontWeight: 750,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '7px',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                          </svg>
+                          <span>Add Non-Inventory Product</span>
                         </button>
                       </div>
                     </div>
@@ -27475,6 +27598,13 @@ export function App() {
           onClose={() => setShowSizeRatioModal(false)}
           items={items}
           onAddLinesToPurchase={handleAddRatioLinesToPurchase}
+        />
+
+        {/* Temporary Product / Non-Inventory Billing Modal */}
+        <TemporaryProductModal
+          isOpen={showTemporaryProductModal}
+          onClose={() => setShowTemporaryProductModal(false)}
+          onAddProducts={handleAddTemporaryProducts}
         />
       </div>
     </BranchProvider>

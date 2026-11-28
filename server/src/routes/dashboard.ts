@@ -336,13 +336,13 @@ export function registerDashboard(r: Router) {
     if (activeBranch?.id) {
       const dbCounters = isAllBranches
         ? await ctx.db.query<any>(
-            "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND status = 'ACTIVE' ORDER BY branch_id ASC, code ASC",
-            [tenantId],
-          )
+          "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND status = 'ACTIVE' ORDER BY branch_id ASC, code ASC",
+          [tenantId],
+        )
         : await ctx.db.query<any>(
-            "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND branch_id = ? AND status = 'ACTIVE' ORDER BY code ASC",
-            [tenantId, activeBranch.id],
-          );
+          "SELECT id, code, name, status FROM counters WHERE tenant_id = ? AND branch_id = ? AND status = 'ACTIVE' ORDER BY code ASC",
+          [tenantId, activeBranch.id],
+        );
       if (dbCounters && dbCounters.length > 0) {
         activeCounters = dbCounters.map((c) => ({
           id: c.id,
@@ -410,6 +410,7 @@ export function registerDashboard(r: Router) {
       compWholesaleSalesRes,
       wholesaleTopItemsRows,
       wholesalePaymentRows,
+      temporarySalesPendingRows,
     ] = await Promise.all([
       // 1. Today sales (Retail Only)
       ctx.db.one<any>(
@@ -884,6 +885,32 @@ export function registerDashboard(r: Router) {
            ${payBranchClause}
          GROUP BY LOWER(COALESCE(p.mode, p.method, 'bank'))`,
         [tenantId, todayYMD, tz, todayYMD, ...payBranchParams],
+      ),
+
+      // 18. Temporary Sales Pending Reconciliation
+      ctx.db.query<any>(
+        `SELECT
+          tps.id,
+          tps.invoice_id AS "invoiceId",
+          i.number AS "invoiceNumber",
+          tps.supplier_invoice_number AS "supplierInvoiceNumber",
+          tps.product_name AS "productName",
+          tps.selling_price_minor AS "sellingPriceMinor",
+          tps.sold_quantity::float AS "soldQuantity",
+          tps.reconciled_quantity::float AS "reconciledQuantity",
+          tps.remaining_quantity::float AS "remainingQuantity",
+          tps.reconciliation_status AS "reconciliationStatus",
+          tps.created_at AS "createdAt",
+          i.bdate AS "saleDate",
+          i.customer_name AS "customerName"
+         FROM temporary_product_sales tps
+         JOIN invoices i ON tps.invoice_id = i.id
+         WHERE tps.tenant_id = ?
+           AND tps.reconciliation_status != 'reconciled'
+           ${!isAllBranches && activeBranch?.id ? 'AND (tps.branch_id = ? OR tps.branch_id IS NULL)' : ''}
+         ORDER BY tps.created_at DESC
+         LIMIT 50`,
+        [tenantId, ...(!isAllBranches && activeBranch?.id ? [activeBranch.id] : [])],
       ),
     ]);
 
@@ -1405,12 +1432,12 @@ export function registerDashboard(r: Router) {
     const wsPaymentModes = Array.from(wsPaymentModesMap.entries()).map(([modeKey, amt]) => {
       const name =
         modeKey === 'neft' || modeKey === 'rtgs' ? 'NEFT / RTGS' :
-        modeKey === 'bank' ? 'Bank Transfer' :
-        modeKey === 'cheque' ? 'Cheque' :
-        modeKey === 'upi' ? 'UPI' :
-        modeKey === 'cash' ? 'Cash' :
-        modeKey === 'credit' ? 'Trade Credit' :
-        modeKey.toUpperCase();
+          modeKey === 'bank' ? 'Bank Transfer' :
+            modeKey === 'cheque' ? 'Cheque' :
+              modeKey === 'upi' ? 'UPI' :
+                modeKey === 'cash' ? 'Cash' :
+                  modeKey === 'credit' ? 'Trade Credit' :
+                    modeKey.toUpperCase();
       const percentage = wsCollectedTotalMinor > 0 ? Math.round((amt / wsCollectedTotalMinor) * 100) : 0;
       const color = PAYMENT_MODE_COLORS[modeKey] || '#0284c7';
       return {
@@ -1518,6 +1545,21 @@ export function registerDashboard(r: Router) {
       },
       topSellers,
       stockAttention,
+      temporarySalesPending: (temporarySalesPendingRows || []).map((r: any) => ({
+        id: r.id,
+        invoiceId: r.invoiceId ?? r.invoice_id,
+        invoiceNumber: r.invoiceNumber ?? r.invoice_number ?? 'POS',
+        productName: r.productName ?? r.product_name,
+        supplierInvoiceNumber: r.supplierInvoiceNumber ?? r.supplier_invoice_number,
+        soldQuantity: Number(r.soldQuantity ?? r.sold_quantity ?? 0),
+        reconciledQuantity: Number(r.reconciledQuantity ?? r.reconciled_quantity ?? 0),
+        remainingQuantity: Number(r.remainingQuantity ?? r.remaining_quantity ?? 0),
+        reconciliationStatus: r.reconciliationStatus ?? r.reconciliation_status ?? 'pending',
+        sellingPriceMinor: Number(r.sellingPriceMinor ?? r.selling_price_minor ?? 0),
+        createdAt: r.createdAt ?? r.created_at,
+        saleDate: r.saleDate ?? r.sale_date,
+        customerName: r.customerName ?? r.customer_name,
+      })),
       shiftDrawer,
       countersToday,
       wholesale: {

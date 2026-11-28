@@ -511,6 +511,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
   const [suppliersList, setSuppliersList] = useState<Party[]>(suppliers || []);
   const [loadingSuppliers, setLoadingSuppliers] = useState(false);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
+  const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState<string>('');
   const [supplierSearchText, setSupplierSearchText] = useState('');
   const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
   const [supplierDropDirection, setSupplierDropDirection] = useState<'down' | 'up'>('down');
@@ -584,15 +585,16 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
     return (globalScope && globalScope.toLowerCase() !== 'all') ? globalScope : null;
   }, [branchId]);
 
-  // Branch-scoped items: when a branch is selected, only consider existing items in this branch for collision checks
+  // Branch-scoped items: when a branch is selected, include items associated with this branch or tenant-wide items
   const branchScopedItems = useMemo(() => {
     if (!activeBranchId) return existingItems;
     const activeLower = activeBranchId.toLowerCase();
-    return existingItems.filter((it) => {
+    const filtered = existingItems.filter((it) => {
       const bId = (it.branchId || '').toLowerCase();
       const bCode = (it.branchCode || '').toLowerCase();
-      return bId === activeLower || bCode === activeLower;
+      return !bId || bId === 'all' || bId === activeLower || bCode === activeLower;
     });
+    return filtered.length > 0 ? filtered : existingItems;
   }, [existingItems, activeBranchId]);
 
   // Generate unique batch ID for idempotency protection against double submission
@@ -659,7 +661,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
 
   // Pre-index existing items for matching
   const catalogCandidates: MatchCandidate[] = useMemo(() => {
-    return branchScopedItems.map((it) => ({
+    const pool = existingItems && existingItems.length > 0 ? existingItems : branchScopedItems;
+    return pool.map((it) => ({
       id: it.id,
       name: it.name,
       sku: it.sku || null,
@@ -683,23 +686,40 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       imageUrl: it.imageUrl || (it as any).image || null,
       reorderMilli: it.reorderMilli ?? it.reorderLevelMilli ?? (it as any).reorder_milli ?? null,
     }));
-  }, [branchScopedItems]);
+  }, [existingItems, branchScopedItems]);
 
   const existingSkusSet = useMemo(() => {
     const s = new Set<string>();
-    for (const it of branchScopedItems) {
+    const pool = existingItems && existingItems.length > 0 ? existingItems : branchScopedItems;
+    for (const it of pool) {
       if (it.sku && it.sku.trim()) s.add(it.sku.trim().toLowerCase());
+      if (it.variants) {
+        for (const v of it.variants) {
+          if (v.sku && v.sku.trim()) s.add(v.sku.trim().toLowerCase());
+        }
+      }
     }
     return s;
-  }, [branchScopedItems]);
+  }, [existingItems, branchScopedItems]);
 
   const existingBarcodesSet = useMemo(() => {
     const s = new Set<string>();
-    for (const it of branchScopedItems) {
+    const pool = existingItems && existingItems.length > 0 ? existingItems : branchScopedItems;
+    for (const it of pool) {
       if (it.barcode && it.barcode.trim()) s.add(it.barcode.trim());
+      if (it.barcodes) {
+        for (const b of it.barcodes) {
+          if (b.barcode && b.barcode.trim()) s.add(b.barcode.trim());
+        }
+      }
+      if (it.variants) {
+        for (const v of it.variants) {
+          if (v.barcode && v.barcode.trim()) s.add(v.barcode.trim());
+        }
+      }
     }
     return s;
-  }, [branchScopedItems]);
+  }, [existingItems, branchScopedItems]);
 
   // Dynamic store categories loaded from database
   const [categoryList, setCategoryList] = useState<Category[]>(categories || []);
@@ -773,28 +793,34 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
   // Pre-index existing parent products and existing variant combinations for fast variant matching
   const existingParentByName = useMemo(() => {
     const m = new Map<string, Item>();
-    for (const it of branchScopedItems) {
-      m.set(it.name.trim().toLowerCase(), it);
+    const pool = existingItems && existingItems.length > 0 ? existingItems : branchScopedItems;
+    for (const it of pool) {
+      if (it.name) {
+        m.set(it.name.trim().toLowerCase(), it);
+      }
     }
     return m;
-  }, [branchScopedItems]);
+  }, [existingItems, branchScopedItems]);
 
   const existingVariantKeySet = useMemo(() => {
     const s = new Set<string>();
-    for (const it of branchScopedItems) {
+    const pool = existingItems && existingItems.length > 0 ? existingItems : branchScopedItems;
+    for (const it of pool) {
       const pKey = it.name.trim().toLowerCase();
       if (it.variants && it.variants.length > 0) {
         for (const v of it.variants) {
           const sKey = (v.size || 'Free Size').trim().toLowerCase();
           s.add(`${pKey}__${sKey}`);
+          s.add(`${pKey}__`);
         }
       } else {
         const sKey = (it.size || 'Free Size').trim().toLowerCase();
         s.add(`${pKey}__${sKey}`);
+        s.add(`${pKey}__`);
       }
     }
     return s;
-  }, [branchScopedItems]);
+  }, [existingItems, branchScopedItems]);
 
   // ── Compute Classification & Validation for all rows ────────────────────────
   const validatedRows: GridRow[] = useMemo(() => {
@@ -883,21 +909,44 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
       }
 
       // Determine if row is acting as Restock or New Product/Variant
-      const isDbVariant = existingVariantKeySet.has(variantKey);
-      const isParentInDb = existingParentByName.has(normName);
+      const targetSize = (r.size || '').trim().toLowerCase();
+      const targetColour = (r.colour || '').trim().toLowerCase();
+
+      const parentInDb = existingParentByName.get(normName) || (r.matchedItem ? existingParentByName.get(r.matchedItem.name.trim().toLowerCase()) : null);
+      const isParentInDb = Boolean(parentInDb);
       const isParentIntroducedEarlier = seenParentProducts.has(normName) && seenParentProducts.get(normName) !== r.rowNum;
       const isParentKnown = isParentInDb || isParentIntroducedEarlier;
+
+      let isDbVariant = existingVariantKeySet.has(variantKey) || existingVariantKeySet.has(`${normName}__`);
+      if (!isDbVariant && parentInDb) {
+        const pVars = parentInDb.variants || [];
+        if (pVars.length > 0) {
+          if (targetColour) {
+            isDbVariant = pVars.some(
+              (v) => (v.size || '').trim().toLowerCase() === targetSize && (v.colour || '').trim().toLowerCase() === targetColour
+            );
+          }
+          if (!isDbVariant && targetSize) {
+            isDbVariant = pVars.some((v) => (v.size || '').trim().toLowerCase() === targetSize);
+          }
+          if (!isDbVariant && (!targetSize || targetSize === 'free size')) {
+            isDbVariant = pVars.length === 1;
+          }
+        } else {
+          isDbVariant = true; // Simple product
+        }
+      }
 
       let isRestockAction = false;
       if (r.resolution === 'LINK' && r.matchedItem) {
         isRestockAction = true;
-      } else if (r.resolution === 'NEW') {
+      } else if (r.isUserActionManual && r.resolution === 'NEW') {
         isRestockAction = false;
       } else if (isDbVariant) {
         isRestockAction = true;
       } else if (r.matchedItem) {
         const pComp = r.priceComparison || compareProductPrices(r.sellingPrice, r.costPrice, r.matchedItem);
-        isRestockAction = pComp?.recommendedAction === 'RESTOCK';
+        isRestockAction = pComp?.recommendedAction === 'RESTOCK' || isDbVariant;
       }
 
       // Track parent introduced in this file
@@ -973,7 +1022,7 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         status = 'DUPLICATE';
       } else if (isRestockAction || isDbVariant) {
         status = 'RESTOCK';
-      } else if (r.resolution === 'NEW') {
+      } else if (r.isUserActionManual && r.resolution === 'NEW') {
         status = isParentKnown ? 'NEW_VARIANT' : 'NEW_PRODUCT';
       } else if (r.candidates && r.candidates.length > 1) {
         status = 'AMBIGUOUS';
@@ -1244,45 +1293,34 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
         const foundActive = activeCategories.find((c) => c.name.toLowerCase() === category.toLowerCase());
         categoryId = foundActive ? foundActive.id : '';
 
-        // If prices differ (Scenario A) or price is missing: default to Create New Product
-        if (priceComparison?.recommendedAction === 'NEW_PRODUCT') {
-          resolution = 'NEW';
-          finalSku = generateUniqueSku(name, existingSkusSet, seenImportSkus);
-          barcode = generateUniqueInternalBarcode(existingBarcodesSet, seenImportBarcodes);
-          barcodeType = 'INTERNAL';
-          isBarcodeAutoGenerated = true;
-          additionalBarcodes = [];
-          seenImportBarcodes.add(barcode);
-        } else {
-          // Prices match (Scenario B): default to Restock
-          resolution = 'LINK';
-          finalSku = matchedItem.sku || generateUniqueSku(name, existingSkusSet, seenImportSkus);
+        // Matched existing catalog item: link to existing product and variant
+        resolution = 'LINK';
+        finalSku = matchedItem.sku || generateUniqueSku(name, existingSkusSet, seenImportSkus);
 
-          // Determine barcode and its true database type:
-          if (barcodeRaw) {
-            barcode = barcodeRaw;
-            const foundPb = matchedItem.barcodes?.find((b) => b.barcode.trim() === barcodeRaw.trim());
-            if (foundPb) {
-              barcodeType = foundPb.barcodeType;
-            } else if (matchedItem.barcode && matchedItem.barcode.trim() === barcodeRaw.trim()) {
-              barcodeType = matchedItem.barcodeType || 'INTERNAL';
-            } else {
-              barcodeType = 'MANUFACTURER';
-            }
+        // Determine barcode and its true database type:
+        if (barcodeRaw) {
+          barcode = barcodeRaw;
+          const foundPb = matchedItem.barcodes?.find((b) => b.barcode.trim() === barcodeRaw.trim());
+          if (foundPb) {
+            barcodeType = foundPb.barcodeType;
+          } else if (matchedItem.barcode && matchedItem.barcode.trim() === barcodeRaw.trim()) {
+            barcodeType = matchedItem.barcodeType || 'INTERNAL';
           } else {
-            // No barcode in uploaded file: inherit matched product's primary barcode and stored type
-            barcode = matchedItem.barcode || '';
-            barcodeType = matchedItem.barcodeType || (barcode ? 'INTERNAL' : null);
+            barcodeType = 'MANUFACTURER';
           }
-
-          // Inherit any additional registered barcodes for this product
-          if (matchedItem.barcodes && matchedItem.barcodes.length > 0) {
-            additionalBarcodes = matchedItem.barcodes
-              .filter((b) => b.barcode && b.barcode.trim() !== barcode.trim())
-              .map((b) => ({ barcode: b.barcode.trim(), barcodeType: b.barcodeType }));
-          }
-          if (barcode) seenImportBarcodes.add(barcode);
+        } else {
+          // No barcode in uploaded file: inherit matched product's primary barcode and stored type
+          barcode = matchedItem.barcode || '';
+          barcodeType = matchedItem.barcodeType || (barcode ? 'INTERNAL' : null);
         }
+
+        // Inherit any additional registered barcodes for this product
+        if (matchedItem.barcodes && matchedItem.barcodes.length > 0) {
+          additionalBarcodes = matchedItem.barcodes
+            .filter((b) => b.barcode && b.barcode.trim() !== barcode.trim())
+            .map((b) => ({ barcode: b.barcode.trim(), barcodeType: b.barcodeType }));
+        }
+        if (barcode) seenImportBarcodes.add(barcode);
       } else {
         // New Product or Ambiguous: automatically generate unique SKU
         finalSku = generateUniqueSku(name, existingSkusSet, seenImportSkus);
@@ -2095,7 +2133,8 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
 
     try {
       const payloadRows: BulkImportRow[] = eligibleRows.map((r) => {
-        const isRestock = r.status === 'RESTOCK' && r.resolution === 'LINK' && Boolean(r.matchedItem);
+        const parentMatch = r.matchedItem || existingParentByName.get(r.name.trim().toLowerCase());
+        const isRestock = r.status === 'RESTOCK' || (r.resolution === 'LINK' && Boolean(parentMatch));
         const parsedPrice = parseImportNumeric(r.sellingPrice);
         const price = parsedPrice !== null ? Math.round(parsedPrice * 100) : 0;
 
@@ -2172,12 +2211,12 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
           supplierId: r.supplierId?.trim() || null,
           supplier: r.supplierName?.trim() || null,
           isRestock,
-          matchedItemId: isRestock && r.matchedItem ? r.matchedItem.id : null,
+          matchedItemId: isRestock && parentMatch ? parentMatch.id : null,
           updatePrices: r.updatePrices,
         };
       });
 
-      const res = await bulkImportItems(payloadRows, importBatchId.current, activeBranchId, selectedSupplierId);
+      const res = await bulkImportItems(payloadRows, importBatchId.current, activeBranchId, selectedSupplierId, supplierInvoiceNumber);
       setImportResult(res);
       setStep('results');
     } catch (err: any) {
@@ -2220,6 +2259,93 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
   const totalInwardStock = useMemo(() => {
     return eligibleRows.reduce((sum, r) => sum + (parseImportNumeric(r.openingStock) || 0), 0);
   }, [eligibleRows]);
+
+  // ── Confirm Step Linking & Restock Calculations ───────────────────────────
+  const totalInputRows = rawRows.length;
+  const newProductsCount = newRows.length;
+  const newVariantsCount = newVariantRows.length;
+  const existingRestocksCount = restockRows.length;
+  const existingMatchedCount = existingRestocksCount + newVariantsCount;
+  const totalInwardUnits = totalInwardStock;
+
+  // Restock details table items
+  const restockDetailsList = useMemo(() => {
+    return restockRows.map((r) => {
+      const normName = r.name.trim().toLowerCase();
+      const parent = existingParentByName.get(normName) || (r.matchedItem ? existingParentByName.get(r.matchedItem.name.trim().toLowerCase()) : null) || r.matchedItem;
+
+      const targetSize = (r.size || '').trim().toLowerCase();
+      const targetColour = (r.colour || '').trim().toLowerCase();
+      let matchedVar: any = null;
+
+      if (parent && 'variants' in parent && Array.isArray((parent as any).variants) && (parent as any).variants.length > 0) {
+        const vars = (parent as any).variants;
+        if (targetColour) {
+          matchedVar = vars.find(
+            (v: any) => (v.size || '').trim().toLowerCase() === targetSize && (v.colour || '').trim().toLowerCase() === targetColour
+          );
+        }
+        if (!matchedVar && targetSize) {
+          matchedVar = vars.find((v: any) => (v.size || '').trim().toLowerCase() === targetSize);
+        }
+        if (!matchedVar && (!targetSize || targetSize === 'free size')) {
+          if (vars.length === 1) matchedVar = vars[0];
+        }
+      }
+
+      let existingStock = 0;
+      if (matchedVar) {
+        const stMilli = matchedVar.stockMilli ?? matchedVar.stock_milli;
+        if (typeof stMilli === 'number') {
+          existingStock = Math.round((stMilli / 1000) * 100) / 100;
+        }
+      } else if (parent) {
+        const stMilli = (parent as any).currentStockMilli ?? (parent as any).current_stock_milli;
+        if (typeof stMilli === 'number') {
+          existingStock = Math.round((stMilli / 1000) * 100) / 100;
+        }
+      }
+
+      const incomingQty = parseImportNumeric(r.openingStock) ?? 0;
+      const finalStock = Math.round((existingStock + incomingQty) * 100) / 100;
+
+      const sizeDisplay = (r.size || matchedVar?.size || 'Free Size').trim();
+      const colourDisplay = (r.colour || matchedVar?.colour || '').trim();
+      const variantLabel = colourDisplay ? `${sizeDisplay} / ${colourDisplay}` : `${sizeDisplay} / No Colour`;
+
+      return {
+        rowId: r._id,
+        productName: r.name,
+        variant: variantLabel,
+        existingStock,
+        incomingQuantity: incomingQty,
+        finalStock,
+        importAction: 'Restock Existing Variant',
+      };
+    });
+  }, [restockRows, existingParentByName]);
+
+  // New products and variants lists for separate summary
+  const newProductsList = useMemo(() => {
+    return newRows.map((r) => ({
+      rowId: r._id,
+      productName: r.name,
+      variant: (r.size || 'Free Size').trim() + (r.colour ? ` / ${r.colour.trim()}` : ''),
+      category: r.category || 'General',
+      incomingQuantity: parseImportNumeric(r.openingStock) ?? 0,
+      price: r.sellingPrice ? `₹${r.sellingPrice}` : '—',
+    }));
+  }, [newRows]);
+
+  const newVariantsList = useMemo(() => {
+    return newVariantRows.map((r) => ({
+      rowId: r._id,
+      productName: r.name,
+      variant: (r.size || 'Free Size').trim() + (r.colour ? ` / ${r.colour.trim()}` : ''),
+      incomingQuantity: parseImportNumeric(r.openingStock) ?? 0,
+      price: r.sellingPrice ? `₹${r.sellingPrice}` : '—',
+    }));
+  }, [newVariantRows]);
 
   // ── RENDER ──────────────────────────────────────────────────────────────────
 
@@ -3354,6 +3480,41 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
                           </div>
                         </div>
                       )}
+                    </div>
+
+                    {/* ── Supplier Invoice Number for Reconciliation ── */}
+                    <div
+                      id="bulk-supplier-inv-container"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.45rem',
+                        background: '#f8fafc',
+                        padding: '0.22rem 0.55rem',
+                        borderRadius: '8px',
+                        border: supplierInvoiceNumber.trim() ? '1.5px solid #0284c7' : '1.5px solid #cbd5e1',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                        Supplier Inv #:
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="e.g. INV-2026-105"
+                        value={supplierInvoiceNumber}
+                        onChange={(e) => setSupplierInvoiceNumber(e.target.value.toUpperCase())}
+                        style={{
+                          width: '140px',
+                          border: 'none',
+                          background: 'transparent',
+                          fontSize: '0.8rem',
+                          fontWeight: 700,
+                          fontFamily: 'monospace',
+                          color: '#0f172a',
+                          outline: 'none',
+                        }}
+                        title="Enter supplier invoice number to automatically reconcile previously billed temporary products"
+                      />
                     </div>
 
                     {/* ── Global Reorder Level Control ── */}
@@ -4523,97 +4684,452 @@ export function BulkImportModal({ categories, existingItems = [], shopName, bran
               STEP 3: CONFIRM PREVIEW
              ══════════════════════════════════════════════════════════════════════ */}
             {step === 'confirm' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '820px', margin: '0 auto' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '980px', margin: '0 auto', width: '100%' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    <div
+                      style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '10px',
+                        background: 'var(--primary-soft, rgba(59, 30, 54, 0.1))',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <LayersIcon size={20} color="var(--primary)" />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--text-main)' }}>
+                        Confirm Import &amp; Restock Execution
+                      </div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        Review product linking, variant matching, and restock actions before updating inventory
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Supplier info badge */}
                   <div
                     style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '10px',
-                      background: 'var(--primary-soft, rgba(59, 30, 54, 0.1))',
-                      display: 'flex',
+                      display: 'inline-flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
+                      gap: '0.5rem',
+                      padding: '0.45rem 0.85rem',
+                      borderRadius: '8px',
+                      background: selectedSupplier ? '#fef3c7' : '#f1f5f9',
+                      border: `1px solid ${selectedSupplier ? '#fde68a' : '#e2e8f0'}`,
+                      fontSize: '0.82rem',
                     }}
                   >
-                    <LayersIcon size={18} color="var(--primary)" />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: '1.15rem', color: 'var(--text-main)' }}>
-                      Confirm Import &amp; Restock Execution
-                    </div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                      Review summary numbers before applying changes to your inventory
-                    </div>
+                    <TruckIcon size={15} color={selectedSupplier ? '#d97706' : '#64748b'} />
+                    <span style={{ fontWeight: 600, color: selectedSupplier ? '#b45309' : '#475569' }}>
+                      {selectedSupplier ? selectedSupplier.name : 'Direct Import (No Supplier)'}
+                    </span>
+                    {selectedSupplier && selectedSupplier.gstin && (
+                      <span style={{ fontSize: '0.74rem', color: '#92400e', background: '#fef9c3', padding: '1px 5px', borderRadius: '4px' }}>
+                        GST: {selectedSupplier.gstin}
+                      </span>
+                    )}
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem' }}>
+                {/* 1. Six Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '0.75rem' }}>
+                  {/* Total Input Rows */}
                   <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--primary-soft, #eef2ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
                       <LayersIcon size={16} color="var(--primary)" />
                     </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)' }}>{rawRows.length}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Total Input Rows</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)' }}>{totalInputRows}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Total Input Rows</div>
                   </div>
+
+                  {/* New Products to Create */}
                   <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--primary-soft, #e0e7ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
-                      <SparklesIcon size={16} color="var(--primary)" />
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: newProductsCount > 0 ? '#ede9fe' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
+                      <SparklesIcon size={16} color={newProductsCount > 0 ? '#5b21b6' : '#94a3b8'} />
                     </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)' }}>{newRows.length}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>New Products to Create</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: newProductsCount > 0 ? '#5b21b6' : '#64748b' }}>{newProductsCount}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>New Products to Create</div>
                   </div>
+
+                  {/* New Variants to Create */}
+                  <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: newVariantsCount > 0 ? '#e0f2fe' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
+                      <TagIcon size={15} color={newVariantsCount > 0 ? '#0284c7' : '#94a3b8'} />
+                    </div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: newVariantsCount > 0 ? '#0284c7' : '#64748b' }}>{newVariantsCount}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>New Variants to Create</div>
+                  </div>
+
+                  {/* Existing Products / Variants Matched */}
+                  <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
+                      <CheckCircleIcon size={16} color="#16a34a" />
+                    </div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#16a34a' }}>{existingMatchedCount}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Existing Products / Variants Matched</div>
+                  </div>
+
+                  {/* Existing Restocks */}
                   <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
                       <RefreshCwIcon size={16} color="#16a34a" />
                     </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#16a34a' }}>{restockRows.length}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Existing Restocks</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#16a34a' }}>{existingRestocksCount}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Existing Restocks</div>
                   </div>
+
+                  {/* Total Inward Units */}
                   <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
                       <PackageBoxIcon size={16} color="#0284c7" />
                     </div>
-                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0284c7' }}>{totalInwardStock}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Total Inward Units</div>
-                  </div>
-                  <div style={{ ...statCardStyle, background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: selectedSupplier ? '#fef3c7' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.4rem' }}>
-                      <TruckIcon size={16} color={selectedSupplier ? '#d97706' : '#64748b'} />
-                    </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: selectedSupplier ? '#b45309' : '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {selectedSupplier ? selectedSupplier.name : 'Supplier is not selected'}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      {selectedSupplier ? (selectedSupplier.gstin ? `GST: ${selectedSupplier.gstin}` : 'Linked Supplier') : 'Optional: Direct Import'}
-                    </div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0284c7' }}>{totalInwardUnits}</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Total Inward Units</div>
                   </div>
                 </div>
 
-                {/* Explanatory notes */}
+                {/* 2. Product Linking & Restock Information Section */}
+                <div
+                  style={{
+                    background: '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '12px',
+                    padding: '1.25rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <div
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '8px',
+                        background: '#dcfce7',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <CheckCircleIcon size={16} color="#16a34a" />
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '1rem', color: '#166534' }}>
+                      Product Linking &amp; Restock Information
+                    </div>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.86rem', color: '#15803d', lineHeight: 1.6 }}>
+                    Existing products and variants have been matched with your uploaded data. Their incoming quantities will be added to the linked existing variants. No duplicate products or variants will be created.
+                  </p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.25rem' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.3rem 0.65rem',
+                        borderRadius: '6px',
+                        background: '#dcfce7',
+                        border: '1px solid #86efac',
+                        color: '#166534',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <CheckIcon size={13} color="#16a34a" />
+                      Matched to Existing Product
+                    </span>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.3rem 0.65rem',
+                        borderRadius: '6px',
+                        background: '#dcfce7',
+                        border: '1px solid #86efac',
+                        color: '#166534',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <CheckIcon size={13} color="#16a34a" />
+                      Matched to Existing Variant
+                    </span>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.3rem 0.65rem',
+                        borderRadius: '6px',
+                        background: '#dcfce7',
+                        border: '1px solid #86efac',
+                        color: '#166534',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <RefreshCwIcon size={12} color="#16a34a" />
+                      Restock Quantity Will Be Added
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Restock Details Table */}
+                {restockDetailsList.length > 0 && (
+                  <div
+                    style={{
+                      background: '#ffffff',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '1.25rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.85rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <RefreshCwIcon size={16} color="#16a34a" />
+                        <span style={{ fontWeight: 700, fontSize: '0.98rem', color: 'var(--text-main)' }}>
+                          Restock Details ({restockDetailsList.length})
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        Incoming quantities will be added directly to existing variant stock
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--bg-subtle, #f8fafc)', borderBottom: '1px solid var(--border)', color: 'var(--text-main)' }}>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'left', fontWeight: 700 }}>Product Name</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'left', fontWeight: 700 }}>Variant</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: 700 }}>Existing Stock</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: 700 }}>Incoming Quantity</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: 700 }}>Final Stock</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'center', fontWeight: 700 }}>Import Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {restockDetailsList.map((item, idx) => (
+                            <tr
+                              key={item.rowId || idx}
+                              style={{
+                                borderBottom: idx < restockDetailsList.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                background: idx % 2 === 0 ? '#ffffff' : '#fafafa',
+                              }}
+                            >
+                              <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                {item.productName}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', color: 'var(--text-muted)' }}>
+                                <span style={{ padding: '0.15rem 0.45rem', borderRadius: '4px', background: '#f1f5f9', border: '1px solid #e2e8f0', fontSize: '0.78rem', fontWeight: 500 }}>
+                                  {item.variant}
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                {item.existingStock}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: '#16a34a', fontWeight: 700 }}>
+                                +{item.incomingQuantity}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', color: 'var(--primary)', fontWeight: 800 }}>
+                                {item.finalStock}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    padding: '0.2rem 0.55rem',
+                                    borderRadius: '9999px',
+                                    background: '#dcfce7',
+                                    border: '1px solid #86efac',
+                                    color: '#166534',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <CheckIcon size={12} color="#16a34a" />
+                                  {item.importAction}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. Show New Product and Variant Creation Separately */}
+                {(newRows.length > 0 || newVariantRows.length > 0) ? (
+                  <div
+                    style={{
+                      background: '#faf5ff',
+                      border: '1px solid #e9d5ff',
+                      borderRadius: '12px',
+                      padding: '1.25rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.85rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <SparklesIcon size={16} color="#7c3aed" />
+                        <span style={{ fontWeight: 700, fontSize: '0.98rem', color: '#581c87' }}>
+                          New Products / Variants to Create ({newRows.length + newVariantRows.length})
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#7e22ce' }}>
+                        Only genuinely new items will be registered in catalog
+                      </div>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#6b21a8', lineHeight: 1.5 }}>
+                      Only genuinely new parent products or variants will be created. Existing matched products and variants are strictly excluded from creation to prevent any duplicates.
+                    </p>
+
+                    <div style={{ overflowX: 'auto', border: '1px solid #e9d5ff', borderRadius: '8px', background: '#ffffff' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f5f3ff', borderBottom: '1px solid #e9d5ff', color: '#581c87' }}>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'left', fontWeight: 700 }}>Item Type</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'left', fontWeight: 700 }}>Product Name</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'left', fontWeight: 700 }}>Variant</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: 700 }}>Inward Quantity</th>
+                            <th style={{ padding: '0.65rem 0.85rem', textAlign: 'center', fontWeight: 700 }}>Import Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {newProductsList.map((item, idx) => (
+                            <tr key={`new-p-${item.rowId || idx}`} style={{ borderBottom: '1px solid #f3e8ff' }}>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <span style={{ display: 'inline-block', padding: '0.15rem 0.45rem', borderRadius: '4px', background: '#ede9fe', color: '#5b21b6', fontSize: '0.72rem', fontWeight: 700 }}>
+                                  New Parent Product
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                {item.productName}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', color: 'var(--text-muted)' }}>
+                                {item.variant}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: 700, color: '#4338ca' }}>
+                                +{item.incomingQuantity}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6d28d9' }}>
+                                  Register New Catalog Product
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {newVariantsList.map((item, idx) => (
+                            <tr key={`new-v-${item.rowId || idx}`} style={{ borderBottom: '1px solid #f3e8ff' }}>
+                              <td style={{ padding: '0.65rem 0.85rem' }}>
+                                <span style={{ display: 'inline-block', padding: '0.15rem 0.45rem', borderRadius: '4px', background: '#e0f2fe', color: '#0369a1', fontSize: '0.72rem', fontWeight: 700 }}>
+                                  New Variant
+                                </span>
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                {item.productName}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', color: 'var(--text-muted)' }}>
+                                {item.variant}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'right', fontWeight: 700, color: '#0284c7' }}>
+                                +{item.incomingQuantity}
+                              </td>
+                              <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#0284c7' }}>
+                                  Add Variant to Existing Parent
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '10px',
+                      padding: '0.85rem 1.15rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.65rem',
+                      fontSize: '0.84rem',
+                      color: '#475569',
+                    }}
+                  >
+                    <CheckCircleIcon size={16} color="#16a34a" />
+                    <span>
+                      <strong>No new parent products or variants to create.</strong> 100% of uploaded rows are matched to existing catalog records and will be restocked without creating duplicate items.
+                    </span>
+                  </div>
+                )}
+
+                {/* 5. Execution Details & Safeguards */}
                 <div style={{ background: '#f8f7ff', border: '1px solid var(--border)', borderRadius: '12px', padding: '1.25rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.65rem', color: 'var(--text-main)' }}>
                     <CheckCircleIcon size={16} color="var(--primary)" />
                     <span>Execution Details &amp; Safeguards</span>
                   </div>
                   <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                    {existingMatchedCount > 0 && (
+                      <li>
+                        <strong style={{ color: '#16a34a' }}>Existing products and variants matched successfully ({existingMatchedCount})</strong> will be linked to their existing database records.
+                      </li>
+                    )}
+                    {existingRestocksCount > 0 && (
+                      <li>
+                        <strong style={{ color: '#16a34a' }}>Incoming quantities</strong> will be added to the correct matched variants.
+                      </li>
+                    )}
                     <li>
-                      {selectedSupplier ? (
-                        <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and inward stock movements will be linked to supplier <strong style={{ color: '#b45309' }}>{selectedSupplier.name}</strong>.</>
+                      Existing product names, IDs, and barcodes will be preserved.
+                    </li>
+                    <li>
+                      No duplicate parent products or variants will be created for matched records.
+                    </li>
+                    <li>
+                      {newProductsCount > 0 || newVariantsCount > 0 ? (
+                        <>New products (<strong style={{ color: '#4338ca' }}>{newProductsCount}</strong>) and variants (<strong style={{ color: '#7c3aed' }}>{newVariantsCount}</strong>) will be created only when no valid match exists.</>
                       ) : (
-                        <>All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and opening stock movements will be imported (<strong style={{ color: '#475569' }}>Supplier is not selected</strong>).</>
+                        <>New products and variants will be created only when no valid match exists (0 new records to create in this batch).</>
                       )}
                     </li>
                     <li>
-                      <strong style={{ color: '#16a34a' }}>{restockRows.length} existing products</strong> will have incoming quantities added to current available inventory without duplicating products or modifying their existing barcodes.
+                      Stock movements and purchase records will be recorded using the existing inventory logic.
                     </li>
                     <li>
-                      <strong style={{ color: '#4338ca' }}>{newRows.length} new products</strong> will be registered with auto-generated unique SKUs and internal EAN barcodes.
+                      Repeated imports will remain protected against duplicate stock additions through the existing idempotency mechanism.
                     </li>
-                    <li>
-                      Branch inventory reorder levels will be saved for all imported products.
-                    </li>
+                    {selectedSupplier ? (
+                      <li>
+                        All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and inward stock movements will be linked to supplier <strong style={{ color: '#b45309' }}>{selectedSupplier.name}</strong>.
+                      </li>
+                    ) : (
+                      <li>
+                        All <strong style={{ color: 'var(--primary)' }}>{eligibleRows.length} imported product rows</strong> and opening stock movements will be imported (<strong style={{ color: '#475569' }}>Supplier is not selected</strong>).
+                      </li>
+                    )}
                     {globalUpdatePrices && (
                       <li>
                         Catalog prices and HSN codes for restocked items will be updated to the latest supplier invoice rates.
