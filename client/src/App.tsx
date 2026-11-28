@@ -58,6 +58,7 @@ import {
   triggerBlobDownload,
 } from './api';
 import { BranchProvider } from './contexts/BranchContext';
+import { CartQtyInput } from './components/CartQtyInput';
 import { moneyInWords } from '../../shared/money.ts';
 import { qrSvg } from '../../shared/qr.ts';
 import {
@@ -4561,6 +4562,21 @@ export function App() {
       if (!target) return prev;
       if (val <= 0) {
         return prev.filter((_, idx) => idx !== cartIdx);
+      }
+      if (target.isReturn && val > target.qty) {
+        showToast('Return item quantity cannot be increased beyond original returned amount.', 'warning');
+        return prev;
+      }
+      if (!target.isReturn && !target.isTemporary && val > target.qty) {
+        const avail = target.variant?.stockMilli != null
+          ? target.variant.stockMilli / 1000
+          : getAvailableStockUnits(target.item.id, target.item);
+        if (val > avail) {
+          playAlertTone();
+          showToast(`Insufficient stock. Only ${avail} unit${avail === 1 ? '' : 's'} available.`, 'warning');
+          const clamped = Math.max(target.qty, Math.floor(avail));
+          return prev.map((c, idx) => (idx === cartIdx ? { ...c, qty: clamped } : c));
+        }
       }
       return prev.map((c, idx) => (idx === cartIdx ? { ...c, qty: val } : c));
     });
@@ -11897,7 +11913,11 @@ export function App() {
                                           >
                                             -
                                           </button>
-                                          <span className="bento-qty-value mono">{qty}</span>
+                                          <CartQtyInput
+                                            qty={qty}
+                                            onCommitQty={(newQty) => handleDirectCartQtyChange(cartIdx, newQty)}
+                                            onStep={(delta) => updateCartQtyByIndex(cartIdx, delta)}
+                                          />
                                           <button
                                             type="button"
                                             className={`bento-qty-btn ${isMaxStock ? 'disabled' : ''}`}
