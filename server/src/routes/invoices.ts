@@ -1366,6 +1366,14 @@ export function registerInvoices(r: Router) {
     const inv = await ctx.db.one('SELECT * FROM invoices WHERE share_token = ?', [ctx.params.token]);
     if (!inv) throw notFound('Bill not found or link has expired.');
 
+    if (ctx.query.format === 'pdf' || ctx.query.download === 'pdf') {
+      const { printable, isWholesale } = await loadPrintableInvoice(ctx.db, inv.id, ctx.query.paper);
+      const pdfBuffer = await generateInvoicePdf(printable);
+      const safeNumber = (printable.number || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = isWholesale ? `Wholesale_Invoice_${safeNumber}.pdf` : `Bill_${safeNumber}.pdf`;
+      return new FileResponse(pdfBuffer, 'application/pdf', filename);
+    }
+
     const shop = await ctx.db.one('SELECT * FROM tenants WHERE id = ?', [inv.tenantId ?? inv.tenant_id]);
     if (!shop) throw notFound('Shop');
 
@@ -1534,7 +1542,23 @@ export function registerInvoices(r: Router) {
     }
 
     const paper = isWholesale ? 'wholesale_a4' : ((retailProfile?.paper === 'thermal58') ? 'thermal58' : 'thermal80');
-    const html = renderBillDoc(printable, { ...DEFAULT_CONFIG.template, paper }, { qrSvg: qrSvgMarkup, qrCaption: 'Scan UPI to pay balance', autoPrint: false });
+    let html = renderBillDoc(printable, { ...DEFAULT_CONFIG.template, paper }, { qrSvg: qrSvgMarkup, qrCaption: 'Scan UPI to pay balance', autoPrint: false });
+    const safeInvNum = String(inv.number || 'INV').replace(/[&<>"']/g, '');
+    const downloadBanner = `
+<div class="public-bill-header" style="position:sticky;top:0;background:#0f172a;color:#ffffff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,0.18);z-index:9999;font-family:system-ui,-apple-system,sans-serif;">
+  <div style="font-weight:700;font-size:14px;letter-spacing:0.3px;">Bill #${safeInvNum}</div>
+  <div style="display:flex;gap:8px;">
+    <a href="?download=pdf" style="background:#2563eb;color:#ffffff;padding:6px 14px;border-radius:6px;text-decoration:none;font-weight:600;font-size:13px;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 3px rgba(37,99,235,0.4);">
+      <span>📥 Download PDF</span>
+    </a>
+    <button onclick="window.print()" style="background:#334155;color:#ffffff;padding:6px 12px;border-radius:6px;border:none;font-weight:600;font-size:13px;cursor:pointer;">
+      <span>🖨️ Print</span>
+    </button>
+  </div>
+</div>
+<style>@media print { .public-bill-header { display: none !important; } }</style>
+`;
+    html = html.replace('<body>', '<body>' + downloadBanner);
     return new HtmlResponse(html);
   });
 }
