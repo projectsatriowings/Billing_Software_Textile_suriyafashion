@@ -637,12 +637,8 @@ export const buildWhatsAppMessage = (opts: {
   lang: 'en' | 'hi' | 'ta';
   includeLink?: boolean;
 }): string => {
-  const isLocal = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-  const baseOrigin = isLocal ? 'https://billing.atriowings.in' : window.location.origin;
-
   const url = opts.includeLink && opts.shareToken
-    ? `${baseOrigin}/b/${opts.shareToken}.pdf`
+    ? `${window.location.origin}/b/${opts.shareToken}.pdf`
     : '';
 
   let msg = billMessage({
