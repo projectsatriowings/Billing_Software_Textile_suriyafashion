@@ -45,7 +45,6 @@ import { registerModuleManagement } from './routes/moduleManagement.ts';
 import { registerDeveloper } from './routes/developer.ts';
 import { registerVariants } from './routes/variants.ts';
 import { registerTailoring } from './routes/tailoring.ts';
-import { registerTextileReports } from './routes/textileReports.ts';
 import { registerDamagedStock } from './routes/damagedStock.ts';
 import { registerTemporarySales } from './routes/temporarySales.ts';
 
@@ -93,7 +92,6 @@ export function buildRouter(tokens: { secret: string; ttlSeconds: number }): Rou
   registerWholesaleCustomers(r);
   registerVariants(r);
   registerTailoring(r);
-  registerTextileReports(r);
   registerDamagedStock(r);
   registerTemporarySales(r);
   registerDeveloper(r, tokens);

@@ -3848,15 +3848,6 @@ export const updateJobWork = (id: string, data: Partial<JobWork>) =>
     body: JSON.stringify(data),
   });
 
-export const getVariantSalesStockReport = () =>
-  api<{ report: any[] }>(`/api/reports/variants/sales-stock`);
-
-export const getDeadStockReport = (days = 30) =>
-  api<{ report: any[] }>(`/api/reports/variants/dead-stock?days=${days}`);
-
-export const getPendingTailoringReport = () =>
-  api<{ report: any[] }>(`/api/reports/tailoring/pending`);
-
 // ==========================================
 // DAMAGED & DEFECTIVE STOCK & SUPPLIER RETURNS
 // ==========================================

@@ -225,7 +225,6 @@ import { ResponsiveNavbar } from './components/navigation/ResponsiveNavbar';
 import { VariantPickerModal } from './components/pos/VariantPickerModal.tsx';
 import { TemporaryProductModal } from './components/pos/TemporaryProductModal.tsx';
 import { SizeRatioInwardModal } from './components/purchases/SizeRatioInwardModal.tsx';
-import { TextileReportsView } from './components/reports/TextileReportsView.tsx';
 import { getItemVariants, saveItemVariants, type ProductVariant, type ClosedBusinessDate } from './api.ts';
 import { LateSaleModal } from './components/pos/LateSaleModal.tsx';
 import { LateSaleConfirmModal } from './components/pos/LateSaleConfirmModal.tsx';
@@ -407,7 +406,6 @@ export const TAB_PAGE_TITLES: Record<string, string> = {
     'gst-filing-history': 'GST Filing History',
     'day-closing': 'Day Closing & Register Reconciliation',
     'return-reports': 'Returns, Exchanges & Profit Reports',
-    'textile-reports': 'Textile & Variant Reports',
     'notifications': 'Notifications & Shift Activity',
 };
 
@@ -761,7 +759,6 @@ export function App() {
         | 'user-management'
         | 'day-closing'
         | 'return-reports'
-        | 'textile-reports'
         | 'notifications'
     >(() => {
         try {
@@ -778,7 +775,7 @@ export function App() {
                 }
                 return 'pos';
             }
-            if (savedTab) {
+            if (savedTab && savedTab !== 'textile-reports') {
                 return savedTab as any;
             }
         } catch { }
@@ -9766,17 +9763,6 @@ export function App() {
                                                     <span className="nav-text">Returns &amp; Profit Report</span>
                                                 </button>
                                             )}
-
-                                            <button
-                                                type="button"
-                                                className={`sidebar-nav-item ${activeTab === 'textile-reports' ? 'active' : ''}`}
-                                                onClick={() => setActiveTab('textile-reports')}
-                                            >
-                                                <span className="nav-icon">
-                                                    <Layers size={16} strokeWidth={2.2} />
-                                                </span>
-                                                <span className="nav-text">Textile &amp; Variant Reports</span>
-                                            </button>
                                         </div>
                                     )}
                                 </>
@@ -16276,13 +16262,6 @@ export function App() {
                                     selectedBranch={selectedBranchScope}
                                     branches={branches}
                                 />
-                            </div>
-                        )}
-
-                        {/* TAB: TEXTILE & VARIANT REPORTS */}
-                        {(activeTab === 'textile-reports' || displayTab === 'textile-reports') && (
-                            <div className="tab-content-wrapper" key={`textile-reports-${selectedBranchScope}`}>
-                                <TextileReportsView />
                             </div>
                         )}
 
